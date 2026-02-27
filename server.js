@@ -28,4 +28,15 @@ app.post("/api/temperature", async (req, res) => {
   return res.status(200).json({ message: "OK" });
 });
 
+app.get("/api/latest", async (req, res) => {
+  const { data, error } = await supabase
+    .from("readings")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data);
+});
+
 app.listen(PORT, "0.0.0.0", () => console.log("Servidor ativo na porta " + PORT));
