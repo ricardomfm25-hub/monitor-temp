@@ -1,0 +1,18 @@
+name: Weekly report
+
+on:
+  schedule:
+    # Segunda-feira às 10:00 (UTC)
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+
+jobs:
+  call-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call weekly report endpoint
+        run: |
+          curl -sS -X POST "https://monitor-temp.onrender.com/api/weekly-report" \
+            -H "Authorization: ${{ secrets.API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{}"
