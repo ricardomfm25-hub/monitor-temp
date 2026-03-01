@@ -124,4 +124,70 @@ app.post("/api/temperature", async (req, res) => {
   return res.status(200).json({ message: "OK" });
 });
 
+app.post("/api/weekly-report", async (req, res) => {
+  const token = req.headers["authorization"];
+  if (!API_TOKEN || token !== API_TOKEN) return res.status(401).json({ error: "Não autorizado" });
+
+  // últimos 7 dias
+  const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("readings")
+    .select("device_id,temperature,humidity,created_at")
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data || data.length === 0) return res.status(200).json({ message: "Sem dados" });
+
+  // agrega por dia (YYYY-MM-DD) e por device
+  const byDeviceDay = {};
+  for (const r of data) {
+    const day = String(r.created_at).slice(0, 10);
+    const key = `${r.device_id}__${day}`;
+    if (!byDeviceDay[key]) {
+      byDeviceDay[key] = {
+        device_id: r.device_id,
+        day,
+        tmin: r.temperature,
+        tmax: r.temperature,
+      };
+    } else {
+      byDeviceDay[key].tmin = Math.min(byDeviceDay[key].tmin, r.temperature);
+      byDeviceDay[key].tmax = Math.max(byDeviceDay[key].tmax, r.temperature);
+    }
+  }
+
+  const rows = Object.values(byDeviceDay)
+    .sort((a, b) => (a.device_id + a.day).localeCompare(b.device_id + b.day));
+
+  // email “clean”
+  const lines = [
+    `Resumo semanal (últimos 7 dias)`,
+    `Gerado: ${new Date().toISOString()}`,
+    ``,
+    `device_id | dia | min | max`,
+    `--------------------------------`,
+    ...rows.map(r => `${r.device_id} | ${r.day} | ${r.tmin.toFixed(1)} | ${r.tmax.toFixed(1)}`),
+    ``,
+  ];
+
+  try {
+    await axios.post(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        sender: { email: ALERT_FROM_EMAIL },
+        to: [{ email: ALERT_TO_EMAIL }],
+        subject: "Resumo semanal de temperatura",
+        textContent: lines.join("\n"),
+      },
+      { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" }, timeout: 10000 }
+    );
+  } catch (e) {
+    return res.status(500).json({ error: "Falha ao enviar email", details: e?.message || e });
+  }
+
+  return res.status(200).json({ message: "Resumo enviado", rows: rows.length });
+});
+
 app.listen(PORT, "0.0.0.0", () => console.log("Servidor ativo na porta " + PORT));
