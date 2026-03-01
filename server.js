@@ -80,7 +80,12 @@ async function sendWeeklyReport() {
   const devices = {};
 
   for (const r of data) {
-    const day = r.created_at.slice(0, 10);
+    const rawDate = new Date(r.created_at);
+const day = rawDate.toLocaleDateString("pt-PT", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "2-digit"
+});
 
     if (!devices[r.device_id]) devices[r.device_id] = {};
     if (!devices[r.device_id][day]) {
@@ -97,7 +102,7 @@ async function sendWeeklyReport() {
   let html = `<h2>📊 Resumo Semanal - SmartThermoSecure</h2>`;
 
   for (const device in devices) {
-    html += `<h3>Dispositivo: ${device}</h3>`;
+    html += `<h3>Dispositivo: SmartThermoSecure_01</h3>`;
     html += `
       <table style="border-collapse:collapse;width:100%;max-width:600px">
         <tr>
