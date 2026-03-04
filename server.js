@@ -158,8 +158,32 @@ app.post("/api/temperature", async (req, res) => {
 
   const { device_id, temperature, humidity } = req.body;
 
+  // Guardar leitura
   await supabase.from("readings").insert([{ device_id, temperature, humidity }]);
 
+  // Atualizar estado do dispositivo
+  const nowIso = new Date().toISOString();
+  const status = Number(temperature) > TEMP_LIMIT ? "ALARM" : "NORMAL";
+
+  const { error } = await supabase
+    .from("devices")
+    .upsert(
+      [{
+        device_id,
+        last_seen: nowIso,
+        last_temperature: temperature,
+        last_humidity: humidity,
+        status,
+        updated_at: nowIso
+      }],
+      { onConflict: "device_id" }
+    );
+
+  if (error) {
+    console.error("Erro ao atualizar device:", error);
+  }
+
+  // Lógica de alertas (mantém igual)
   if (Number(temperature) > TEMP_LIMIT) {
     if (await canSendAlert(device_id)) {
       await sendAlertEmail({ device_id, temperature, humidity });
@@ -169,5 +193,3 @@ app.post("/api/temperature", async (req, res) => {
 
   res.json({ message: "OK" });
 });
-
-app.listen(PORT, "0.0.0.0", () => console.log("Servidor ativo na porta " + PORT));
