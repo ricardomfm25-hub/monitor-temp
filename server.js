@@ -192,4 +192,7 @@ app.post("/api/temperature", async (req, res) => {
   }
 
   res.json({ message: "OK" });
+<<<<<<< HEAD
 });
+});
+>>>>>>> 9120a4a (update devices status endpoint)
