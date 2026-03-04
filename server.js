@@ -192,7 +192,6 @@ app.post("/api/temperature", async (req, res) => {
   }
 
   res.json({ message: "OK" });
-HEAD
 });
-});
-9120a4a (update devices status endpoint)
+
+app.listen(PORT, "0.0.0.0", () => console.log("Servidor ativo na porta " + PORT));
