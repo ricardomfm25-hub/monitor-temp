@@ -528,6 +528,25 @@ app.post("/api/device/:id/config", async (req, res) => {
   res.json({ message: "Configuração atualizada com sucesso" });
 });
 
+// -------------------- OBTER CONFIG DISPOSITIVO --------------------
+app.get("/api/device/:id/config", async (req, res) => {
+  const token = req.headers["authorization"];
+  if (token !== API_TOKEN) return res.status(401).json({ error: "Não autorizado" });
+
+  const deviceId = req.params.id;
+
+  const { data, error } = await supabase
+    .from("devices")
+    .select("config")
+    .eq("device_id", deviceId)
+    .single();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json(data.config || {});
+});
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Servidor ativo na porta " + PORT);
