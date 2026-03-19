@@ -500,6 +500,35 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
   }
 });
 
+
+// -------------------- ATUALIZAR CONFIG DISPOSITIVO --------------------
+app.post("/api/device/:id/config", async (req, res) => {
+  const token = req.headers["authorization"];
+  if (token !== API_TOKEN) return res.status(401).json({ error: "Não autorizado" });
+
+  const deviceId = req.params.id;
+  const { min_temp, max_temp, min_humidity, max_humidity } = req.body;
+
+  const config = {
+    min_temp,
+    max_temp,
+    min_humidity,
+    max_humidity,
+  };
+
+  const { error } = await supabase
+    .from("devices")
+    .update({ config })
+    .eq("device_id", deviceId);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ message: "Configuração atualizada com sucesso" });
+});
+
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Servidor ativo na porta " + PORT);
 });
