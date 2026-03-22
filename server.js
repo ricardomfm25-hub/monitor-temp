@@ -42,10 +42,13 @@ function getDeviceConfig(deviceRow) {
   const cfg = deviceRow?.config || {};
 
   return {
-    min_temp: Number(cfg.min_temp ?? 18),
-    max_temp: Number(cfg.max_temp ?? TEMP_LIMIT),
-    min_humidity: Number(cfg.min_humidity ?? 30),
-    max_humidity: Number(cfg.max_humidity ?? 60),
+    temp_low_c: Number(cfg.temp_low_c ?? 18),
+    temp_high_c: Number(cfg.temp_high_c ?? TEMP_LIMIT),
+    hum_low: Number(cfg.hum_low ?? 30),
+    hum_high: Number(cfg.hum_high ?? 60),
+    hyst_c: Number(cfg.hyst_c ?? 0.5),
+    send_interval_s: Number(cfg.send_interval_s ?? 30),
+    display_standby_min: Number(cfg.display_standby_min ?? 10),
   };
 }
 

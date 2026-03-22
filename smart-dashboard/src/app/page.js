@@ -1,493 +1,667 @@
+'use client'
 
-"use client";
-
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Bell,
-  Thermometer,
-  Droplets,
-  ShieldAlert,
-  Wifi,
-  WifiOff,
-  Activity,
-  Clock3,
-  MapPin,
-  Server,
-  CheckCircle2,
-  TriangleAlert,
-  RefreshCw,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from 'react'
+import { supabase } from '../lib/supabase'
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
   LineChart,
   Line,
-} from "recharts";
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from 'recharts'
 
-const DEVICE_ID = "SmartThermoSecure_01";
-const API_BASE = "https://monitor-temp.onrender.com";
-const API_TOKEN = "0AnbKTm9WAf4KFsvU6qmKHHwYNa8ZY1y";
+function getSmartStatus(device) {
+  if (!device?.last_seen) return 'OFFLINE'
 
-const demoOverview = {
-  device_id: DEVICE_ID,
-  client: "Cliente principal",
-  location: "Sala monitorizada",
-  zone: "Portugal",
-  temperature: 22.4,
-  humidity: 46,
-  min_temp: 18,
-  max_temp: 27,
-  min_humidity: 30,
-  max_humidity: 60,
-  status: "normal",
-  online: true,
-  last_seen_seconds: 24,
-  alerts_24h: 0,
-  total_readings_24h: 2880,
-  backend_status: "connected",
-};
+  const lastSeen = new Date(device.last_seen)
+  const now = new Date()
+  const diffMinutes = (now - lastSeen) / 1000 / 60
 
-const demoHistory = [
-  { time: "09:00", temperature: 21.8, humidity: 45 },
-  { time: "10:00", temperature: 22.0, humidity: 46 },
-  { time: "11:00", temperature: 22.3, humidity: 45 },
-  { time: "12:00", temperature: 22.7, humidity: 46 },
-  { time: "13:00", temperature: 22.5, humidity: 46 },
-  { time: "14:00", temperature: 22.9, humidity: 47 },
-  { time: "15:00", temperature: 22.6, humidity: 46 },
-  { time: "16:00", temperature: 22.4, humidity: 46 },
-];
+  if (diffMinutes > 5) return 'OFFLINE'
 
-const demoAlerts = [
-  {
-    id: 1,
-    level: "normal",
-    title: "Sistema estável",
-    message: "Sem alertas críticos nas últimas 24 horas.",
-    created_at: "há 12 min",
-  },
-  {
-    id: 2,
-    level: "normal",
-    title: "Dispositivo online",
-    message: "Última comunicação recebida com sucesso.",
-    created_at: "há 24 s",
-  },
-];
+  const status = device.status?.toUpperCase()
 
-function badgeClasses(status) {
-  if (status === "critical") return "border-red-200 bg-red-50 text-red-700";
-  if (status === "alert") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "offline") return "border-slate-300 bg-slate-100 text-slate-600";
-  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === 'ALERT') return 'ALERT'
+  if (status === 'NORMAL') return 'OK'
+  if (status === 'OK') return 'OK'
+
+  return 'OK'
 }
 
-function dotClasses(status) {
-  if (status === "critical") return "bg-red-500";
-  if (status === "alert") return "bg-amber-500";
-  if (status === "offline") return "bg-slate-400";
-  return "bg-emerald-500";
+function getStatusClasses(status) {
+  if (status === 'ALERT') return 'bg-red-500/20 text-red-300'
+  if (status === 'OFFLINE') return 'bg-yellow-500/20 text-yellow-300'
+  return 'bg-green-500/20 text-green-300'
 }
 
-function statusLabel(status) {
-  if (status === "critical") return "Crítico";
-  if (status === "alert") return "Alerta";
-  if (status === "offline") return "Offline";
-  return "Normal";
+function formatLastSeenRelative(dateString) {
+  if (!dateString) return '-'
+
+  const lastSeen = new Date(dateString)
+  const now = new Date()
+  const diffSeconds = Math.floor((now - lastSeen) / 1000)
+
+  if (diffSeconds < 60) return 'agora mesmo'
+
+  const diffMinutes = Math.floor(diffSeconds / 60)
+  if (diffMinutes < 60) return `há ${diffMinutes} min`
+
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `há ${diffHours} h`
+
+  const diffDays = Math.floor(diffHours / 24)
+  return `há ${diffDays} dias`
 }
 
-function relativeLastSeen(seconds) {
-  if (seconds < 60) return `há ${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `há ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  return `há ${hours} h`;
+function formatDate(dateString) {
+  if (!dateString) return '-'
+  return new Date(dateString).toLocaleString('pt-PT')
 }
 
-function StatCard({ title, value, subtitle, icon: Icon, iconStyle }) {
-  return (
-    <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-slate-500">{title}</p>
-          <p className="mt-3 text-3xl font-bold tracking-tight text-slate-900">{value}</p>
-          <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
-        </div>
-        <div className={`rounded-2xl p-3 ${iconStyle}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
-  );
+function formatChartTime(dateString) {
+  if (!dateString) return ''
+  return new Date(dateString).toLocaleTimeString('pt-PT', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
-async function fetchJson(path) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      Authorization: API_TOKEN,
-    },
-  });
+export default function Home() {
+  const [devices, setDevices] = useState([])
+  const [readings, setReadings] = useState([])
+  const [alerts, setAlerts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
+  const [selectedDeviceId, setSelectedDeviceId] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
 
-  if (!response.ok) {
-    throw new Error(`Erro HTTP ${response.status}`);
+  const [form, setForm] = useState({
+    name: '',
+    location: '',
+    min_temp: '',
+    max_temp: '',
+    min_humidity: '',
+    max_humidity: '',
+    hyst_c: '',
+  })
+
+  function fillFormFromDevice(device) {
+    const config = device?.config || {}
+
+    setForm({
+      name: device?.name || '',
+      location: device?.location || '',
+  min_temp: config?.temp_low_c ?? '',
+  max_temp: config?.temp_high_c ?? '',
+  min_humidity: config?.hum_low ?? '',
+  max_humidity: config?.hum_high ?? '',
+      hyst_c: config?.hyst_c ?? '',
+    })
   }
 
-  return response.json();
-}
-
-export default function Page() {
-  const [overview, setOverview] = useState(demoOverview);
-  const [history, setHistory] = useState(demoHistory);
-  const [alerts, setAlerts] = useState(demoAlerts);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [lastRefresh, setLastRefresh] = useState(new Date());
-  const [usingDemo, setUsingDemo] = useState(true);
-
-  const refreshData = async () => {
+  async function loadData() {
     try {
-      setError("");
+      const { data: devicesData, error: devicesError } = await supabase
+        .from('devices')
+        .select('*')
+        .order('updated_at', { ascending: false })
 
-      const [overviewData, historyData, alertsData] = await Promise.all([
-        fetchJson(`/api/dashboard/device/${DEVICE_ID}`),
-        fetchJson(`/api/dashboard/device/${DEVICE_ID}/history`),
-        fetchJson(`/api/dashboard/device/${DEVICE_ID}/alerts`),
-      ]);
+      if (devicesError) throw devicesError
 
-      setOverview({ ...demoOverview, ...overviewData });
-      setHistory(Array.isArray(historyData) && historyData.length ? historyData : demoHistory);
-      setAlerts(Array.isArray(alertsData) && alertsData.length ? alertsData : demoAlerts);
-      setUsingDemo(false);
-      setLastRefresh(new Date());
-    } catch (err) {
-      setUsingDemo(true);
-      setError("A mostrar dados demo. Falta confirmar token ou endpoints reais.");
-      setOverview(demoOverview);
-      setHistory(demoHistory);
-      setAlerts(demoAlerts);
-      setLastRefresh(new Date());
+      const { data: readingsData, error: readingsError } = await supabase
+        .from('readings')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      if (readingsError) throw readingsError
+
+      const { data: alertsData, error: alertsError } = await supabase
+        .from('alerts')
+        .select('*')
+        .order('sent_at', { ascending: false })
+        .limit(10)
+
+      if (alertsError) throw alertsError
+
+      const finalDevices = devicesData || []
+      const finalReadings = readingsData || []
+      const finalAlerts = alertsData || []
+
+      setDevices(finalDevices)
+      setReadings(finalReadings)
+      setAlerts(finalAlerts)
+
+      if (finalDevices.length) {
+        setSelectedDeviceId((prev) => prev || finalDevices[0].device_id)
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   useEffect(() => {
-    refreshData();
-    const interval = setInterval(refreshData, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    loadData()
 
-  const temperatureState = useMemo(() => {
-    if (overview.temperature > overview.max_temp || overview.temperature < overview.min_temp) {
-      return "Fora do intervalo";
-    }
-    return "Dentro do intervalo";
-  }, [overview]);
+    const interval = setInterval(() => {
+      loadData()
+    }, 10000)
 
-  const humidityState = useMemo(() => {
-    if (overview.humidity > overview.max_humidity || overview.humidity < overview.min_humidity) {
-      return "Fora do intervalo";
+    return () => clearInterval(interval)
+  }, [])
+
+  const selectedDevice =
+    devices.find((device) => device.device_id === selectedDeviceId) || devices[0] || null
+
+  useEffect(() => {
+    if (selectedDevice && !isEditing) {
+      fillFormFromDevice(selectedDevice)
     }
-    return "Dentro do intervalo";
-  }, [overview]);
+  }, [selectedDeviceId, selectedDevice, isEditing])
+
+  const filteredReadings = useMemo(() => {
+    if (!selectedDeviceId) return readings
+
+    return readings
+      .filter((reading) => reading.device_id === selectedDeviceId)
+      .slice()
+      .reverse()
+  }, [readings, selectedDeviceId])
+
+  const filteredAlerts = useMemo(() => {
+    if (!selectedDeviceId) return alerts
+    return alerts.filter((alert) => alert.device_id === selectedDeviceId)
+  }, [alerts, selectedDeviceId])
+
+  const chartData = useMemo(() => {
+    return filteredReadings.map((reading) => ({
+      time: formatChartTime(reading.created_at),
+      temperatura: Number(reading.temperature),
+      humidade: Number(reading.humidity),
+      created_at: reading.created_at,
+    }))
+  }, [filteredReadings])
+
+  function handleInputChange(event) {
+    const { name, value } = event.target
+
+    setIsEditing(true)
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  function handleDeviceChange(event) {
+    const nextId = event.target.value
+    setSelectedDeviceId(nextId)
+    setSaveMessage('')
+    setIsEditing(false)
+  }
+
+  function handleCancelEdit() {
+    if (selectedDevice) {
+      fillFormFromDevice(selectedDevice)
+    }
+    setSaveMessage('')
+    setIsEditing(false)
+  }
+
+  async function handleSaveConfig() {
+  if (!selectedDevice) return
+
+  setSaving(true)
+  setSaveMessage('')
+
+  try {
+    const currentConfig = selectedDevice.config || {}
+    const nextVersion = (selectedDevice.config_version || 0) + 1
+
+    const updatedConfig = {
+      ...currentConfig,
+      temp_high_c: form.max_temp === '' ? currentConfig.temp_high_c : Number(form.max_temp),
+      temp_low_c: form.min_temp === '' ? currentConfig.temp_low_c : Number(form.min_temp),
+      hum_high: form.max_humidity === '' ? currentConfig.hum_high : Number(form.max_humidity),
+      hum_low: form.min_humidity === '' ? currentConfig.hum_low : Number(form.min_humidity),
+      hyst_c: form.hyst_c === '' ? currentConfig.hyst_c : Number(form.hyst_c),
+    }
+
+    console.log('selectedDevice.device_id:', selectedDevice.device_id)
+    console.log('updatedConfig:', updatedConfig)
+
+    const { data, error } = await supabase
+      .from('devices')
+      .update({
+        name: form.name,
+        location: form.location,
+        config: updatedConfig,
+        config_version: nextVersion,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('device_id', selectedDevice.device_id)
+      .select()
+
+    console.log('save data:', data)
+    console.log('save error:', error)
+
+    if (error) throw error
+
+    setSaveMessage('Configuração guardada com sucesso.')
+    setIsEditing(false)
+    await loadData()
+  } catch (error) {
+    console.error('Erro ao guardar configuração:', error.message)
+    setSaveMessage(`Erro ao guardar configuração: ${error.message}`)
+  } finally {
+    setSaving(false)
+  }
+}
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-slate-950 p-8 text-white">
+        <h1 className="text-3xl font-bold">SmartThermoSecure Dashboard</h1>
+        <p className="mt-4 text-slate-300">A carregar dados...</p>
+      </main>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto max-w-7xl p-6">
-        <header className="mb-6 rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
-                SmartThermoSecure
-              </p>
-              <h1 className="mt-1 text-3xl font-bold tracking-tight">
-                Dashboard profissional · {DEVICE_ID}
-              </h1>
-              <p className="mt-2 text-sm text-slate-500">
-                Monitorização dedicada do dispositivo principal para demonstração comercial.
-              </p>
-            </div>
+    <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8">
+          <h1 className="mb-2 text-3xl font-bold">SmartThermoSecure Dashboard</h1>
+          <p className="text-slate-400">Monitorização em tempo quase real</p>
+        </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <div className={`h-2.5 w-2.5 rounded-full ${dotClasses(overview.status)}`} />
-                <span className="text-sm font-medium text-slate-700">
-                  {statusLabel(overview.status)}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                {overview.online ? (
-                  <Wifi className="h-4 w-4 text-emerald-600" />
-                ) : (
-                  <WifiOff className="h-4 w-4 text-slate-500" />
-                )}
-                <span className="text-sm font-medium text-slate-700">
-                  {overview.online ? "Online" : "Offline"}
-                </span>
-              </div>
-
-              <button
-                onClick={refreshData}
-                className="inline-flex items-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Atualizar
-              </button>
-            </div>
-          </div>
-        </header>
-
-        {error ? (
-          <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
-            {error}
-          </div>
-        ) : null}
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <StatCard
-            title="Temperatura atual"
-            value={`${overview.temperature?.toFixed?.(1) ?? overview.temperature}°C`}
-            subtitle={temperatureState}
-            icon={Thermometer}
-            iconStyle="bg-sky-50 text-sky-700"
-          />
-          <StatCard
-            title="Humidade atual"
-            value={`${overview.humidity}%`}
-            subtitle={humidityState}
-            icon={Droplets}
-            iconStyle="bg-cyan-50 text-cyan-700"
-          />
-          <StatCard
-            title="Alertas 24h"
-            value={overview.alerts_24h}
-            subtitle="Eventos recentes do dispositivo"
-            icon={Bell}
-            iconStyle="bg-amber-50 text-amber-700"
-          />
-          <StatCard
-            title="Última leitura"
-            value={relativeLastSeen(overview.last_seen_seconds || 0)}
-            subtitle="Latência da última atualização"
-            icon={Clock3}
-            iconStyle="bg-slate-100 text-slate-700"
-          />
-          <StatCard
-            title="Leituras 24h"
-            value={overview.total_readings_24h}
-            subtitle="Volume total registado"
-            icon={Activity}
-            iconStyle="bg-emerald-50 text-emerald-700"
-          />
-        </section>
-
-        <section className="mt-6 grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-          <div className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="p-6">
-              <h2 className="text-xl font-semibold">Tendência ambiental</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Histórico recente de temperatura e humidade do {DEVICE_ID}
-              </p>
-            </div>
-            <div className="px-6 pb-6">
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="h-72 rounded-3xl bg-slate-50 p-3">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={history}>
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="time" />
-                      <YAxis />
-                      <Tooltip />
-                      <Area type="monotone" dataKey="temperature" strokeWidth={2} fillOpacity={0.12} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="h-72 rounded-3xl bg-slate-50 p-3">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={history}>
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                      <XAxis dataKey="time" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="humidity" strokeWidth={2.5} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="p-6">
-              <h2 className="text-xl font-semibold">Perfil do dispositivo</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Resumo executivo do ponto monitorizado
-              </p>
-            </div>
-            <div className="px-6 pb-6">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
-                      Dispositivo
-                    </p>
-                    <h2 className="mt-2 text-2xl font-bold tracking-tight">
-                      {overview.device_id}
-                    </h2>
-                  </div>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-sm font-medium ${badgeClasses(
-                      overview.status
-                    )}`}
-                  >
-                    {statusLabel(overview.status)}
-                  </span>
-                </div>
-
-                <div className="mt-5 space-y-3 text-sm text-slate-700">
-                  <div className="flex items-center gap-2">
-                    <Server className="h-4 w-4 text-slate-500" />
-                    Cliente: <span className="font-medium">{overview.client}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-slate-500" />
-                    Local: <span className="font-medium">{overview.location}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-slate-500" />
-                    Backend: <span className="font-medium">{overview.backend_status}</span>
-                  </div>
-                </div>
-
-                <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                    <p className="text-sm text-slate-500">Limite temperatura</p>
-                    <p className="mt-2 text-2xl font-bold">
-                      {overview.min_temp}°C — {overview.max_temp}°C
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                    <p className="text-sm text-slate-500">Limite humidade</p>
-                    <p className="mt-2 text-2xl font-bold">
-                      {overview.min_humidity}% — {overview.max_humidity}%
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl bg-slate-950 p-5 text-white">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-400" />
-                    <div>
-                      <p className="font-semibold">Mensagem comercial forte</p>
-                      <p className="mt-1 text-sm text-slate-300">
-                        Este painel mostra controlo contínuo, resposta rápida e rastreabilidade
-                        operacional do SmartThermoSecure_01.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 grid gap-6 xl:grid-cols-2">
-          <div className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="p-6">
-              <h2 className="text-xl font-semibold">Alertas e eventos</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Últimas ocorrências registadas para este equipamento
-              </p>
-            </div>
-            <div className="space-y-3 px-6 pb-6">
-              {alerts.map((alert) => (
-                <div key={alert.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-start gap-3">
-                    <div className={`mt-1 h-3 w-3 rounded-full ${dotClasses(alert.level)}`} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold text-slate-900">{alert.title}</p>
-                        <span className="whitespace-nowrap text-xs text-slate-500">
-                          {alert.created_at}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-700">{alert.message}</p>
-                    </div>
-                  </div>
-                </div>
+        {devices.length > 1 && (
+          <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-lg">
+            <label className="mb-2 block text-sm text-slate-400">Dispositivo selecionado</label>
+            <select
+              value={selectedDeviceId}
+              onChange={handleDeviceChange}
+              className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+            >
+              {devices.map((device) => (
+                <option key={device.device_id} value={device.device_id}>
+                  {device.name || device.device_id}
+                </option>
               ))}
+            </select>
+          </section>
+        )}
+
+        {selectedDevice && (
+          <section className="mb-10 grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+              <div className="mb-4 flex items-start justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold">
+                    {selectedDevice.name || selectedDevice.device_id}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {selectedDevice.location || 'Sem localização'}
+                  </p>
+                </div>
+
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClasses(
+                    getSmartStatus(selectedDevice)
+                  )}`}
+                >
+                  {getSmartStatus(selectedDevice)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl bg-slate-800 p-4">
+                  <p className="text-sm text-slate-400">Temperatura</p>
+                  <p className="mt-1 text-3xl font-bold">
+                    {selectedDevice.last_temperature ?? '-'}°C
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-slate-800 p-4">
+                  <p className="text-sm text-slate-400">Humidade</p>
+                  <p className="mt-1 text-3xl font-bold">
+                    {selectedDevice.last_humidity ?? '-'}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-slate-800 p-4">
+                  <p className="text-sm text-slate-400">Último contacto</p>
+                  <p className="mt-1 font-medium">
+                    {formatLastSeenRelative(selectedDevice.last_seen)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-slate-800 p-4">
+                  <p className="text-sm text-slate-400">Versão de config</p>
+                  <p className="mt-1 font-medium">{selectedDevice.config_version ?? 0}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-xl bg-slate-800 p-4">
+                <p className="mb-3 text-sm text-slate-400">Configuração ativa</p>
+
+                <div className="mb-4 rounded-xl border border-slate-700 bg-slate-900/30 p-4">
+                  <h3 className="mb-3 text-sm font-semibold text-white">
+                    Gestão administrativa do dispositivo
+                  </h3>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <span className="text-slate-400">Nome</span>
+                      <p>{selectedDevice.name || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Localização</span>
+                      <p>{selectedDevice.location || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Histerese</span>
+                      <p>{selectedDevice.config?.hyst_c ?? '-'}°C</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-700 bg-slate-900/30 p-4">
+                  <h3 className="mb-3 text-sm font-semibold text-white">Parâmetros operacionais</h3>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <span className="text-slate-400">Temp min</span>
+                      <p>{selectedDevice.config?.min_temp ?? '-'}°C</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Temp max</span>
+                      <p>{selectedDevice.config?.max_temp ?? '-'}°C</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Hum min</span>
+                      <p>{selectedDevice.config?.min_humidity ?? '-'}%</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Hum max</span>
+                      <p>{selectedDevice.config?.max_humidity ?? '-'}%</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+              <div className="mb-5">
+                <h2 className="text-xl font-semibold">Editar configuração</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Atualiza informação de gestão e parâmetros operacionais.
+                </p>
+              </div>
+
+              <div className="mb-6 rounded-xl border border-slate-800 bg-slate-800/60 p-4">
+                <h3 className="mb-2 text-base font-semibold">Gestão administrativa do dispositivo</h3>
+                <p className="mb-4 text-sm text-slate-400">
+                  Informação interna do equipamento e parâmetros técnicos de controlo.
+                </p>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Nome</label>
+                    <input
+                      name="name"
+                      value={form.name}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Localização</label>
+                    <input
+                      name="location"
+                      value={form.location}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Histerese (°C)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      name="hyst_c"
+                      value={form.hyst_c}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-800/60 p-4">
+                <h3 className="mb-2 text-base font-semibold">Parâmetros operacionais</h3>
+                <p className="mb-4 text-sm text-slate-400">
+                  Limites de temperatura e humidade usados para monitorização e alerta.
+                </p>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Temperatura mínima</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      name="min_temp"
+                      value={form.min_temp}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Temperatura máxima</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      name="max_temp"
+                      value={form.max_temp}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Humidade mínima</label>
+                    <input
+                      type="number"
+                      step="1"
+                      name="min_humidity"
+                      value={form.min_humidity}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-slate-400">Humidade máxima</label>
+                    <input
+                      type="number"
+                      step="1"
+                      name="max_humidity"
+                      value={form.max_humidity}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={saving}
+                  className="rounded-xl bg-white px-5 py-3 font-medium text-slate-900 transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? 'A guardar...' : 'Guardar alterações'}
+                </button>
+
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={saving || !isEditing}
+                  className="rounded-xl border border-slate-700 px-5 py-3 font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+
+                {saveMessage && <p className="text-sm text-slate-300">{saveMessage}</p>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="mb-10 rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+          <div className="mb-5">
+            <h2 className="text-xl font-semibold">Histórico e tendências</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Evolução recente de temperatura e humidade ao longo do tempo.
+            </p>
           </div>
 
-          <div className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="p-6">
-              <h2 className="text-xl font-semibold">Estado operacional</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Leitura rápida para apresentação ao cliente
-              </p>
-            </div>
-            <div className="px-6 pb-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <Thermometer className="h-4 w-4" />
-                    Temperatura
-                  </div>
-                  <p className="mt-3 text-3xl font-bold">
-                    {overview.temperature?.toFixed?.(1) ?? overview.temperature}°C
-                  </p>
-                  <p className="mt-2 text-sm text-slate-500">{temperatureState}</p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <Droplets className="h-4 w-4" />
-                    Humidade
-                  </div>
-                  <p className="mt-3 text-3xl font-bold">{overview.humidity}%</p>
-                  <p className="mt-2 text-sm text-slate-500">{humidityState}</p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center gap-2 text-slate-600">
-                    {overview.online ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                    Conectividade
-                  </div>
-                  <p className="mt-3 text-3xl font-bold">
-                    {overview.online ? "Online" : "Offline"}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Última leitura {relativeLastSeen(overview.last_seen_seconds || 0)}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <TriangleAlert className="h-4 w-4" />
-                    Alertas
-                  </div>
-                  <p className="mt-3 text-3xl font-bold">{overview.alerts_24h}</p>
-                  <p className="mt-2 text-sm text-slate-500">Total nas últimas 24 horas</p>
-                </div>
-              </div>
-
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
-                {loading
-                  ? "A carregar dados..."
-                  : `Última atualização: ${lastRefresh.toLocaleTimeString("pt-PT")}${
-                      usingDemo ? " · modo demo" : " · dados reais"
-                    }`}
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="rounded-xl bg-slate-800 p-4">
+              <h3 className="mb-4 text-lg font-medium">Temperatura</h3>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="time" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #334155',
+                        borderRadius: '12px',
+                      }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="temperatura"
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
+
+            <div className="rounded-xl bg-slate-800 p-4">
+              <h3 className="mb-4 text-lg font-medium">Humidade</h3>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="time" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #334155',
+                        borderRadius: '12px',
+                      }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="humidade"
+                      stroke="#22c55e"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-10 rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+          <div className="mb-5">
+            <h2 className="text-xl font-semibold">Alertas recentes</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Últimos alertas registados para o dispositivo selecionado.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-800 text-slate-400">
+                <tr>
+                  <th className="py-3 pr-4">Dispositivo</th>
+                  <th className="py-3 pr-4">Temperatura</th>
+                  <th className="py-3 pr-4">Humidade</th>
+                  <th className="py-3 pr-4">Data</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAlerts.length > 0 ? (
+                  filteredAlerts.map((alert) => (
+                    <tr key={alert.id} className="border-b border-slate-800/60">
+                      <td className="py-3 pr-4">{alert.device_id}</td>
+                      <td className="py-3 pr-4">{alert.temperature}°C</td>
+                      <td className="py-3 pr-4">{alert.humidity}%</td>
+                      <td className="py-3 pr-4">{formatDate(alert.sent_at)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="py-6 text-center text-slate-400">
+                      Sem alertas registados para este dispositivo.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+          <h2 className="mb-4 text-xl font-semibold">Últimas leituras</h2>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-800 text-slate-400">
+                <tr>
+                  <th className="py-3 pr-4">Dispositivo</th>
+                  <th className="py-3 pr-4">Temperatura</th>
+                  <th className="py-3 pr-4">Humidade</th>
+                  <th className="py-3 pr-4">Data</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredReadings.map((reading) => (
+                  <tr key={reading.id} className="border-b border-slate-800/60">
+                    <td className="py-3 pr-4">{reading.device_id}</td>
+                    <td className="py-3 pr-4">{reading.temperature}°C</td>
+                    <td className="py-3 pr-4">{reading.humidity}%</td>
+                    <td className="py-3 pr-4">{formatDate(reading.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
-    </div>
-  );
+    </main>
+  )
 }
