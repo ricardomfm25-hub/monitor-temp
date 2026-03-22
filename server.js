@@ -52,16 +52,24 @@ function getDeviceConfig(deviceRow) {
   };
 }
 
-function getDeviceStatus({ online, temperature, humidity, min_temp, max_temp, min_humidity, max_humidity }) {
+function getDeviceStatus({
+  online,
+  temperature,
+  humidity,
+  temp_low_c,
+  temp_high_c,
+  hum_low,
+  hum_high,
+}) {
   if (!online) return "offline";
 
-  const tempCritical = temperature > max_temp + 2 || temperature < min_temp - 2;
-  const humCritical = humidity > max_humidity + 5 || humidity < min_humidity - 5;
+  const tempCritical = temperature > temp_high_c + 2 || temperature < temp_low_c - 2;
+  const humCritical = humidity > hum_high + 5 || humidity < hum_low - 5;
 
   if (tempCritical || humCritical) return "critical";
 
-  const tempAlert = temperature > max_temp || temperature < min_temp;
-  const humAlert = humidity > max_humidity || humidity < min_humidity;
+  const tempAlert = temperature > temp_high_c || temperature < temp_low_c;
+  const humAlert = humidity > hum_high || humidity < hum_low;
 
   if (tempAlert || humAlert) return "alert";
 
@@ -87,11 +95,13 @@ function getAlertTitle(level, temperature, maxTemp) {
 }
 
 function getAlertMessage(deviceId, temperature, humidity) {
-  return `${deviceId} registou ${Number(temperature).toFixed(1)}°C e ${Number(humidity).toFixed(0)}% de humidade.`;
+  return `${deviceId} registou ${Number(temperature).toFixed(1)}°C e ${Number(humidity).toFixed(
+    0
+  )}% de humidade.`;
 }
 
 // -------------------- EMAIL ALERTA --------------------
-async function sendAlertEmail({ device_id, temperature, humidity }) {
+async function sendAlertEmail({ device_id, temperature, humidity, limitTemperature }) {
   if (!BREVO_API_KEY) return;
 
   await axios.post(
@@ -105,7 +115,7 @@ async function sendAlertEmail({ device_id, temperature, humidity }) {
         <p><strong>Dispositivo:</strong> ${device_id}</p>
         <p><strong>Temperatura:</strong> ${temperature} °C</p>
         <p><strong>Humidade:</strong> ${humidity} %</p>
-        <p><strong>Limite configurado:</strong> ${TEMP_LIMIT} °C</p>
+        <p><strong>Limite configurado:</strong> ${limitTemperature} °C</p>
         <p><em>Enviado automaticamente pelo SmartThermoSecure.</em></p>
       `,
     },
@@ -193,8 +203,12 @@ async function sendWeeklyReport() {
       html += `
         <tr>
           <td style="padding:6px;border-bottom:1px solid #eee">${day}</td>
-          <td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${devices[device][day].min.toFixed(1)}</td>
-          <td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${devices[device][day].max.toFixed(1)}</td>
+          <td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${devices[
+            device
+          ][day].min.toFixed(1)}</td>
+          <td style="padding:6px;text-align:right;border-bottom:1px solid #eee">${devices[
+            device
+          ][day].max.toFixed(1)}</td>
         </tr>
       `;
     }
@@ -244,13 +258,51 @@ app.post("/api/temperature", async (req, res) => {
     const { device_id, temperature, humidity } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
-      return res.status(400).json({ error: "device_id, temperature e humidity são obrigatórios" });
+      return res
+        .status(400)
+        .json({ error: "device_id, temperature e humidity são obrigatórios" });
     }
 
-    await supabase.from("readings").insert([{ device_id, temperature, humidity }]);
+    const numericTemperature = Number(temperature);
+    const numericHumidity = Number(humidity);
+
+    await supabase.from("readings").insert([
+      {
+        device_id,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+      },
+    ]);
+
+    const { data: deviceRow, error: deviceFetchError } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("device_id", device_id)
+      .maybeSingle();
+
+    if (deviceFetchError) {
+      console.error("Erro ao ler config do device:", deviceFetchError);
+    }
+
+    const config = getDeviceConfig(deviceRow);
+    const computedStatus = getDeviceStatus({
+      online: true,
+      temperature: numericTemperature,
+      humidity: numericHumidity,
+      temp_low_c: config.temp_low_c,
+      temp_high_c: config.temp_high_c,
+      hum_low: config.hum_low,
+      hum_high: config.hum_high,
+    });
+
+    const statusMap = {
+      normal: "NORMAL",
+      alert: "ALERT",
+      critical: "CRITICAL",
+      offline: "OFFLINE",
+    };
 
     const nowIso = new Date().toISOString();
-    const status = Number(temperature) > TEMP_LIMIT ? "ALARM" : "NORMAL";
 
     const { error } = await supabase
       .from("devices")
@@ -259,9 +311,9 @@ app.post("/api/temperature", async (req, res) => {
           {
             device_id,
             last_seen: nowIso,
-            last_temperature: temperature,
-            last_humidity: humidity,
-            status,
+            last_temperature: numericTemperature,
+            last_humidity: numericHumidity,
+            status: statusMap[computedStatus] || "NORMAL",
             updated_at: nowIso,
           },
         ],
@@ -272,14 +324,34 @@ app.post("/api/temperature", async (req, res) => {
       console.error("Erro ao atualizar device:", error);
     }
 
-    if (Number(temperature) > TEMP_LIMIT) {
+    const isTempAlert =
+      numericTemperature > config.temp_high_c || numericTemperature < config.temp_low_c;
+    const isHumAlert = numericHumidity > config.hum_high || numericHumidity < config.hum_low;
+
+    if (isTempAlert || isHumAlert) {
       if (await canSendAlert(device_id)) {
-        await sendAlertEmail({ device_id, temperature, humidity });
-        await supabase.from("alerts").insert([{ device_id, temperature, humidity }]);
+        await sendAlertEmail({
+          device_id,
+          temperature: numericTemperature,
+          humidity: numericHumidity,
+          limitTemperature: config.temp_high_c,
+        });
+
+        await supabase.from("alerts").insert([
+          {
+            device_id,
+            temperature: numericTemperature,
+            humidity: numericHumidity,
+          },
+        ]);
       }
     }
 
-    res.json({ message: "OK" });
+    res.json({
+      message: "OK",
+      applied_config: config,
+      status: computedStatus,
+    });
   } catch (error) {
     console.error("Erro em /api/temperature:", error);
     res.status(500).json({ error: "Erro interno no servidor" });
@@ -323,12 +395,10 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       return res.status(404).json({ error: "Dispositivo não encontrado" });
     }
 
-    const { min_temp, max_temp, min_humidity, max_humidity } = getDeviceConfig(deviceRow);
+    const { temp_low_c, temp_high_c, hum_low, hum_high } = getDeviceConfig(deviceRow);
 
-    const temperature =
-      latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
-    const humidity =
-      latestReading?.humidity ?? deviceRow?.last_humidity ?? null;
+    const temperature = latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
+    const humidity = latestReading?.humidity ?? deviceRow?.last_humidity ?? null;
 
     const lastSeenIso = deviceRow?.last_seen || latestReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso
@@ -343,10 +413,10 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
             online,
             temperature: Number(temperature),
             humidity: Number(humidity),
-            min_temp,
-            max_temp,
-            min_humidity,
-            max_humidity,
+            temp_low_c,
+            temp_high_c,
+            hum_low,
+            hum_high,
           })
         : online
         ? "normal"
@@ -384,10 +454,10 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       zone: deviceRow?.location || "N/D",
       temperature: temperature !== null ? Number(temperature) : null,
       humidity: humidity !== null ? Number(humidity) : null,
-      min_temp,
-      max_temp,
-      min_humidity,
-      max_humidity,
+      temp_low_c,
+      temp_high_c,
+      hum_low,
+      hum_high,
       status: normalizedStatus,
       online,
       last_seen_seconds: lastSeenSeconds,
@@ -423,16 +493,14 @@ app.get("/api/dashboard/device/:id/history", async (req, res) => {
       return res.status(500).json({ error: "Erro ao obter histórico" });
     }
 
-    const history = (data || [])
-      .reverse()
-      .map((row) => ({
-        time: new Date(row.created_at).toLocaleTimeString("pt-PT", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        temperature: Number(row.temperature),
-        humidity: Number(row.humidity),
-      }));
+    const history = (data || []).reverse().map((row) => ({
+      time: new Date(row.created_at).toLocaleTimeString("pt-PT", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      temperature: Number(row.temperature),
+      humidity: Number(row.humidity),
+    }));
 
     res.json(history);
   } catch (error) {
@@ -456,7 +524,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
       .eq("device_id", deviceId)
       .maybeSingle();
 
-    const { max_temp } = getDeviceConfig(deviceRow);
+    const { temp_high_c } = getDeviceConfig(deviceRow);
 
     const { data, error } = await supabase
       .from("alerts")
@@ -473,12 +541,12 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
     const alerts = (data || []).map((row, index) => {
       const temperature = Number(row.temperature);
       const humidity = Number(row.humidity);
-      const level = temperature > max_temp + 2 ? "critical" : "alert";
+      const level = temperature > temp_high_c + 2 ? "critical" : "alert";
 
       return {
         id: row.id || index + 1,
         level,
-        title: getAlertTitle(level, temperature, max_temp),
+        title: getAlertTitle(level, temperature, temp_high_c),
         message: getAlertMessage(deviceId, temperature, humidity),
         created_at: getRelativeDateTimePt(row.sent_at),
       };
@@ -503,52 +571,109 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
   }
 });
 
-
 // -------------------- ATUALIZAR CONFIG DISPOSITIVO --------------------
 app.post("/api/device/:id/config", async (req, res) => {
-  const token = req.headers["authorization"];
-  if (token !== API_TOKEN) return res.status(401).json({ error: "Não autorizado" });
-
-  const deviceId = req.params.id;
-  const { min_temp, max_temp, min_humidity, max_humidity } = req.body;
-
-  const config = {
-    min_temp,
-    max_temp,
-    min_humidity,
-    max_humidity,
-  };
-
-  const { error } = await supabase
-    .from("devices")
-    .update({ config })
-    .eq("device_id", deviceId);
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
   }
 
-  res.json({ message: "Configuração atualizada com sucesso" });
+  try {
+    const deviceId = req.params.id;
+    const {
+      temp_low_c,
+      temp_high_c,
+      hum_low,
+      hum_high,
+      hyst_c,
+      send_interval_s,
+      display_standby_min,
+    } = req.body;
+
+    const { data: deviceRow, error: fetchError } = await supabase
+      .from("devices")
+      .select("config, config_version")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (fetchError) {
+      return res.status(500).json({ error: fetchError.message });
+    }
+
+    const currentConfig = deviceRow?.config || {};
+    const nextVersion = (deviceRow?.config_version || 0) + 1;
+
+    const updatedConfig = {
+      ...currentConfig,
+      ...(temp_low_c !== undefined ? { temp_low_c: Number(temp_low_c) } : {}),
+      ...(temp_high_c !== undefined ? { temp_high_c: Number(temp_high_c) } : {}),
+      ...(hum_low !== undefined ? { hum_low: Number(hum_low) } : {}),
+      ...(hum_high !== undefined ? { hum_high: Number(hum_high) } : {}),
+      ...(hyst_c !== undefined ? { hyst_c: Number(hyst_c) } : {}),
+      ...(send_interval_s !== undefined ? { send_interval_s: Number(send_interval_s) } : {}),
+      ...(display_standby_min !== undefined
+        ? { display_standby_min: Number(display_standby_min) }
+        : {}),
+    };
+
+    const { error } = await supabase
+      .from("devices")
+      .update({
+        config: updatedConfig,
+        config_version: nextVersion,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("device_id", deviceId);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({
+      message: "Configuração atualizada com sucesso",
+      config_version: nextVersion,
+      config: updatedConfig,
+    });
+  } catch (error) {
+    console.error("Erro em /api/device/:id/config [POST]:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
+  }
 });
 
 // -------------------- OBTER CONFIG DISPOSITIVO --------------------
 app.get("/api/device/:id/config", async (req, res) => {
-  const token = req.headers["authorization"];
-  if (token !== API_TOKEN) return res.status(401).json({ error: "Não autorizado" });
-
-  const deviceId = req.params.id;
-
-  const { data, error } = await supabase
-    .from("devices")
-    .select("config")
-    .eq("device_id", deviceId)
-    .single();
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
   }
 
-  res.json(data.config || {});
+  try {
+    const deviceId = req.params.id;
+
+    const { data, error } = await supabase
+      .from("devices")
+      .select("device_id, config, config_version, updated_at")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const config = getDeviceConfig(data);
+
+    res.json({
+      device_id: deviceId,
+      config_version: data.config_version || 1,
+      updated_at: data.updated_at || null,
+      config,
+    });
+  } catch (error) {
+    console.error("Erro em /api/device/:id/config [GET]:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
+  }
 });
 
 app.listen(PORT, "0.0.0.0", () => {
