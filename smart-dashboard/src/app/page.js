@@ -53,7 +53,9 @@ function formatValue(value, suffix = "", digits = 1) {
 }
 
 function toInputValue(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "";
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "";
+  }
   return String(value);
 }
 
@@ -156,7 +158,15 @@ function SmallStat({ label, value }) {
   );
 }
 
-function DataChart({ title, data, dataKey, unit, minThreshold, maxThreshold }) {
+function DataChart({
+  title,
+  data,
+  dataKey,
+  unit,
+  minThreshold,
+  maxThreshold,
+  isMobile,
+}) {
   const { min, max } = getMinMax(data, dataKey);
 
   return (
@@ -165,13 +175,19 @@ function DataChart({ title, data, dataKey, unit, minThreshold, maxThreshold }) {
         <div>
           <div style={styles.chartTitle}>{title}</div>
           <div style={styles.chartSubtitle}>
-            Pico inferior: {formatValue(min, unit)} | Pico superior: {formatValue(max, unit)}
+            Pico inferior: {formatValue(min, unit)} | Pico superior:{" "}
+            {formatValue(max, unit)}
           </div>
         </div>
       </div>
 
-      <div style={styles.chartWrap}>
-        <ResponsiveContainer width="100%" height={300}>
+      <div
+        style={{
+          ...styles.chartWrap,
+          height: isMobile ? "180px" : "300px",
+        }}
+      >
+        <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
             <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
             <XAxis
@@ -180,15 +196,28 @@ function DataChart({ title, data, dataKey, unit, minThreshold, maxThreshold }) {
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
             />
-            <YAxis stroke="#7c8aa0" tick={{ fontSize: 12 }} domain={["auto", "auto"]} />
+            <YAxis
+              stroke="#7c8aa0"
+              tick={{ fontSize: 12 }}
+              domain={["auto", "auto"]}
+              width={36}
+            />
             <Tooltip content={<CustomTooltip unit={unit} />} />
 
             {minThreshold !== null && minThreshold !== undefined && (
-              <ReferenceLine y={Number(minThreshold)} stroke="#f59e0b" strokeDasharray="6 6" />
+              <ReferenceLine
+                y={Number(minThreshold)}
+                stroke="#f59e0b"
+                strokeDasharray="6 6"
+              />
             )}
 
             {maxThreshold !== null && maxThreshold !== undefined && (
-              <ReferenceLine y={Number(maxThreshold)} stroke="#ef4444" strokeDasharray="6 6" />
+              <ReferenceLine
+                y={Number(maxThreshold)}
+                stroke="#ef4444"
+                strokeDasharray="6 6"
+              />
             )}
 
             <Line
@@ -237,25 +266,25 @@ export default function DashboardPage() {
   const [clientMessage, setClientMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
 
+  const [isMobile, setIsMobile] = useState(false);
+
   const selectedPeriod = useMemo(
     () => PERIODS.find((p) => p.key === period) || PERIODS[3],
     [period]
   );
 
-const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 768);
+    }
 
-useEffect(() => {
-  function handleResize() {
-    setIsMobile(window.innerWidth <= 768);
-  }
+    handleResize();
+    window.addEventListener("resize", handleResize);
 
-  handleResize();
-  window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
-  return () => window.removeEventListener("resize", handleResize);
-}, []);
-
-const supabase = createClient();
+  const supabase = createClient();
 
   async function loadData() {
     setLoading(true);
@@ -451,30 +480,30 @@ const supabase = createClient();
             </p>
           </div>
 
-         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-  <button onClick={loadData} style={styles.refreshButton}>
-    Atualizar
-  </button>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <button onClick={loadData} style={styles.refreshButton}>
+              Atualizar
+            </button>
 
-  <button
-    onClick={async () => {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      window.location.href = "/login";
-    }}
-    style={styles.refreshButton}
-  >
-    Sair
-  </button>
-</div>
+            <button
+              onClick={async () => {
+                const supabaseClient = createClient();
+                await supabaseClient.auth.signOut();
+                window.location.href = "/login";
+              }}
+              style={styles.refreshButton}
+            >
+              Sair
+            </button>
+          </div>
         </div>
 
         <section
-  style={{
-    ...styles.heroCard,
-    gridTemplateColumns: isMobile ? "1fr" : "1.7fr 1fr",
-  }}
->
+          style={{
+            ...styles.heroCard,
+            gridTemplateColumns: isMobile ? "1fr" : "1.7fr 1fr",
+          }}
+        >
           <div style={styles.heroLeft}>
             <div style={styles.heroHeaderTop}>
               <div>
@@ -501,12 +530,12 @@ const supabase = createClient();
               </div>
             </div>
 
-           <div
-  style={{
-    ...styles.metricsRow,
-    gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-  }}
->
+            <div
+              style={{
+                ...styles.metricsRow,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              }}
+            >
               <MetricBox
                 label="Temperatura atual"
                 value={formatValue(device?.last_temperature, " °C")}
@@ -518,11 +547,11 @@ const supabase = createClient();
             </div>
 
             <div
-  style={{
-    ...styles.heroMetaRow,
-    gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-  }}
->
+              style={{
+                ...styles.heroMetaRow,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              }}
+            >
               <InfoItem
                 label="Última atualização"
                 value={formatDateTime(device?.last_seen)}
@@ -534,15 +563,15 @@ const supabase = createClient();
             </div>
           </div>
 
-         <div
-  style={{
-    ...styles.heroRight,
-    borderLeft: isMobile ? "none" : styles.heroRight.borderLeft,
-    borderTop: isMobile ? "1px solid #243042" : "none",
-    paddingLeft: isMobile ? "0" : styles.heroRight.paddingLeft,
-    paddingTop: isMobile ? "16px" : "0",
-  }}
->
+          <div
+            style={{
+              ...styles.heroRight,
+              borderLeft: isMobile ? "none" : styles.heroRight.borderLeft,
+              borderTop: isMobile ? "1px solid #243042" : "none",
+              paddingLeft: isMobile ? "0" : styles.heroRight.paddingLeft,
+              paddingTop: isMobile ? "16px" : "0",
+            }}
+          >
             <div style={styles.sideTitle}>Configurações do cliente</div>
 
             <div style={styles.sideSummary}>
@@ -569,157 +598,154 @@ const supabase = createClient();
           </div>
         </section>
 
-{/* ===================== GRÁFICOS ===================== */}
-<section
-  style={{
-    ...styles.chartGrid,
-    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-  }}
->
-  <DataChart
-    title="Temperatura"
-    data={readings}
-    dataKey="temperature"
-    unit=" °C"
-    minThreshold={tempLow}
-    maxThreshold={tempHigh}
-  />
+        <section
+          style={{
+            ...styles.chartGrid,
+            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+          }}
+        >
+          <DataChart
+            title="Temperatura"
+            data={readings}
+            dataKey="temperature"
+            unit=" °C"
+            minThreshold={tempLow}
+            maxThreshold={tempHigh}
+            isMobile={isMobile}
+          />
 
-  <DataChart
-    title="Humidade"
-    data={readings}
-    dataKey="humidity"
-    unit=" %"
-    minThreshold={humLow}
-    maxThreshold={humHigh}
-  />
-</section>
+          <DataChart
+            title="Humidade"
+            data={readings}
+            dataKey="humidity"
+            unit=" %"
+            minThreshold={humLow}
+            maxThreshold={humHigh}
+            isMobile={isMobile}
+          />
+        </section>
 
-{/* ===================== PERÍODO ===================== */}
-<section style={styles.card}>
-  <div style={styles.cardHeader}>
-    <div>
-      <div style={styles.cardTitle}>Período de visualização</div>
-      <div style={styles.cardHint}>
-        Ajusta o intervalo temporal apresentado nos gráficos
-      </div>
-    </div>
-  </div>
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Período de visualização</div>
+              <div style={styles.cardHint}>
+                Ajusta o intervalo temporal apresentado nos gráficos
+              </div>
+            </div>
+          </div>
 
-  <div style={styles.periodRow}>
-    {PERIODS.map((item) => (
-      <button
-        key={item.key}
-        onClick={() => setPeriod(item.key)}
-        style={{
-          ...styles.periodButton,
-          ...(period === item.key ? styles.periodButtonActive : {}),
-        }}
-      >
-        {item.label}
-      </button>
-    ))}
-  </div>
-</section>
+          <div style={styles.periodRow}>
+            {PERIODS.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setPeriod(item.key)}
+                style={{
+                  ...styles.periodButton,
+                  ...(period === item.key ? styles.periodButtonActive : {}),
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </section>
 
-{/* ===================== CONFIG CLIENTE ===================== */}
-<section style={styles.card}>
-  <div style={styles.cardHeader}>
-    <div>
-      <div style={styles.cardTitle}>Configurações do cliente</div>
-      <div style={styles.cardHint}>
-        Limites operacionais visíveis e editáveis pelo cliente
-      </div>
-    </div>
-  </div>
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Configurações do cliente</div>
+              <div style={styles.cardHint}>
+                Limites operacionais visíveis e editáveis pelo cliente
+              </div>
+            </div>
+          </div>
 
-  <div
-    style={{
-      ...styles.formGrid,
-      gridTemplateColumns: isMobile
-        ? "repeat(2, minmax(0, 1fr))"
-        : "repeat(4, minmax(180px, 1fr))",
-    }}
-  >
-    <div style={styles.field}>
-      <label style={styles.label}>Temperatura mínima (°C)</label>
-      <input
-        type="number"
-        step="0.1"
-        value={clientForm.temp_low_c}
-        onChange={(e) =>
-          setClientForm((prev) => ({
-            ...prev,
-            temp_low_c: e.target.value,
-          }))
-        }
-        style={styles.configInput}
-      />
-    </div>
+          <div
+            style={{
+              ...styles.formGrid,
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+            }}
+          >
+            <div style={styles.field}>
+              <label style={styles.label}>Temperatura mínima (°C)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={clientForm.temp_low_c}
+                onChange={(e) =>
+                  setClientForm((prev) => ({
+                    ...prev,
+                    temp_low_c: e.target.value,
+                  }))
+                }
+                style={styles.configInput}
+              />
+            </div>
 
-    <div style={styles.field}>
-      <label style={styles.label}>Temperatura máxima (°C)</label>
-      <input
-        type="number"
-        step="0.1"
-        value={clientForm.temp_high_c}
-        onChange={(e) =>
-          setClientForm((prev) => ({
-            ...prev,
-            temp_high_c: e.target.value,
-          }))
-        }
-        style={styles.configInput}
-      />
-    </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Temperatura máxima (°C)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={clientForm.temp_high_c}
+                onChange={(e) =>
+                  setClientForm((prev) => ({
+                    ...prev,
+                    temp_high_c: e.target.value,
+                  }))
+                }
+                style={styles.configInput}
+              />
+            </div>
 
-    <div style={styles.field}>
-      <label style={styles.label}>Humidade mínima (%)</label>
-      <input
-        type="number"
-        step="1"
-        value={clientForm.hum_low}
-        onChange={(e) =>
-          setClientForm((prev) => ({
-            ...prev,
-            hum_low: e.target.value,
-          }))
-        }
-        style={styles.configInput}
-      />
-    </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Humidade mínima (%)</label>
+              <input
+                type="number"
+                step="1"
+                value={clientForm.hum_low}
+                onChange={(e) =>
+                  setClientForm((prev) => ({
+                    ...prev,
+                    hum_low: e.target.value,
+                  }))
+                }
+                style={styles.configInput}
+              />
+            </div>
 
-    <div style={styles.field}>
-      <label style={styles.label}>Humidade máxima (%)</label>
-      <input
-        type="number"
-        step="1"
-        value={clientForm.hum_high}
-        onChange={(e) =>
-          setClientForm((prev) => ({
-            ...prev,
-            hum_high: e.target.value,
-          }))
-        }
-        style={styles.configInput}
-      />
-    </div>
-  </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Humidade máxima (%)</label>
+              <input
+                type="number"
+                step="1"
+                value={clientForm.hum_high}
+                onChange={(e) =>
+                  setClientForm((prev) => ({
+                    ...prev,
+                    hum_high: e.target.value,
+                  }))
+                }
+                style={styles.configInput}
+              />
+            </div>
+          </div>
 
-  <div style={styles.actionsRow}>
-    <button
-      style={styles.primaryButton}
-      onClick={saveClientConfig}
-      disabled={savingClient}
-    >
-      {savingClient ? "A guardar..." : "Guardar configurações"}
-    </button>
+          <div style={styles.actionsRow}>
+            <button
+              style={styles.primaryButton}
+              onClick={saveClientConfig}
+              disabled={savingClient}
+            >
+              {savingClient ? "A guardar..." : "Guardar configurações"}
+            </button>
 
-    {clientMessage ? (
-      <span style={styles.successText}>{clientMessage}</span>
-    ) : null}
-  </div>
-</section>
+            {clientMessage ? (
+              <span style={styles.successText}>{clientMessage}</span>
+            ) : null}
+          </div>
+        </section>
 
         <section style={styles.card}>
           <div style={styles.cardHeader}>
@@ -776,11 +802,11 @@ const supabase = createClient();
               </div>
 
               <div
-  style={{
-    ...styles.adminGrid,
-    gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
-  }}
->
+                style={{
+                  ...styles.adminGrid,
+                  gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+                }}
+              >
                 <SmallStat label="Config version" value={device?.config_version ?? "-"} />
                 <SmallStat label="Atualizada em" value={formatDateTime(device?.updated_at)} />
                 <SmallStat label="Last seen" value={formatDateTime(device?.last_seen)} />
@@ -788,98 +814,126 @@ const supabase = createClient();
                 <SmallStat label="Device ID" value={device?.device_id || DEVICE_ID} />
                 <SmallStat label="Nome" value={deviceDisplayName} />
                 <SmallStat label="Localização" value={deviceLocation} />
-                <SmallStat label="Última temp." value={formatValue(device?.last_temperature, " °C")} />
-                <SmallStat label="Última hum." value={formatValue(device?.last_humidity, " %")} />
-                <SmallStat label="Histerese" value={hystC !== undefined ? `${hystC} °C` : "-"} />
-                <SmallStat label="Envio" value={sendIntervalS !== undefined ? `${sendIntervalS}s` : "-"} />
-                <SmallStat label="Standby display" value={displayStandbyMin !== undefined ? `${displayStandbyMin} min` : "-"} />
+                <SmallStat
+                  label="Última temp."
+                  value={formatValue(device?.last_temperature, " °C")}
+                />
+                <SmallStat
+                  label="Última hum."
+                  value={formatValue(device?.last_humidity, " %")}
+                />
+                <SmallStat
+                  label="Histerese"
+                  value={hystC !== undefined ? `${hystC} °C` : "-"}
+                />
+                <SmallStat
+                  label="Envio"
+                  value={sendIntervalS !== undefined ? `${sendIntervalS}s` : "-"}
+                />
+                <SmallStat
+                  label="Standby display"
+                  value={displayStandbyMin !== undefined ? `${displayStandbyMin} min` : "-"}
+                />
               </div>
 
               <div style={styles.subsection}>
                 <div style={styles.subsectionTitle}>Configurações admin</div>
 
-<div
-  style={{
-    ...styles.formGrid,
-    gridTemplateColumns: isMobile
-      ? "repeat(2, minmax(0, 1fr))"
-      : "repeat(4, minmax(180px, 1fr))",
-  }}
->
-  <div style={styles.field}>
-    <label style={styles.label}>Nome do dispositivo</label>
-    <input
-      type="text"
-      value={adminForm.name}
-      onChange={(e) =>
-        setAdminForm((prev) => ({ ...prev, name: e.target.value }))
-      }
-      style={styles.configInput}
-    />
-  </div>
+                <div
+                  style={{
+                    ...styles.formGrid,
+                    gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+                  }}
+                >
+                  <div style={styles.field}>
+                    <label style={styles.label}>Nome do dispositivo</label>
+                    <input
+                      type="text"
+                      value={adminForm.name}
+                      onChange={(e) =>
+                        setAdminForm((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                      style={styles.configInput}
+                    />
+                  </div>
 
-  <div style={styles.field}>
-    <label style={styles.label}>Localização</label>
-    <input
-      type="text"
-      value={adminForm.location}
-      onChange={(e) =>
-        setAdminForm((prev) => ({ ...prev, location: e.target.value }))
-      }
-      style={styles.configInput}
-    />
-  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>Localização</label>
+                    <input
+                      type="text"
+                      value={adminForm.location}
+                      onChange={(e) =>
+                        setAdminForm((prev) => ({ ...prev, location: e.target.value }))
+                      }
+                      style={styles.configInput}
+                    />
+                  </div>
 
-  <div style={styles.field}>
-    <label style={styles.label}>Histerese (°C)</label>
-    <input
-      type="number"
-      step="0.1"
-      value={adminForm.hyst_c}
-      onChange={(e) =>
-        setAdminForm((prev) => ({ ...prev, hyst_c: e.target.value }))
-      }
-      style={styles.configInput}
-    />
-  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>Histerese (°C)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={adminForm.hyst_c}
+                      onChange={(e) =>
+                        setAdminForm((prev) => ({ ...prev, hyst_c: e.target.value }))
+                      }
+                      style={styles.configInput}
+                    />
+                  </div>
 
-  <div style={styles.field}>
-    <label style={styles.label}>Intervalo de envio (s)</label>
-    <input
-      type="number"
-      step="1"
-      value={adminForm.send_interval_s}
-      onChange={(e) =>
-        setAdminForm((prev) => ({
-          ...prev,
-          send_interval_s: e.target.value,
-        }))
-      }
-      style={styles.configInput}
-    />
-  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>Intervalo de envio (s)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={adminForm.send_interval_s}
+                      onChange={(e) =>
+                        setAdminForm((prev) => ({
+                          ...prev,
+                          send_interval_s: e.target.value,
+                        }))
+                      }
+                      style={styles.configInput}
+                    />
+                  </div>
 
-  <div style={styles.field}>
-    <label style={styles.label}>Standby display (min)</label>
-    <input
-      type="number"
-      step="1"
-      value={adminForm.display_standby_min}
-      onChange={(e) =>
-        setAdminForm((prev) => ({
-          ...prev,
-          display_standby_min: e.target.value,
-        }))
-      }
-      style={styles.configInput}
-    />
-  </div>
-</div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>Standby display (min)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={adminForm.display_standby_min}
+                      onChange={(e) =>
+                        setAdminForm((prev) => ({
+                          ...prev,
+                          display_standby_min: e.target.value,
+                        }))
+                      }
+                      style={styles.configInput}
+                    />
+                  </div>
+                </div>
+
+                <div style={styles.actionsRow}>
+                  <button
+                    style={styles.primaryButton}
+                    onClick={saveAdminConfig}
+                    disabled={savingAdmin}
+                  >
+                    {savingAdmin ? "A guardar..." : "Guardar admin"}
+                  </button>
+
+                  {adminMessage ? (
+                    <span style={styles.successText}>{adminMessage}</span>
+                  ) : null}
+                </div>
+              </div>
 
               <div style={styles.rawConfigWrap}>
                 <div style={styles.rawConfigTitle}>Configuração raw</div>
                 <pre style={styles.rawConfig}>
-{JSON.stringify(device?.config || {}, null, 2)}
+                  {JSON.stringify(device?.config || {}, null, 2)}
                 </pre>
               </div>
             </div>
@@ -898,31 +952,17 @@ const styles = {
     background: "#0b1220",
     padding: "24px 16px 40px",
     color: "#e5edf7",
+    overflowX: "hidden",
   },
 
-configInput: {
-  width: "100%",
-  minWidth: 0,
-  maxWidth: "100%",
-  border: "1px solid #253246",
-  background: "#0a1322",
-  color: "#f8fafc",
-  borderRadius: "10px",
-  padding: "7px 10px",
-  fontSize: "13px",
-  outline: "none",
-  height: "34px",
-  boxSizing: "border-box",
-  textAlign: "center",
-  fontVariantNumeric: "tabular-nums",
-  display: "block",
-},
   container: {
+    width: "100%",
     maxWidth: "1380px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
     gap: "18px",
+    overflowX: "hidden",
   },
 
   topBar: {
@@ -967,12 +1007,14 @@ configInput: {
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "22px",
+    overflow: "hidden",
   },
 
   heroLeft: {
     display: "flex",
     flexDirection: "column",
     gap: "16px",
+    minWidth: 0,
   },
 
   heroRight: {
@@ -982,6 +1024,7 @@ configInput: {
     flexDirection: "column",
     gap: "14px",
     justifyContent: "center",
+    minWidth: 0,
   },
 
   heroHeaderTop: {
@@ -1006,6 +1049,7 @@ configInput: {
     fontWeight: 800,
     letterSpacing: "-0.03em",
     color: "#f8fafc",
+    wordBreak: "break-word",
   },
 
   deviceMetaLine: {
@@ -1035,6 +1079,7 @@ configInput: {
 
   deviceMetaLocation: {
     color: "#94a3b8",
+    wordBreak: "break-word",
   },
 
   statusPillLarge: {
@@ -1060,6 +1105,7 @@ configInput: {
     border: "1px solid #1e293b",
     borderRadius: "20px",
     padding: "18px",
+    minWidth: 0,
   },
 
   metricLabel: {
@@ -1075,6 +1121,7 @@ configInput: {
     fontWeight: 800,
     letterSpacing: "-0.03em",
     color: "#f8fafc",
+    wordBreak: "break-word",
   },
 
   heroMetaRow: {
@@ -1091,6 +1138,7 @@ configInput: {
     display: "flex",
     flexDirection: "column",
     gap: "6px",
+    minWidth: 0,
   },
 
   infoLabel: {
@@ -1103,6 +1151,7 @@ configInput: {
     fontSize: "15px",
     fontWeight: 700,
     color: "#f8fafc",
+    wordBreak: "break-word",
   },
 
   sideTitle: {
@@ -1126,6 +1175,7 @@ configInput: {
     alignItems: "center",
     justifyContent: "space-between",
     gap: "10px",
+    minWidth: 0,
   },
 
   summaryLabel: {
@@ -1138,6 +1188,7 @@ configInput: {
     fontSize: "15px",
     fontWeight: 800,
     color: "#f8fafc",
+    wordBreak: "break-word",
   },
 
   card: {
@@ -1145,6 +1196,7 @@ configInput: {
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "20px",
+    overflow: "hidden",
   },
 
   subsection: {
@@ -1152,6 +1204,7 @@ configInput: {
     border: "1px solid #1f2937",
     borderRadius: "20px",
     padding: "18px",
+    overflow: "hidden",
   },
 
   subsectionTitle: {
@@ -1182,29 +1235,51 @@ configInput: {
     color: "#94a3b8",
   },
 
-formGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
-  gap: "12px",
-  alignItems: "end",
-},
+  formGrid: {
+    display: "grid",
+    gap: "12px",
+    alignItems: "end",
+    width: "100%",
+    minWidth: 0,
+  },
 
-field: {
-  display: "flex",
-  flexDirection: "column",
-  gap: "6px",
-  minWidth: 0,
-  width: "100%",
-},
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    minWidth: 0,
+    width: "100%",
+  },
 
-label: {
-  fontSize: "11px",
-  color: "#7f90a6",
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  lineHeight: 1.2,
-},
+  label: {
+    fontSize: "11px",
+    color: "#7f90a6",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    lineHeight: 1.2,
+  },
+
+  configInput: {
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    border: "1px solid #253246",
+    background: "#0a1322",
+    color: "#f8fafc",
+    borderRadius: "10px",
+    padding: "7px 10px",
+    fontSize: "13px",
+    outline: "none",
+    height: "34px",
+    boxSizing: "border-box",
+    textAlign: "center",
+    fontVariantNumeric: "tabular-nums",
+    display: "block",
+    overflow: "hidden",
+    appearance: "none",
+    WebkitAppearance: "none",
+  },
 
   chartGrid: {
     display: "grid",
@@ -1217,6 +1292,8 @@ label: {
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "18px",
+    overflow: "hidden",
+    minWidth: 0,
   },
 
   chartHeader: {
@@ -1238,6 +1315,7 @@ label: {
   chartWrap: {
     width: "100%",
     height: "300px",
+    minWidth: 0,
   },
 
   periodRow: {
@@ -1263,28 +1341,28 @@ label: {
     border: "1px solid #1d4ed8",
   },
 
-actionsRow: {
-  marginTop: "16px",
-  display: "flex",
-  gap: "14px",
-  alignItems: "center",
-  flexWrap: "wrap",
-},
+  actionsRow: {
+    marginTop: "16px",
+    display: "flex",
+    gap: "14px",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
 
-primaryButton: {
-  border: "1px solid #2563eb",
-  background: "#163b7a",
-  color: "#ffffff",
-  borderRadius: "10px",
-  padding: "10px 14px",
-  cursor: "pointer",
-  fontWeight: 800,
-  fontSize: "13px",
-  minHeight: "36px",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-},
+  primaryButton: {
+    border: "1px solid #2563eb",
+    background: "#163b7a",
+    color: "#ffffff",
+    borderRadius: "10px",
+    padding: "10px 14px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "13px",
+    minHeight: "36px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   adminLoginRow: {
     display: "flex",
@@ -1292,18 +1370,18 @@ primaryButton: {
     flexWrap: "wrap",
   },
 
-input: {
-  flex: "1 1 260px",
-  minWidth: "220px",
-  border: "1px solid #2a3547",
-  background: "#0f172a",
-  color: "#f8fafc",
-  borderRadius: "12px",
-  padding: "9px 12px",
-  fontSize: "13px",
-  outline: "none",
-  height: "38px",
-},
+  input: {
+    flex: "1 1 260px",
+    minWidth: "220px",
+    border: "1px solid #2a3547",
+    background: "#0f172a",
+    color: "#f8fafc",
+    borderRadius: "12px",
+    padding: "9px 12px",
+    fontSize: "13px",
+    outline: "none",
+    height: "38px",
+  },
 
   loginButton: {
     border: "1px solid #1d4ed8",
@@ -1342,6 +1420,7 @@ input: {
     display: "flex",
     flexDirection: "column",
     gap: "16px",
+    minWidth: 0,
   },
 
   adminPanelTop: {
@@ -1368,6 +1447,7 @@ input: {
     border: "1px solid #1e293b",
     borderRadius: "18px",
     padding: "16px",
+    minWidth: 0,
   },
 
   smallStatLabel: {
@@ -1408,6 +1488,7 @@ input: {
     border: "1px solid #1f2937",
     borderRadius: "20px",
     padding: "16px",
+    overflow: "hidden",
   },
 
   rawConfigTitle: {
