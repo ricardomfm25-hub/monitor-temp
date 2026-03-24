@@ -181,100 +181,6 @@ function DataChart({
         </div>
       </div>
 
-function DataChart({
-  title,
-  data,
-  dataKey,
-  unit,
-  minThreshold,
-  maxThreshold,
-  isMobile,
-}) {
-  const { min, max } = getMinMax(data, dataKey);
-
-  return (
-    <div style={styles.chartCard}>
-      <div style={styles.chartHeader}>
-        <div>
-          <div style={styles.chartTitle}>{title}</div>
-          <div style={styles.chartSubtitle}>
-            Pico inferior: {formatValue(min, unit)} | Pico superior:{" "}
-            {formatValue(max, unit)}
-          </div>
-        </div>
-      </div>
-
-      <div style={styles.chartWrap}>
-        <ResponsiveContainer width="100%" height={isMobile ? 180 : 300}>
-          <LineChart data={data}>
-            <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
-            <XAxis
-              dataKey="created_at"
-              tickFormatter={formatShortTime}
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-            />
-            <YAxis
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-              domain={["auto", "auto"]}
-              width={36}
-            />
-            <Tooltip content={<CustomTooltip unit={unit} />} />
-
-            {minThreshold !== null && minThreshold !== undefined && (
-              <ReferenceLine
-                y={Number(minThreshold)}
-                stroke="#f59e0b"
-                strokeDasharray="6 6"
-              />
-            )}
-
-            {maxThreshold !== null && maxThreshold !== undefined && (
-              <ReferenceLine
-                y={Number(maxThreshold)}
-                stroke="#ef4444"
-                strokeDasharray="6 6"
-              />
-            )}
-
-            <Line
-              type="monotone"
-              dataKey={dataKey}
-              stroke="#3b82f6"
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 5 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-function DataChart({
-  title,
-  data,
-  dataKey,
-  unit,
-  minThreshold,
-  maxThreshold,
-  isMobile,
-}) {
-  const { min, max } = getMinMax(data, dataKey);
-
-  return (
-    <div style={styles.chartCard}>
-      <div style={styles.chartHeader}>
-        <div>
-          <div style={styles.chartTitle}>{title}</div>
-          <div style={styles.chartSubtitle}>
-            Pico inferior: {formatValue(min, unit)} | Pico superior:{" "}
-            {formatValue(max, unit)}
-          </div>
-        </div>
-      </div>
-
       <div style={styles.chartWrap}>
         <ResponsiveContainer width="100%" height={isMobile ? 180 : 300}>
           <LineChart data={data}>
@@ -622,7 +528,9 @@ export default function DashboardPage() {
             <div
               style={{
                 ...styles.metricsRow,
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(2, minmax(0, 1fr))",
               }}
             >
               <MetricBox
@@ -638,7 +546,9 @@ export default function DashboardPage() {
             <div
               style={{
                 ...styles.heroMetaRow,
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(2, minmax(0, 1fr))",
               }}
             >
               <InfoItem
@@ -753,7 +663,9 @@ export default function DashboardPage() {
           <div
             style={{
               ...styles.formGrid,
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "repeat(4, minmax(0, 1fr))",
             }}
           >
             <div style={styles.field}>
@@ -871,7 +783,9 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              {adminError ? <div style={styles.errorText}>{adminError}</div> : null}
+              {adminError ? (
+                <div style={styles.errorText}>{adminError}</div>
+              ) : null}
             </>
           ) : (
             <div style={styles.adminPanel}>
@@ -893,12 +807,23 @@ export default function DashboardPage() {
               <div
                 style={{
                   ...styles.adminGrid,
-                  gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+                  gridTemplateColumns: isMobile
+                    ? "1fr"
+                    : "repeat(4, minmax(0, 1fr))",
                 }}
               >
-                <SmallStat label="Config version" value={device?.config_version ?? "-"} />
-                <SmallStat label="Atualizada em" value={formatDateTime(device?.updated_at)} />
-                <SmallStat label="Last seen" value={formatDateTime(device?.last_seen)} />
+                <SmallStat
+                  label="Config version"
+                  value={device?.config_version ?? "-"}
+                />
+                <SmallStat
+                  label="Atualizada em"
+                  value={formatDateTime(device?.updated_at)}
+                />
+                <SmallStat
+                  label="Last seen"
+                  value={formatDateTime(device?.last_seen)}
+                />
                 <SmallStat label="Status raw" value={device?.status || "-"} />
                 <SmallStat label="Device ID" value={device?.device_id || DEVICE_ID} />
                 <SmallStat label="Nome" value={deviceDisplayName} />
@@ -921,7 +846,11 @@ export default function DashboardPage() {
                 />
                 <SmallStat
                   label="Standby display"
-                  value={displayStandbyMin !== undefined ? `${displayStandbyMin} min` : "-"}
+                  value={
+                    displayStandbyMin !== undefined
+                      ? `${displayStandbyMin} min`
+                      : "-"
+                  }
                 />
               </div>
 
@@ -931,7 +860,9 @@ export default function DashboardPage() {
                 <div
                   style={{
                     ...styles.formGrid,
-                    gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+                    gridTemplateColumns: isMobile
+                      ? "1fr"
+                      : "repeat(4, minmax(0, 1fr))",
                   }}
                 >
                   <div style={styles.field}>
@@ -940,7 +871,10 @@ export default function DashboardPage() {
                       type="text"
                       value={adminForm.name}
                       onChange={(e) =>
-                        setAdminForm((prev) => ({ ...prev, name: e.target.value }))
+                        setAdminForm((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
                       }
                       style={styles.configInput}
                     />
@@ -952,7 +886,10 @@ export default function DashboardPage() {
                       type="text"
                       value={adminForm.location}
                       onChange={(e) =>
-                        setAdminForm((prev) => ({ ...prev, location: e.target.value }))
+                        setAdminForm((prev) => ({
+                          ...prev,
+                          location: e.target.value,
+                        }))
                       }
                       style={styles.configInput}
                     />
@@ -965,7 +902,10 @@ export default function DashboardPage() {
                       step="0.1"
                       value={adminForm.hyst_c}
                       onChange={(e) =>
-                        setAdminForm((prev) => ({ ...prev, hyst_c: e.target.value }))
+                        setAdminForm((prev) => ({
+                          ...prev,
+                          hyst_c: e.target.value,
+                        }))
                       }
                       style={styles.configInput}
                     />
@@ -1400,10 +1340,11 @@ const styles = {
     fontSize: "13px",
     color: "#94a3b8",
   },
-chartWrap: {
-  width: "100%",
-  minWidth: 0,
-},
+
+  chartWrap: {
+    width: "100%",
+    minWidth: 0,
+  },
 
   periodRow: {
     display: "flex",
