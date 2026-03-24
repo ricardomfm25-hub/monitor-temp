@@ -179,27 +179,6 @@ function getChartDomain(data, key) {
   return [min - pad, max + pad];
 }
 
-function getChartDomain(data, key) {
-  const values = data
-    .map((item) => Number(item[key]))
-    .filter((v) => !Number.isNaN(v));
-
-  if (!values.length) return ["auto", "auto"];
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-
-  if (min === max) {
-    const pad = Math.max(Math.abs(min) * 0.02, 0.5);
-    return [min - pad, max + pad];
-  }
-
-  const range = max - min;
-  const pad = Math.max(range * 0.15, 0.2);
-
-  return [min - pad, max + pad];
-}
-
 function DataChart({
   title,
   data,
