@@ -185,12 +185,14 @@ function DataChart({
         <ResponsiveContainer width="100%" height={isMobile ? 180 : 300}>
           <LineChart data={data}>
             <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
-            <XAxis
-              dataKey="created_at"
-              tickFormatter={formatShortTime}
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-            />
+          <XAxis
+  dataKey="created_at"
+  tickFormatter={formatShortTime}
+  stroke="#7c8aa0"
+  tick={{ fontSize: 12 }}
+  minTickGap={24}
+  interval="preserveStartEnd"
+/>
             <YAxis
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
@@ -1028,16 +1030,16 @@ const styles = {
     fontSize: "14px",
   },
 
-  heroCard: {
-    display: "grid",
-    gridTemplateColumns: "1.7fr 1fr",
-    gap: "18px",
-    background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
-    border: "1px solid #1f2937",
-    borderRadius: "24px",
-    padding: "22px",
-    overflow: "hidden",
-  },
+heroCard: {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 1fr)",
+  gap: "18px",
+  background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
+  border: "1px solid #1f2937",
+  borderRadius: "24px",
+  padding: "22px",
+  overflow: "hidden",
+},
 
   heroLeft: {
     display: "flex",
@@ -1144,14 +1146,15 @@ const styles = {
     marginBottom: "8px",
   },
 
-  metricValue: {
-    fontSize: "30px",
-    lineHeight: 1,
-    fontWeight: 800,
-    letterSpacing: "-0.03em",
-    color: "#f8fafc",
-    wordBreak: "break-word",
-  },
+metricValue: {
+  fontSize: "30px",
+  lineHeight: 1,
+  fontWeight: 800,
+  letterSpacing: "-0.03em",
+  color: "#f8fafc",
+  wordBreak: "break-word",
+  overflowWrap: "anywhere",
+},
 
   heroMetaRow: {
     display: "grid",
@@ -1176,12 +1179,13 @@ const styles = {
     fontWeight: 700,
   },
 
-  infoValue: {
-    fontSize: "15px",
-    fontWeight: 700,
-    color: "#f8fafc",
-    wordBreak: "break-word",
-  },
+infoValue: {
+  fontSize: "15px",
+  fontWeight: 700,
+  color: "#f8fafc",
+  wordBreak: "break-word",
+  overflowWrap: "anywhere",
+},
 
   sideTitle: {
     fontSize: "16px",
@@ -1195,17 +1199,18 @@ const styles = {
     gap: "10px",
   },
 
-  summaryBlock: {
-    background: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "16px",
-    padding: "14px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    minWidth: 0,
-  },
+summaryBlock: {
+  background: "#0f172a",
+  border: "1px solid #1e293b",
+  borderRadius: "16px",
+  padding: "14px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+  minWidth: 0,
+  flexWrap: "wrap",
+},
 
   summaryLabel: {
     color: "#8fa1b9",
@@ -1310,20 +1315,20 @@ const styles = {
     WebkitAppearance: "none",
   },
 
-  chartGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "18px",
-  },
+chartGrid: {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "18px",
+},
 
-  chartCard: {
-    background: "#111827",
-    border: "1px solid #1f2937",
-    borderRadius: "24px",
-    padding: "18px",
-    overflow: "hidden",
-    minWidth: 0,
-  },
+chartCard: {
+  background: "#111827",
+  border: "1px solid #1f2937",
+  borderRadius: "24px",
+  padding: "18px",
+  overflow: "hidden",
+  minWidth: 0,
+},
 
   chartHeader: {
     marginBottom: "10px",
@@ -1341,10 +1346,11 @@ const styles = {
     color: "#94a3b8",
   },
 
-  chartWrap: {
-    width: "100%",
-    minWidth: 0,
-  },
+chartWrap: {
+  width: "100%",
+  minWidth: 0,
+  overflow: "hidden",
+},
 
   periodRow: {
     display: "flex",
@@ -1464,11 +1470,13 @@ const styles = {
     fontWeight: 800,
   },
 
-  adminGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: "12px",
-  },
+adminGrid: {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "12px",
+  width: "100%",
+  minWidth: 0,
+},
 
   smallStat: {
     background: "#0f172a",
@@ -1485,12 +1493,13 @@ const styles = {
     marginBottom: "8px",
   },
 
-  smallStatValue: {
-    fontSize: "15px",
-    fontWeight: 800,
-    color: "#f8fafc",
-    wordBreak: "break-word",
-  },
+smallStatValue: {
+  fontSize: "15px",
+  fontWeight: 800,
+  color: "#f8fafc",
+  wordBreak: "break-word",
+  overflowWrap: "anywhere",
+},
 
   tooltip: {
     background: "#0f172a",

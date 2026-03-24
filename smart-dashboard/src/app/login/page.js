@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
 
@@ -11,7 +11,26 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    async function checkSession() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        router.replace("/");
+        router.refresh();
+        return;
+      }
+
+      setCheckingSession(false);
+    }
+
+    checkSession();
+  }, [router, supabase]);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -29,8 +48,18 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/");
+    router.replace("/");
     router.refresh();
+  }
+
+  if (checkingSession) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.card}>
+          <p style={styles.subtitle}>A verificar sessão...</p>
+        </div>
+      </main>
+    );
   }
 
   return (
