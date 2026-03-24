@@ -228,7 +228,8 @@ function DataChart({
       </div>
     </div>
   );
-}function DataChart({
+}
+function DataChart({
   title,
   data,
   dataKey,
@@ -298,7 +299,8 @@ function DataChart({
       </div>
     </div>
   );
-}function DataChart({
+}
+function DataChart({
   title,
   data,
   dataKey,
