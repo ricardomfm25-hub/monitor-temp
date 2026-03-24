@@ -158,6 +158,48 @@ function SmallStat({ label, value }) {
   );
 }
 
+function getChartDomain(data, key) {
+  const values = data
+    .map((item) => Number(item[key]))
+    .filter((v) => !Number.isNaN(v));
+
+  if (!values.length) return ["auto", "auto"];
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.02, 0.5);
+    return [min - pad, max + pad];
+  }
+
+  const range = max - min;
+  const pad = Math.max(range * 0.15, 0.2);
+
+  return [min - pad, max + pad];
+}
+
+function getChartDomain(data, key) {
+  const values = data
+    .map((item) => Number(item[key]))
+    .filter((v) => !Number.isNaN(v));
+
+  if (!values.length) return ["auto", "auto"];
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.02, 0.5);
+    return [min - pad, max + pad];
+  }
+
+  const range = max - min;
+  const pad = Math.max(range * 0.15, 0.2);
+
+  return [min - pad, max + pad];
+}
+
 function DataChart({
   title,
   data,
@@ -168,6 +210,7 @@ function DataChart({
   isMobile,
 }) {
   const { min, max } = getMinMax(data, dataKey);
+  const yDomain = getChartDomain(data, dataKey);
 
   return (
     <div style={styles.chartCard}>
@@ -182,23 +225,32 @@ function DataChart({
       </div>
 
       <div style={styles.chartWrap}>
-        <ResponsiveContainer width="100%" height={isMobile ? 180 : 300}>
-          <LineChart data={data}>
+        <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
+          <LineChart
+            data={data}
+            margin={{ top: 12, right: 18, left: 6, bottom: 6 }}
+          >
             <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
-          <XAxis
-  dataKey="created_at"
-  tickFormatter={formatShortTime}
-  stroke="#7c8aa0"
-  tick={{ fontSize: 12 }}
-  minTickGap={24}
-  interval="preserveStartEnd"
-/>
+
+            <XAxis
+              dataKey="created_at"
+              tickFormatter={formatShortTime}
+              stroke="#7c8aa0"
+              tick={{ fontSize: 12 }}
+              minTickGap={28}
+              interval="preserveStartEnd"
+              tickMargin={8}
+            />
+
             <YAxis
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
-              domain={["auto", "auto"]}
-              width={36}
+              domain={yDomain}
+              width={44}
+              tickMargin={8}
+              allowDecimals={dataKey === "temperature"}
             />
+
             <Tooltip content={<CustomTooltip unit={unit} />} />
 
             {minThreshold !== null && minThreshold !== undefined && (
@@ -218,12 +270,14 @@ function DataChart({
             )}
 
             <Line
-              type="monotone"
+              type="linear"
               dataKey={dataKey}
               stroke="#3b82f6"
-              strokeWidth={3}
+              strokeWidth={2.5}
               dot={false}
-              activeDot={{ r: 5 }}
+              activeDot={{ r: 4 }}
+              connectNulls={false}
+              isAnimationActive={false}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -1350,6 +1404,7 @@ chartWrap: {
   width: "100%",
   minWidth: 0,
   overflow: "hidden",
+  paddingTop: "4px",
 },
 
   periodRow: {
