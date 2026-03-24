@@ -181,54 +181,6 @@ function DataChart({
         </div>
       </div>
 
-      <div style={styles.chartWrap}>
-        <ResponsiveContainer width="100%" height={isMobile ? 180 : 300}>
-          <LineChart data={data}>
-            <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
-            <XAxis
-              dataKey="created_at"
-              tickFormatter={formatShortTime}
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-            />
-            <YAxis
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-              domain={["auto", "auto"]}
-              width={36}
-            />
-            <Tooltip content={<CustomTooltip unit={unit} />} />
-
-            {minThreshold !== null && minThreshold !== undefined && (
-              <ReferenceLine
-                y={Number(minThreshold)}
-                stroke="#f59e0b"
-                strokeDasharray="6 6"
-              />
-            )}
-
-            {maxThreshold !== null && maxThreshold !== undefined && (
-              <ReferenceLine
-                y={Number(maxThreshold)}
-                stroke="#ef4444"
-                strokeDasharray="6 6"
-              />
-            )}
-
-            <Line
-              type="monotone"
-              dataKey={dataKey}
-              stroke="#3b82f6"
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 5 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
 function DataChart({
   title,
   data,
