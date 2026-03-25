@@ -59,8 +59,30 @@ function toInputValue(value) {
   return String(value);
 }
 
+function getEffectiveStatus(device) {
+  const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
+  const now = Date.now();
+  const offlineLimitMs = 120 * 1000;
+
+  if (!lastSeen || now - lastSeen > offlineLimitMs) {
+    return "OFFLINE";
+  }
+
+  return device?.status || "SEM DADOS";
+}
+
 function getStatusInfo(status) {
   const s = String(status || "").toLowerCase();
+
+  if (s.includes("offline")) {
+    return {
+      label: "OFFLINE",
+      color: "#94a3b8",
+      soft: "#1a2230",
+      border: "#334155",
+      glow: "0 0 0 1px rgba(148,163,184,0.12)",
+    };
+  }
 
   if (s.includes("alarm")) {
     return {
@@ -98,21 +120,6 @@ function getStatusInfo(status) {
     soft: "#161b22",
     border: "#293241",
     glow: "0 0 0 1px rgba(148,163,184,0.10)",
-  };
-}
-
-function getMinMax(data, key) {
-  const values = data
-    .map((item) => Number(item[key]))
-    .filter((v) => !Number.isNaN(v));
-
-  if (!values.length) {
-    return { min: null, max: null };
-  }
-
-  return {
-    min: Math.min(...values),
-    max: Math.max(...values),
   };
 }
 
@@ -387,7 +394,9 @@ export default function DashboardPage() {
   const sendIntervalS = config?.send_interval_s;
   const displayStandbyMin = config?.display_standby_min;
 
-  const statusInfo = getStatusInfo(device?.status);
+
+const effectiveStatus = getEffectiveStatus(device);
+const statusInfo = getStatusInfo(effectiveStatus);
   const deviceDisplayName = device?.name || device?.device_id || DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
