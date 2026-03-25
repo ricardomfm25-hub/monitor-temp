@@ -123,6 +123,42 @@ function getStatusInfo(status) {
   };
 }
 
+function getMinMax(data, key) {
+  const values = data
+    .map((item) => Number(item[key]))
+    .filter((v) => !Number.isNaN(v));
+
+  if (!values.length) {
+    return { min: null, max: null };
+  }
+
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+  };
+}
+
+function getChartDomain(data, key) {
+  const values = data
+    .map((item) => Number(item[key]))
+    .filter((v) => !Number.isNaN(v));
+
+  if (!values.length) return ["auto", "auto"];
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.02, 0.5);
+    return [min - pad, max + pad];
+  }
+
+  const range = max - min;
+  const pad = Math.max(range * 0.15, 0.2);
+
+  return [min - pad, max + pad];
+}
+
 function CustomTooltip({ active, payload, label, unit }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -163,27 +199,6 @@ function SmallStat({ label, value }) {
       <div style={styles.smallStatValue}>{value}</div>
     </div>
   );
-}
-
-function getChartDomain(data, key) {
-  const values = data
-    .map((item) => Number(item[key]))
-    .filter((v) => !Number.isNaN(v));
-
-  if (!values.length) return ["auto", "auto"];
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-
-  if (min === max) {
-    const pad = Math.max(Math.abs(min) * 0.02, 0.5);
-    return [min - pad, max + pad];
-  }
-
-  const range = max - min;
-  const pad = Math.max(range * 0.15, 0.2);
-
-  return [min - pad, max + pad];
 }
 
 function DataChart({
@@ -394,9 +409,8 @@ export default function DashboardPage() {
   const sendIntervalS = config?.send_interval_s;
   const displayStandbyMin = config?.display_standby_min;
 
-
-const effectiveStatus = getEffectiveStatus(device);
-const statusInfo = getStatusInfo(effectiveStatus);
+  const effectiveStatus = getEffectiveStatus(device);
+  const statusInfo = getStatusInfo(effectiveStatus);
   const deviceDisplayName = device?.name || device?.device_id || DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
@@ -540,7 +554,7 @@ const statusInfo = getStatusInfo(effectiveStatus);
         <section
           style={{
             ...styles.heroCard,
-            gridTemplateColumns: isMobile ? "1fr" : "1.7fr 1fr",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.7fr) minmax(320px, 1fr)",
           }}
         >
           <div style={styles.heroLeft}>
@@ -644,7 +658,7 @@ const statusInfo = getStatusInfo(effectiveStatus);
         <section
           style={{
             ...styles.chartGrid,
-            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
           }}
         >
           <DataChart
@@ -853,7 +867,7 @@ const statusInfo = getStatusInfo(effectiveStatus);
                   ...styles.adminGrid,
                   gridTemplateColumns: isMobile
                     ? "1fr"
-                    : "repeat(4, minmax(0, 1fr))",
+                    : "repeat(auto-fit, minmax(180px, 1fr))",
                 }}
               >
                 <SmallStat
@@ -1072,16 +1086,16 @@ const styles = {
     fontSize: "14px",
   },
 
-heroCard: {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 1fr)",
-  gap: "18px",
-  background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
-  border: "1px solid #1f2937",
-  borderRadius: "24px",
-  padding: "22px",
-  overflow: "hidden",
-},
+  heroCard: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 1fr)",
+    gap: "18px",
+    background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
+    border: "1px solid #1f2937",
+    borderRadius: "24px",
+    padding: "22px",
+    overflow: "hidden",
+  },
 
   heroLeft: {
     display: "flex",
@@ -1188,15 +1202,15 @@ heroCard: {
     marginBottom: "8px",
   },
 
-metricValue: {
-  fontSize: "30px",
-  lineHeight: 1,
-  fontWeight: 800,
-  letterSpacing: "-0.03em",
-  color: "#f8fafc",
-  wordBreak: "break-word",
-  overflowWrap: "anywhere",
-},
+  metricValue: {
+    fontSize: "30px",
+    lineHeight: 1,
+    fontWeight: 800,
+    letterSpacing: "-0.03em",
+    color: "#f8fafc",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
 
   heroMetaRow: {
     display: "grid",
@@ -1221,13 +1235,13 @@ metricValue: {
     fontWeight: 700,
   },
 
-infoValue: {
-  fontSize: "15px",
-  fontWeight: 700,
-  color: "#f8fafc",
-  wordBreak: "break-word",
-  overflowWrap: "anywhere",
-},
+  infoValue: {
+    fontSize: "15px",
+    fontWeight: 700,
+    color: "#f8fafc",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
 
   sideTitle: {
     fontSize: "16px",
@@ -1241,18 +1255,18 @@ infoValue: {
     gap: "10px",
   },
 
-summaryBlock: {
-  background: "#0f172a",
-  border: "1px solid #1e293b",
-  borderRadius: "16px",
-  padding: "14px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "10px",
-  minWidth: 0,
-  flexWrap: "wrap",
-},
+  summaryBlock: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    minWidth: 0,
+    flexWrap: "wrap",
+  },
 
   summaryLabel: {
     color: "#8fa1b9",
@@ -1357,20 +1371,20 @@ summaryBlock: {
     WebkitAppearance: "none",
   },
 
-chartGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "18px",
-},
+  chartGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "18px",
+  },
 
-chartCard: {
-  background: "#111827",
-  border: "1px solid #1f2937",
-  borderRadius: "24px",
-  padding: "18px",
-  overflow: "hidden",
-  minWidth: 0,
-},
+  chartCard: {
+    background: "#111827",
+    border: "1px solid #1f2937",
+    borderRadius: "24px",
+    padding: "18px",
+    overflow: "hidden",
+    minWidth: 0,
+  },
 
   chartHeader: {
     marginBottom: "10px",
@@ -1388,12 +1402,12 @@ chartCard: {
     color: "#94a3b8",
   },
 
-chartWrap: {
-  width: "100%",
-  minWidth: 0,
-  overflow: "hidden",
-  paddingTop: "4px",
-},
+  chartWrap: {
+    width: "100%",
+    minWidth: 0,
+    overflow: "hidden",
+    paddingTop: "4px",
+  },
 
   periodRow: {
     display: "flex",
@@ -1513,13 +1527,13 @@ chartWrap: {
     fontWeight: 800,
   },
 
-adminGrid: {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: "12px",
-  width: "100%",
-  minWidth: 0,
-},
+  adminGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+    width: "100%",
+    minWidth: 0,
+  },
 
   smallStat: {
     background: "#0f172a",
@@ -1536,13 +1550,13 @@ adminGrid: {
     marginBottom: "8px",
   },
 
-smallStatValue: {
-  fontSize: "15px",
-  fontWeight: 800,
-  color: "#f8fafc",
-  wordBreak: "break-word",
-  overflowWrap: "anywhere",
-},
+  smallStatValue: {
+    fontSize: "15px",
+    fontWeight: 800,
+    color: "#f8fafc",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
 
   tooltip: {
     background: "#0f172a",
