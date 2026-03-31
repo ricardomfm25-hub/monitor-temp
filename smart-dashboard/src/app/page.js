@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "../utils/supabase/client";
 import {
   LineChart,
@@ -11,10 +11,12 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceDot,
 } from "recharts";
 
 const DEVICE_ID = "SmartThermoSecure_01";
 const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || "stsadminRM2026";
+const AUTO_REFRESH_MS = 15000;
 
 const PERIODS = [
   { key: "1h", label: "1H", hours: 1 },
@@ -36,9 +38,17 @@ function formatDateTime(value) {
   });
 }
 
-function formatShortTime(value) {
+function formatShortTime(value, periodKey = "24h") {
   if (!value) return "";
   const d = new Date(value);
+
+  if (periodKey === "7d") {
+    return d.toLocaleDateString("pt-PT", {
+      day: "2-digit",
+      month: "2-digit",
+    });
+  }
+
   return d.toLocaleTimeString("pt-PT", {
     hour: "2-digit",
     minute: "2-digit",
@@ -57,6 +67,13 @@ function toInputValue(value) {
     return "";
   }
   return String(value);
+}
+
+function parseNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const normalized = String(value).replace(",", ".");
+  const numeric = Number(normalized);
+  return Number.isNaN(numeric) ? null : numeric;
 }
 
 function getEffectiveStatus(device) {
@@ -123,10 +140,10 @@ function getStatusInfo(status) {
   };
 }
 
-function getMinMax(data, key) {
+function getSeriesMinMax(data, key) {
   const values = data
-    .map((item) => Number(item[key]))
-    .filter((v) => !Number.isNaN(v));
+    .map((item) => parseNumber(item?.[key]))
+    .filter((v) => v !== null);
 
   if (!values.length) {
     return { min: null, max: null };
@@ -140,35 +157,106 @@ function getMinMax(data, key) {
 
 function getChartDomain(data, key) {
   const values = data
-    .map((item) => Number(item[key]))
-    .filter((v) => !Number.isNaN(v));
+    .map((item) => parseNumber(item?.[key]))
+    .filter((v) => v !== null);
 
   if (!values.length) return ["auto", "auto"];
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  let min = Math.min(...values);
+  let max = Math.max(...values);
 
   if (min === max) {
-    const pad = Math.max(Math.abs(min) * 0.02, 0.5);
-    return [min - pad, max + pad];
+    const pad =
+      key === "humidity"
+        ? Math.max(Math.abs(min) * 0.02, 1)
+        : Math.max(Math.abs(min) * 0.03, 0.6);
+
+    return [
+      Number((min - pad).toFixed(2)),
+      Number((max + pad).toFixed(2)),
+    ];
   }
 
   const range = max - min;
-  const pad = Math.max(range * 0.15, 0.2);
 
-  return [min - pad, max + pad];
+  let pad;
+  if (key === "humidity") {
+    pad = Math.max(range * 0.2, 1);
+  } else {
+    pad = Math.max(range * 0.2, 0.3);
+  }
+
+  return [
+    Number((min - pad).toFixed(2)),
+    Number((max + pad).toFixed(2)),
+  ];
 }
 
-function CustomTooltip({ active, payload, label, unit }) {
+function getReferencePoints(data, key) {
+  const points = data
+    .map((item) => ({
+      value: parseNumber(item?.[key]),
+      created_at: item?.created_at,
+    }))
+    .filter((item) => item.value !== null && item.created_at);
+
+  if (!points.length) {
+    return { minPoint: null, maxPoint: null };
+  }
+
+  let minPoint = points[0];
+  let maxPoint = points[0];
+
+  for (const point of points) {
+    if (point.value < minPoint.value) minPoint = point;
+    if (point.value > maxPoint.value) maxPoint = point;
+  }
+
+  return { minPoint, maxPoint };
+}
+
+function getNiceTemperatureTicks(domain) {
+  if (!Array.isArray(domain) || domain.length !== 2) return undefined;
+
+  const [min, max] = domain;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return undefined;
+
+  const range = max - min;
+  if (range <= 0) return [Number(min.toFixed(1)), Number(max.toFixed(1))];
+
+  const steps = 5;
+  const rawStep = range / steps;
+
+  let step = 0.1;
+  if (rawStep > 5) step = 2;
+  else if (rawStep > 2) step = 1;
+  else if (rawStep > 1) step = 0.5;
+  else if (rawStep > 0.5) step = 0.2;
+
+  const start = Math.floor(min / step) * step;
+  const end = Math.ceil(max / step) * step;
+
+  const ticks = [];
+  for (let v = start; v <= end + step / 2; v += step) {
+    ticks.push(Number(v.toFixed(1)));
+  }
+
+  return ticks;
+}
+
+function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
+  const point = payload[0]?.payload;
   const value = payload[0]?.value;
 
   return (
     <div style={styles.tooltip}>
-      <div style={styles.tooltipTitle}>{formatDateTime(label)}</div>
+      <div style={styles.tooltipTitle}>
+        {formatDateTime(point?.created_at || label)}
+      </div>
       <div style={styles.tooltipValue}>
-        Valor: <strong>{formatValue(value, unit)}</strong>
+        Valor: <strong>{formatValue(value, unit, digits)}</strong>
       </div>
     </div>
   );
@@ -209,9 +297,19 @@ function DataChart({
   minThreshold,
   maxThreshold,
   isMobile,
+  periodKey,
 }) {
-  const { min, max } = getMinMax(data, dataKey);
+  const { min, max } = getSeriesMinMax(data, dataKey);
   const yDomain = getChartDomain(data, dataKey);
+  const { minPoint, maxPoint } = getReferencePoints(data, dataKey);
+  const yTicks =
+    dataKey === "temperature" ? getNiceTemperatureTicks(yDomain) : undefined;
+
+  const valueDigits = dataKey === "humidity" ? 0 : 1;
+  const yTickFormatter =
+    dataKey === "humidity"
+      ? (value) => `${Math.round(Number(value))}`
+      : (value) => `${Number(value).toFixed(1)}`;
 
   return (
     <div style={styles.chartCard}>
@@ -219,8 +317,7 @@ function DataChart({
         <div>
           <div style={styles.chartTitle}>{title}</div>
           <div style={styles.chartSubtitle}>
-            Pico inferior: {formatValue(min, unit)} | Pico superior:{" "}
-            {formatValue(max, unit)}
+            Min {formatValue(min, unit, valueDigits)} · Max {formatValue(max, unit, valueDigits)}
           </div>
         </div>
       </div>
@@ -229,13 +326,13 @@ function DataChart({
         <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
           <LineChart
             data={data}
-            margin={{ top: 12, right: 18, left: 6, bottom: 6 }}
+            margin={{ top: 20, right: 28, left: 8, bottom: 8 }}
           >
             <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
 
             <XAxis
               dataKey="created_at"
-              tickFormatter={formatShortTime}
+              tickFormatter={(value) => formatShortTime(value, periodKey)}
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
               minTickGap={28}
@@ -247,12 +344,16 @@ function DataChart({
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
               domain={yDomain}
-              width={44}
+              ticks={yTicks}
+              width={64}
               tickMargin={8}
               allowDecimals={dataKey === "temperature"}
+              tickFormatter={yTickFormatter}
             />
 
-            <Tooltip content={<CustomTooltip unit={unit} />} />
+            <Tooltip
+              content={<CustomTooltip unit={unit} digits={valueDigits} />}
+            />
 
             {minThreshold !== null && minThreshold !== undefined && (
               <ReferenceLine
@@ -271,15 +372,47 @@ function DataChart({
             )}
 
             <Line
-              type="linear"
+              type="monotone"
               dataKey={dataKey}
               stroke="#3b82f6"
-              strokeWidth={2.5}
+              strokeWidth={3}
               dot={false}
               activeDot={{ r: 4 }}
-              connectNulls={false}
+              connectNulls
               isAnimationActive={false}
             />
+
+            {minPoint && (
+              <ReferenceDot
+                x={minPoint.created_at}
+                y={minPoint.value}
+                r={4}
+                fill="#facc15"
+                stroke="none"
+                label={{
+                  value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
+                  position: "bottom",
+                  fill: "#facc15",
+                  fontSize: 12,
+                }}
+              />
+            )}
+
+            {maxPoint && (
+              <ReferenceDot
+                x={maxPoint.created_at}
+                y={maxPoint.value}
+                r={4}
+                fill="#fb7185"
+                stroke="none"
+                label={{
+                  value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
+                  position: "top",
+                  fill: "#fb7185",
+                  fontSize: 12,
+                }}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -288,6 +421,7 @@ function DataChart({
 }
 
 export default function DashboardPage() {
+  const supabase = useMemo(() => createClient(), []);
   const [period, setPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
   const [savingClient, setSavingClient] = useState(false);
@@ -320,6 +454,9 @@ export default function DashboardPage() {
 
   const [isMobile, setIsMobile] = useState(false);
 
+  const requestInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+
   const selectedPeriod = useMemo(
     () => PERIODS.find((p) => p.key === period) || PERIODS[3],
     [period]
@@ -336,68 +473,98 @@ export default function DashboardPage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const supabase = createClient();
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-  async function loadData() {
-    setLoading(true);
+  const loadData = useCallback(
+    async ({ silent = false } = {}) => {
+      if (requestInFlightRef.current) return;
 
-    const since = new Date(
-      Date.now() - selectedPeriod.hours * 60 * 60 * 1000
-    ).toISOString();
+      requestInFlightRef.current = true;
+      if (!silent && mountedRef.current) {
+        setLoading(true);
+      }
 
-    const [deviceResponse, readingsResponse] = await Promise.all([
-      supabase
-        .from("devices")
-        .select("*")
-        .eq("device_id", DEVICE_ID)
-        .limit(1)
-        .maybeSingle(),
+      try {
+        const since = new Date(
+          Date.now() - selectedPeriod.hours * 60 * 60 * 1000
+        ).toISOString();
 
-      supabase
-        .from("readings")
-        .select("*")
-        .eq("device_id", DEVICE_ID)
-        .gte("created_at", since)
-        .order("created_at", { ascending: true }),
-    ]);
+        const [deviceResponse, readingsResponse] = await Promise.all([
+          supabase
+            .from("devices")
+            .select("*")
+            .eq("device_id", DEVICE_ID)
+            .limit(1)
+            .maybeSingle(),
 
-    if (deviceResponse.error) {
-      console.warn("devices:", JSON.stringify(deviceResponse.error, null, 2));
-    }
+          supabase
+            .from("readings")
+            .select("*")
+            .eq("device_id", DEVICE_ID)
+            .gte("created_at", since)
+            .order("created_at", { ascending: true }),
+        ]);
 
-    if (readingsResponse.error) {
-      console.warn("readings:", JSON.stringify(readingsResponse.error, null, 2));
-    }
+        if (deviceResponse.error) {
+          console.warn("devices:", JSON.stringify(deviceResponse.error, null, 2));
+        }
 
-    const deviceData = deviceResponse.data || null;
+        if (readingsResponse.error) {
+          console.warn("readings:", JSON.stringify(readingsResponse.error, null, 2));
+        }
 
-    setDevice(deviceData);
-    setReadings(readingsResponse.data || []);
+        const deviceData = deviceResponse.data || null;
+        const readingsData = (readingsResponse.data || []).map((item) => ({
+          ...item,
+          temperature: parseNumber(item.temperature),
+          humidity: parseNumber(item.humidity),
+        }));
 
-    const config = deviceData?.config || {};
+        if (!mountedRef.current) return;
 
-    setClientForm({
-      temp_low_c: toInputValue(config?.temp_low_c),
-      temp_high_c: toInputValue(config?.temp_high_c),
-      hum_low: toInputValue(config?.hum_low),
-      hum_high: toInputValue(config?.hum_high),
-    });
+        setDevice(deviceData);
+        setReadings(readingsData);
 
-    setAdminForm({
-      name: deviceData?.name || "",
-      location: deviceData?.location || "",
-      hyst_c: toInputValue(config?.hyst_c),
-      send_interval_s: toInputValue(config?.send_interval_s),
-      display_standby_min: toInputValue(config?.display_standby_min),
-    });
+        const config = deviceData?.config || {};
 
-    setLoading(false);
-  }
+        setClientForm({
+          temp_low_c: toInputValue(config?.temp_low_c),
+          temp_high_c: toInputValue(config?.temp_high_c),
+          hum_low: toInputValue(config?.hum_low),
+          hum_high: toInputValue(config?.hum_high),
+        });
+
+        setAdminForm({
+          name: deviceData?.name || "",
+          location: deviceData?.location || "",
+          hyst_c: toInputValue(config?.hyst_c),
+          send_interval_s: toInputValue(config?.send_interval_s),
+          display_standby_min: toInputValue(config?.display_standby_min),
+        });
+      } finally {
+        requestInFlightRef.current = false;
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [selectedPeriod.hours, supabase]
+  );
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period]);
+
+    const interval = setInterval(() => {
+      loadData({ silent: true });
+    }, AUTO_REFRESH_MS);
+
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   const config = device?.config || {};
 
@@ -413,13 +580,6 @@ export default function DashboardPage() {
   const statusInfo = getStatusInfo(effectiveStatus);
   const deviceDisplayName = device?.name || device?.device_id || DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
-
-  function parseNumber(value) {
-    if (value === "" || value === null || value === undefined) return null;
-    const normalized = String(value).replace(",", ".");
-    const numeric = Number(normalized);
-    return Number.isNaN(numeric) ? null : numeric;
-  }
 
   async function saveClientConfig() {
     if (!device) return;
@@ -534,7 +694,12 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button onClick={loadData} style={styles.refreshButton}>
+            <button
+              onClick={async () => {
+                await loadData();
+              }}
+              style={styles.refreshButton}
+            >
               Atualizar
             </button>
 
@@ -554,7 +719,9 @@ export default function DashboardPage() {
         <section
           style={{
             ...styles.heroCard,
-            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.7fr) minmax(320px, 1fr)",
+            gridTemplateColumns: isMobile
+              ? "1fr"
+              : "minmax(0, 1.7fr) minmax(320px, 1fr)",
           }}
         >
           <div style={styles.heroLeft}>
@@ -669,6 +836,7 @@ export default function DashboardPage() {
             minThreshold={tempLow}
             maxThreshold={tempHigh}
             isMobile={isMobile}
+            periodKey={period}
           />
 
           <DataChart
@@ -679,6 +847,7 @@ export default function DashboardPage() {
             minThreshold={humLow}
             maxThreshold={humHigh}
             isMobile={isMobile}
+            periodKey={period}
           />
         </section>
 
@@ -1378,7 +1547,7 @@ const styles = {
   },
 
   chartCard: {
-    background: "#111827",
+    background: "linear-gradient(180deg, #0f172a 0%, #0c1424 100%)",
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "18px",
