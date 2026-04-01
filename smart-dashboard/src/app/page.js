@@ -19,11 +19,11 @@ const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || "stsadminRM2026";
 const AUTO_REFRESH_MS = 15000;
 
 const PERIODS = [
-  { key: "1h", label: "1H", hours: 1 },
-  { key: "6h", label: "6H", hours: 6 },
-  { key: "12h", label: "12H", hours: 12 },
-  { key: "24h", label: "24H", hours: 24 },
-  { key: "7d", label: "7D", hours: 24 * 7 },
+  { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
+  { key: "6h", label: "6H", hours: 6, bucketMs: 15 * 60 * 1000, tickMs: 60 * 60 * 1000 },
+  { key: "12h", label: "12H", hours: 12, bucketMs: 30 * 60 * 1000, tickMs: 2 * 60 * 60 * 1000 },
+  { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000 },
+  { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 24 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000 },
 ];
 
 function formatDateTime(value) {
@@ -50,13 +50,6 @@ function formatShortTime(value, periodKey = "24h") {
     });
   }
 
-  if (periodKey === "24h") {
-    return d.toLocaleTimeString("pt-PT", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
   return d.toLocaleTimeString("pt-PT", {
     hour: "2-digit",
     minute: "2-digit",
@@ -68,6 +61,21 @@ function formatValue(value, suffix = "", digits = 1) {
     return "-";
   }
   return `${Number(value).toFixed(digits)}${suffix}`;
+}
+
+function formatDurationCompact(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 function toInputValue(value) {
@@ -255,130 +263,246 @@ function getNiceTemperatureTicks(domain) {
   return ticks;
 }
 
-function getBucketSizeMs(periodKey) {
-  switch (periodKey) {
-    case "1h":
-      return 5 * 60 * 1000;
-    case "6h":
-      return 15 * 60 * 1000;
-    case "12h":
-      return 30 * 60 * 1000;
-    case "24h":
-      return 60 * 60 * 1000;
-    case "7d":
-      return 24 * 60 * 60 * 1000;
-    default:
-      return 15 * 60 * 1000;
-  }
+function getPeriodConfig(periodKey) {
+  return PERIODS.find((p) => p.key === periodKey) || PERIODS[3];
 }
 
-function getTimeDomain(periodKey) {
-  const now = Date.now();
-  const selected = PERIODS.find((p) => p.key === periodKey) || PERIODS[3];
-  const start = now - selected.hours * 60 * 60 * 1000;
-  return [start, now];
+function floorToBucket(timestamp, bucketMs) {
+  return Math.floor(timestamp / bucketMs) * bucketMs;
 }
 
-function aggregateReadings(readings, periodKey) {
-  if (!Array.isArray(readings) || !readings.length) return [];
+function getPeriodWindow(periodKey) {
+  const cfg = getPeriodConfig(periodKey);
+  const end = Date.now();
 
-  const bucketSizeMs = getBucketSizeMs(periodKey);
+  if (periodKey === "7d") {
+    const now = new Date();
+    const endDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+    const startDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 6,
+      0,
+      0,
+      0,
+      0
+    ).getTime();
 
-  if (periodKey === "1h" || periodKey === "6h") {
-    return readings
-      .filter((item) => Number.isFinite(item?.timestamp))
-      .sort((a, b) => a.timestamp - b.timestamp);
+    return { start: startDay, end: endDay, bucketMs: cfg.bucketMs, tickMs: cfg.tickMs };
   }
+
+  return {
+    start: end - cfg.hours * 60 * 60 * 1000,
+    end,
+    bucketMs: cfg.bucketMs,
+    tickMs: cfg.tickMs,
+  };
+}
+
+function buildTimeSeries(readings, periodKey) {
+  const { start, end, bucketMs } = getPeriodWindow(periodKey);
+  const filtered = (readings || [])
+    .filter((item) => Number.isFinite(item?.timestamp))
+    .filter((item) => item.timestamp >= start && item.timestamp <= end)
+    .sort((a, b) => a.timestamp - b.timestamp);
 
   const buckets = new Map();
 
-  for (const item of readings) {
-    const time = Number(item?.timestamp);
-    if (!Number.isFinite(time)) continue;
+  for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
+    if (t >= start) {
+      buckets.set(t, {
+        timestamp: t,
+        created_at: new Date(t).toISOString(),
+        temperature: null,
+        humidity: null,
+        tempSum: 0,
+        tempCount: 0,
+        humSum: 0,
+        humCount: 0,
+      });
+    }
+  }
 
-    const bucketStart = Math.floor(time / bucketSizeMs) * bucketSizeMs;
-    const key = String(bucketStart);
+  for (const item of filtered) {
+    let bucketTime;
+
+    if (periodKey === "7d") {
+      const d = new Date(item.timestamp);
+      bucketTime = new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).getTime();
+    } else {
+      bucketTime = floorToBucket(item.timestamp, bucketMs);
+    }
+
+    if (!buckets.has(bucketTime)) continue;
+    const bucket = buckets.get(bucketTime);
 
     const temp = parseNumber(item.temperature);
     const hum = parseNumber(item.humidity);
 
-    if (!buckets.has(key)) {
-      buckets.set(key, {
-        created_at: new Date(bucketStart).toISOString(),
-        timestamp: bucketStart,
-        temperatureSum: 0,
-        temperatureCount: 0,
-        humiditySum: 0,
-        humidityCount: 0,
-      });
-    }
-
-    const bucket = buckets.get(key);
-
     if (temp !== null) {
-      bucket.temperatureSum += temp;
-      bucket.temperatureCount += 1;
+      bucket.tempSum += temp;
+      bucket.tempCount += 1;
     }
 
     if (hum !== null) {
-      bucket.humiditySum += hum;
-      bucket.humidityCount += 1;
+      bucket.humSum += hum;
+      bucket.humCount += 1;
     }
   }
 
   return Array.from(buckets.values())
     .map((bucket) => ({
-      created_at: bucket.created_at,
       timestamp: bucket.timestamp,
+      created_at: bucket.created_at,
       temperature:
-        bucket.temperatureCount > 0
-          ? Number((bucket.temperatureSum / bucket.temperatureCount).toFixed(2))
+        bucket.tempCount > 0
+          ? Number((bucket.tempSum / bucket.tempCount).toFixed(2))
           : null,
       humidity:
-        bucket.humidityCount > 0
-          ? Number((bucket.humiditySum / bucket.humidityCount).toFixed(2))
+        bucket.humCount > 0
+          ? Number((bucket.humSum / bucket.humCount).toFixed(2))
           : null,
     }))
+    .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function getXAxisTicks(periodKey) {
-  const [start, end] = getTimeDomain(periodKey);
+  const { start, end, tickMs } = getPeriodWindow(periodKey);
   const ticks = [];
 
-  let stepMs = 60 * 60 * 1000;
-
-  switch (periodKey) {
-    case "1h":
-      stepMs = 10 * 60 * 1000;
-      break;
-    case "6h":
-      stepMs = 60 * 60 * 1000;
-      break;
-    case "12h":
-      stepMs = 2 * 60 * 60 * 1000;
-      break;
-    case "24h":
-      stepMs = 4 * 60 * 60 * 1000;
-      break;
-    case "7d":
-      stepMs = 24 * 60 * 60 * 1000;
-      break;
-    default:
-      stepMs = 60 * 60 * 1000;
+  if (periodKey === "7d") {
+    for (let t = start; t <= end; t += tickMs) {
+      ticks.push(t);
+    }
+    return ticks;
   }
 
-  const first = Math.ceil(start / stepMs) * stepMs;
-
   ticks.push(start);
+  let current = Math.ceil(start / tickMs) * tickMs;
 
-  for (let t = first; t < end; t += stepMs) {
-    ticks.push(t);
+  while (current < end) {
+    ticks.push(current);
+    current += tickMs;
   }
 
   ticks.push(end);
-
   return Array.from(new Set(ticks)).sort((a, b) => a - b);
+}
+
+function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
+  const sorted = [...(rawReadings || [])]
+    .filter((item) => Number.isFinite(item?.timestamp))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const expectedMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000
+      : 30 * 1000;
+
+  const gapThresholdMs = Math.max(expectedMs * 4, 3 * 60 * 1000);
+
+  if (!sorted.length) {
+    return {
+      lastDelayMs: deviceLastSeen
+        ? Date.now() - new Date(deviceLastSeen).getTime()
+        : null,
+      expectedMs,
+      maxGapMs: null,
+      gapCount: 0,
+      regularityPct: null,
+      stabilityLabel: "Sem dados",
+      stabilityTone: "neutral",
+    };
+  }
+
+  const intervals = [];
+  let maxGapMs = 0;
+  let gapCount = 0;
+  let stableCount = 0;
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
+    intervals.push(delta);
+
+    if (delta > maxGapMs) maxGapMs = delta;
+    if (delta > gapThresholdMs) gapCount += 1;
+    if (delta <= gapThresholdMs) stableCount += 1;
+  }
+
+  const regularityPct =
+    intervals.length > 0 ? Math.round((stableCount / intervals.length) * 100) : 100;
+
+  let stabilityLabel = "Estável";
+  let stabilityTone = "good";
+
+  if (regularityPct < 70 || gapCount >= 3) {
+    stabilityLabel = "Instável";
+    stabilityTone = "bad";
+  } else if (regularityPct < 90 || gapCount >= 1) {
+    stabilityLabel = "Com falhas";
+    stabilityTone = "warn";
+  }
+
+  const lastTimestamp = sorted[sorted.length - 1]?.timestamp || null;
+
+  return {
+    lastDelayMs: lastTimestamp ? Date.now() - lastTimestamp : null,
+    expectedMs,
+    maxGapMs: maxGapMs || null,
+    gapCount,
+    regularityPct,
+    stabilityLabel,
+    stabilityTone,
+  };
+}
+
+function getHealthToneStyles(tone) {
+  if (tone === "good") {
+    return {
+      valueColor: "#22c55e",
+      badgeBg: "#132219",
+      badgeBorder: "#1f3b2a",
+    };
+  }
+
+  if (tone === "warn") {
+    return {
+      valueColor: "#f59e0b",
+      badgeBg: "#2a2112",
+      badgeBorder: "#4b3a1d",
+    };
+  }
+
+  if (tone === "bad") {
+    return {
+      valueColor: "#ef4444",
+      badgeBg: "#2a1316",
+      badgeBorder: "#4b1f24",
+    };
+  }
+
+  return {
+    valueColor: "#cbd5e1",
+    badgeBg: "#162033",
+    badgeBorder: "#243042",
+  };
 }
 
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
@@ -393,7 +517,9 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
         {formatDateTime(point?.created_at || label)}
       </div>
       <div style={styles.tooltipValue}>
-        Valor: <strong>{formatValue(value, unit, digits)}</strong>
+        {value === null || value === undefined
+          ? "Sem leitura neste intervalo"
+          : <>Valor: <strong>{formatValue(value, unit, digits)}</strong></>}
       </div>
     </div>
   );
@@ -422,6 +548,34 @@ function SmallStat({ label, value }) {
     <div style={styles.smallStat}>
       <div style={styles.smallStatLabel}>{label}</div>
       <div style={styles.smallStatValue}>{value}</div>
+    </div>
+  );
+}
+
+function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
+  const toneStyles = getHealthToneStyles(tone);
+
+  return (
+    <div style={styles.healthCard}>
+      <div style={styles.healthTop}>
+        <div style={styles.healthLabel}>{label}</div>
+        {badge ? (
+          <span
+            style={{
+              ...styles.healthBadge,
+              background: toneStyles.badgeBg,
+              borderColor: toneStyles.badgeBorder,
+              color: toneStyles.valueColor,
+            }}
+          >
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <div style={{ ...styles.healthValue, color: toneStyles.valueColor }}>
+        {value}
+      </div>
+      <div style={styles.healthHint}>{hint}</div>
     </div>
   );
 }
@@ -489,7 +643,7 @@ function DataChart({
       ? (value) => `${Math.round(Number(value))}`
       : (value) => `${Number(value).toFixed(1)}`;
 
-  const timeDomain = getTimeDomain(periodKey);
+  const timeWindow = getPeriodWindow(periodKey);
   const xTicks = getXAxisTicks(periodKey);
 
   return (
@@ -498,7 +652,10 @@ function DataChart({
         <div>
           <div style={styles.chartTitle}>{title}</div>
           <div style={styles.chartSubtitle}>
-            Min {formatValue(min, unit, valueDigits)} · Max {formatValue(max, unit, valueDigits)}
+            Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
+          </div>
+          <div style={styles.chartHint}>
+            Intervalo exibido: {periodKey.toUpperCase()}
           </div>
         </div>
       </div>
@@ -507,21 +664,21 @@ function DataChart({
         <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
           <LineChart
             data={data}
-            margin={{ top: 20, right: 28, left: 8, bottom: 8 }}
+            margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
           >
             <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
 
             <XAxis
               type="number"
               dataKey="timestamp"
-              domain={timeDomain}
+              domain={[timeWindow.start, timeWindow.end]}
               ticks={xTicks}
               scale="time"
               tickFormatter={(value) => formatShortTime(value, periodKey)}
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
               tickMargin={8}
-              minTickGap={28}
+              minTickGap={24}
             />
 
             <YAxis
@@ -535,9 +692,7 @@ function DataChart({
               tickFormatter={yTickFormatter}
             />
 
-            <Tooltip
-              content={<CustomTooltip unit={unit} digits={valueDigits} />}
-            />
+            <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
 
             {minThreshold !== null && minThreshold !== undefined && (
               <ReferenceLine
@@ -556,13 +711,13 @@ function DataChart({
             )}
 
             <Line
-              type="monotone"
+              type="linear"
               dataKey={dataKey}
               stroke="#3b82f6"
               strokeWidth={3}
               dot={false}
               activeDot={{ r: 4 }}
-              connectNulls
+              connectNulls={false}
               isAnimationActive={false}
             />
 
@@ -650,7 +805,7 @@ export default function DashboardPage() {
   );
 
   const chartReadings = useMemo(
-    () => aggregateReadings(readings, period),
+    () => buildTimeSeries(readings, period),
     [readings, period]
   );
 
@@ -684,9 +839,8 @@ export default function DashboardPage() {
       }
 
       try {
-        const since = new Date(
-          Date.now() - selectedPeriod.hours * 60 * 60 * 1000
-        ).toISOString();
+        const windowRange = getPeriodWindow(period);
+        const since = new Date(windowRange.start).toISOString();
 
         const [devicesResponse, deviceResponse, readingsResponse] =
           await Promise.all([
@@ -779,7 +933,7 @@ export default function DashboardPage() {
         }
       }
     },
-    [selectedDeviceId, selectedPeriod.hours, supabase]
+    [selectedDeviceId, period, supabase]
   );
 
   useEffect(() => {
@@ -842,6 +996,11 @@ export default function DashboardPage() {
   const statusInfo = getStatusInfo(effectiveStatus);
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId;
   const deviceLocation = device?.location || "Localização por definir";
+
+  const communicationStats = useMemo(
+    () => getCommunicationStats(readings, sendIntervalS, device?.last_seen),
+    [readings, sendIntervalS, device?.last_seen]
+  );
 
   async function saveClientConfig() {
     if (!device || !selectedDeviceId) return;
@@ -1123,6 +1282,71 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Saúde da comunicação</div>
+              <div style={styles.cardHint}>
+                Estado de envio e regularidade das leituras do dispositivo
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              ...styles.healthGrid,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "repeat(4, minmax(0, 1fr))",
+            }}
+          >
+            <HealthStatCard
+              label="Atraso da última leitura"
+              value={formatDurationCompact(communicationStats.lastDelayMs)}
+              hint="Tempo desde a última leitura recebida"
+              tone={
+                communicationStats.lastDelayMs !== null &&
+                communicationStats.lastDelayMs >
+                  Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
+                  ? "bad"
+                  : "good"
+              }
+            />
+
+            <HealthStatCard
+              label="Intervalo esperado"
+              value={formatDurationCompact(communicationStats.expectedMs)}
+              hint="Com base na configuração atual do dispositivo"
+              tone="neutral"
+            />
+
+            <HealthStatCard
+              label="Maior falha detetada"
+              value={formatDurationCompact(communicationStats.maxGapMs)}
+              hint={`Falhas detetadas no período: ${communicationStats.gapCount}`}
+              tone={
+                communicationStats.gapCount >= 3
+                  ? "bad"
+                  : communicationStats.gapCount >= 1
+                  ? "warn"
+                  : "good"
+              }
+            />
+
+            <HealthStatCard
+              label="Estabilidade"
+              value={
+                communicationStats.regularityPct !== null
+                  ? `${communicationStats.regularityPct}%`
+                  : "-"
+              }
+              hint="Percentagem de intervalos dentro da regularidade esperada"
+              tone={communicationStats.stabilityTone}
+              badge={communicationStats.stabilityLabel}
+            />
+          </div>
+        </section>
+
         <section
           style={{
             ...styles.chartGrid,
@@ -1340,48 +1564,20 @@ export default function DashboardPage() {
                     : "repeat(auto-fit, minmax(180px, 1fr))",
                 }}
               >
-                <SmallStat
-                  label="Config version"
-                  value={device?.config_version ?? "-"}
-                />
-                <SmallStat
-                  label="Atualizada em"
-                  value={formatDateTime(device?.updated_at)}
-                />
-                <SmallStat
-                  label="Last seen"
-                  value={formatDateTime(device?.last_seen)}
-                />
+                <SmallStat label="Config version" value={device?.config_version ?? "-"} />
+                <SmallStat label="Atualizada em" value={formatDateTime(device?.updated_at)} />
+                <SmallStat label="Last seen" value={formatDateTime(device?.last_seen)} />
                 <SmallStat label="Status raw" value={device?.status || "-"} />
-                <SmallStat
-                  label="Device ID"
-                  value={device?.device_id || selectedDeviceId || "-"}
-                />
+                <SmallStat label="Device ID" value={device?.device_id || selectedDeviceId || "-"} />
                 <SmallStat label="Nome" value={deviceDisplayName} />
                 <SmallStat label="Localização" value={deviceLocation} />
-                <SmallStat
-                  label="Última temp."
-                  value={formatValue(device?.last_temperature, " °C")}
-                />
-                <SmallStat
-                  label="Última hum."
-                  value={formatValue(device?.last_humidity, " %")}
-                />
-                <SmallStat
-                  label="Histerese"
-                  value={hystC !== undefined ? `${hystC} °C` : "-"}
-                />
-                <SmallStat
-                  label="Envio"
-                  value={sendIntervalS !== undefined ? `${sendIntervalS}s` : "-"}
-                />
+                <SmallStat label="Última temp." value={formatValue(device?.last_temperature, " °C")} />
+                <SmallStat label="Última hum." value={formatValue(device?.last_humidity, " %")} />
+                <SmallStat label="Histerese" value={hystC !== undefined ? `${hystC} °C` : "-"} />
+                <SmallStat label="Envio" value={sendIntervalS !== undefined ? `${sendIntervalS}s` : "-"} />
                 <SmallStat
                   label="Standby display"
-                  value={
-                    displayStandbyMin !== undefined
-                      ? `${displayStandbyMin} min`
-                      : "-"
-                  }
+                  value={displayStandbyMin !== undefined ? `${displayStandbyMin} min` : "-"}
                 />
               </div>
 
@@ -1845,6 +2041,57 @@ const styles = {
     wordBreak: "break-word",
   },
 
+  healthGrid: {
+    display: "grid",
+    gap: "14px",
+  },
+
+  healthCard: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "20px",
+    padding: "16px",
+    minWidth: 0,
+  },
+
+  healthTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "10px",
+  },
+
+  healthLabel: {
+    fontSize: "12px",
+    color: "#8fa1b9",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+
+  healthBadge: {
+    border: "1px solid",
+    borderRadius: "999px",
+    padding: "5px 9px",
+    fontSize: "11px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  healthValue: {
+    fontSize: "26px",
+    fontWeight: 800,
+    letterSpacing: "-0.03em",
+    marginBottom: "8px",
+  },
+
+  healthHint: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    lineHeight: 1.4,
+  },
+
   chartGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -1874,6 +2121,12 @@ const styles = {
     marginTop: "6px",
     fontSize: "13px",
     color: "#94a3b8",
+  },
+
+  chartHint: {
+    marginTop: "6px",
+    fontSize: "12px",
+    color: "#7c8aa0",
   },
 
   chartWrap: {
