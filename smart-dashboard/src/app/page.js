@@ -14,7 +14,7 @@ import {
   ReferenceDot,
 } from "recharts";
 
-const DEVICE_ID = "SmartThermoSecure_01";
+const DEFAULT_DEVICE_ID = "SmartThermoSecure_01";
 const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || "stsadminRM2026";
 const AUTO_REFRESH_MS = 15000;
 
@@ -35,6 +35,7 @@ function formatDateTime(value) {
     year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
 }
 
@@ -178,13 +179,10 @@ function getChartDomain(data, key) {
   }
 
   const range = max - min;
-
-  let pad;
-  if (key === "humidity") {
-    pad = Math.max(range * 0.2, 1);
-  } else {
-    pad = Math.max(range * 0.2, 0.3);
-  }
+  const pad =
+    key === "humidity"
+      ? Math.max(range * 0.2, 1)
+      : Math.max(range * 0.2, 0.3);
 
   return [
     Number((min - pad).toFixed(2)),
@@ -244,6 +242,82 @@ function getNiceTemperatureTicks(domain) {
   return ticks;
 }
 
+function getBucketSizeMs(periodKey) {
+  switch (periodKey) {
+    case "1h":
+      return 5 * 60 * 1000;
+    case "6h":
+      return 15 * 60 * 1000;
+    case "12h":
+      return 30 * 60 * 1000;
+    case "24h":
+      return 60 * 60 * 1000;
+    case "7d":
+      return 6 * 60 * 60 * 1000;
+    default:
+      return 15 * 60 * 1000;
+  }
+}
+
+function aggregateReadings(readings, periodKey) {
+  if (!Array.isArray(readings) || !readings.length) return [];
+
+  const bucketSizeMs = getBucketSizeMs(periodKey);
+
+  if (periodKey === "1h" || periodKey === "6h") {
+    return readings;
+  }
+
+  const buckets = new Map();
+
+  for (const item of readings) {
+    const time = new Date(item.created_at).getTime();
+    if (!Number.isFinite(time)) continue;
+
+    const bucketStart = Math.floor(time / bucketSizeMs) * bucketSizeMs;
+    const key = String(bucketStart);
+
+    const temp = parseNumber(item.temperature);
+    const hum = parseNumber(item.humidity);
+
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        created_at: new Date(bucketStart).toISOString(),
+        temperatureSum: 0,
+        temperatureCount: 0,
+        humiditySum: 0,
+        humidityCount: 0,
+      });
+    }
+
+    const bucket = buckets.get(key);
+
+    if (temp !== null) {
+      bucket.temperatureSum += temp;
+      bucket.temperatureCount += 1;
+    }
+
+    if (hum !== null) {
+      bucket.humiditySum += hum;
+      bucket.humidityCount += 1;
+    }
+  }
+
+  return Array.from(buckets.values())
+    .map((bucket) => ({
+      created_at: bucket.created_at,
+      temperature:
+        bucket.temperatureCount > 0
+          ? Number((bucket.temperatureSum / bucket.temperatureCount).toFixed(2))
+          : null,
+      humidity:
+        bucket.humidityCount > 0
+          ? Number((bucket.humiditySum / bucket.humidityCount).toFixed(2))
+          : null,
+    }))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+}
+
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -286,6 +360,47 @@ function SmallStat({ label, value }) {
       <div style={styles.smallStatLabel}>{label}</div>
       <div style={styles.smallStatValue}>{value}</div>
     </div>
+  );
+}
+
+function DeviceSelectorCard({ device, selected, onSelect }) {
+  const effectiveStatus = getEffectiveStatus(device);
+  const statusInfo = getStatusInfo(effectiveStatus);
+
+  return (
+    <button
+      onClick={() => onSelect(device.device_id)}
+      style={{
+        ...styles.deviceSelectorCard,
+        ...(selected ? styles.deviceSelectorCardActive : {}),
+      }}
+    >
+      <div style={styles.deviceSelectorTop}>
+        <div style={styles.deviceSelectorName}>
+          {device?.name || device?.device_id}
+        </div>
+        <div
+          style={{
+            ...styles.deviceSelectorStatus,
+            color: statusInfo.color,
+            background: statusInfo.soft,
+            borderColor: statusInfo.border,
+          }}
+        >
+          {statusInfo.label}
+        </div>
+      </div>
+
+      <div style={styles.deviceSelectorMeta}>{device?.device_id}</div>
+      <div style={styles.deviceSelectorMeta}>
+        {device?.location || "Localização por definir"}
+      </div>
+
+      <div style={styles.deviceSelectorMetrics}>
+        <span>{formatValue(device?.last_temperature, " °C")}</span>
+        <span>{formatValue(device?.last_humidity, " %")}</span>
+      </div>
+    </button>
   );
 }
 
@@ -427,8 +542,11 @@ export default function DashboardPage() {
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
 
+  const [devices, setDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [device, setDevice] = useState(null);
   const [readings, setReadings] = useState([]);
+  const [lastSyncAt, setLastSyncAt] = useState(null);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminCodeInput, setAdminCodeInput] = useState("");
@@ -462,6 +580,11 @@ export default function DashboardPage() {
     [period]
   );
 
+  const chartReadings = useMemo(
+    () => aggregateReadings(readings, period),
+    [readings, period]
+  );
+
   useEffect(() => {
     function handleResize() {
       setIsMobile(window.innerWidth <= 768);
@@ -481,10 +604,12 @@ export default function DashboardPage() {
   }, []);
 
   const loadData = useCallback(
-    async ({ silent = false } = {}) => {
+    async ({ silent = false, syncForms = true } = {}) => {
+      if (!selectedDeviceId) return;
       if (requestInFlightRef.current) return;
 
       requestInFlightRef.current = true;
+
       if (!silent && mountedRef.current) {
         setLoading(true);
       }
@@ -494,30 +619,40 @@ export default function DashboardPage() {
           Date.now() - selectedPeriod.hours * 60 * 60 * 1000
         ).toISOString();
 
-        const [deviceResponse, readingsResponse] = await Promise.all([
-          supabase
-            .from("devices")
-            .select("*")
-            .eq("device_id", DEVICE_ID)
-            .limit(1)
-            .maybeSingle(),
+        const [devicesResponse, deviceResponse, readingsResponse] =
+          await Promise.all([
+            supabase.from("devices").select("*").order("device_id", {
+              ascending: true,
+            }),
 
-          supabase
-            .from("readings")
-            .select("*")
-            .eq("device_id", DEVICE_ID)
-            .gte("created_at", since)
-            .order("created_at", { ascending: true }),
-        ]);
+            supabase
+              .from("devices")
+              .select("*")
+              .eq("device_id", selectedDeviceId)
+              .limit(1)
+              .maybeSingle(),
+
+            supabase
+              .from("readings")
+              .select("*")
+              .eq("device_id", selectedDeviceId)
+              .gte("created_at", since)
+              .order("created_at", { ascending: true }),
+          ]);
+
+        if (devicesResponse.error) {
+          console.warn("devices list:", JSON.stringify(devicesResponse.error, null, 2));
+        }
 
         if (deviceResponse.error) {
-          console.warn("devices:", JSON.stringify(deviceResponse.error, null, 2));
+          console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
         }
 
         if (readingsResponse.error) {
           console.warn("readings:", JSON.stringify(readingsResponse.error, null, 2));
         }
 
+        const devicesData = devicesResponse.data || [];
         const deviceData = deviceResponse.data || null;
         const readingsData = (readingsResponse.data || []).map((item) => ({
           ...item,
@@ -527,25 +662,40 @@ export default function DashboardPage() {
 
         if (!mountedRef.current) return;
 
+        setDevices(devicesData);
         setDevice(deviceData);
         setReadings(readingsData);
+        setLastSyncAt(new Date().toISOString());
 
-        const config = deviceData?.config || {};
+        if (!deviceData && devicesData.length > 0) {
+          const fallbackDeviceId =
+            devicesData.find((d) => d.device_id === DEFAULT_DEVICE_ID)?.device_id ||
+            devicesData[0].device_id;
 
-        setClientForm({
-          temp_low_c: toInputValue(config?.temp_low_c),
-          temp_high_c: toInputValue(config?.temp_high_c),
-          hum_low: toInputValue(config?.hum_low),
-          hum_high: toInputValue(config?.hum_high),
-        });
+          if (fallbackDeviceId && fallbackDeviceId !== selectedDeviceId) {
+            setSelectedDeviceId(fallbackDeviceId);
+            return;
+          }
+        }
 
-        setAdminForm({
-          name: deviceData?.name || "",
-          location: deviceData?.location || "",
-          hyst_c: toInputValue(config?.hyst_c),
-          send_interval_s: toInputValue(config?.send_interval_s),
-          display_standby_min: toInputValue(config?.display_standby_min),
-        });
+        if (syncForms) {
+          const config = deviceData?.config || {};
+
+          setClientForm({
+            temp_low_c: toInputValue(config?.temp_low_c),
+            temp_high_c: toInputValue(config?.temp_high_c),
+            hum_low: toInputValue(config?.hum_low),
+            hum_high: toInputValue(config?.hum_high),
+          });
+
+          setAdminForm({
+            name: deviceData?.name || "",
+            location: deviceData?.location || "",
+            hyst_c: toInputValue(config?.hyst_c),
+            send_interval_s: toInputValue(config?.send_interval_s),
+            display_standby_min: toInputValue(config?.display_standby_min),
+          });
+        }
       } finally {
         requestInFlightRef.current = false;
         if (mountedRef.current) {
@@ -553,18 +703,54 @@ export default function DashboardPage() {
         }
       }
     },
-    [selectedPeriod.hours, supabase]
+    [selectedDeviceId, selectedPeriod.hours, supabase]
   );
 
   useEffect(() => {
-    loadData();
+    loadData({ syncForms: true });
 
     const interval = setInterval(() => {
-      loadData({ silent: true });
+      loadData({ silent: true, syncForms: false });
     }, AUTO_REFRESH_MS);
 
     return () => clearInterval(interval);
   }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+
+    const channel = supabase
+      .channel(`sts-live-${selectedDeviceId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "readings",
+          filter: `device_id=eq.${selectedDeviceId}`,
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "devices",
+          filter: `device_id=eq.${selectedDeviceId}`,
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedDeviceId, loadData, supabase]);
 
   const config = device?.config || {};
 
@@ -578,11 +764,11 @@ export default function DashboardPage() {
 
   const effectiveStatus = getEffectiveStatus(device);
   const statusInfo = getStatusInfo(effectiveStatus);
-  const deviceDisplayName = device?.name || device?.device_id || DEVICE_ID;
+  const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId;
   const deviceLocation = device?.location || "Localização por definir";
 
   async function saveClientConfig() {
-    if (!device) return;
+    if (!device || !selectedDeviceId) return;
 
     setSavingClient(true);
     setClientMessage("");
@@ -618,7 +804,7 @@ export default function DashboardPage() {
         config_version: Number(device?.config_version || 0) + 1,
         updated_at: new Date().toISOString(),
       })
-      .eq("device_id", DEVICE_ID);
+      .eq("device_id", selectedDeviceId);
 
     if (error) {
       setClientMessage("Erro ao guardar configurações do cliente.");
@@ -628,12 +814,12 @@ export default function DashboardPage() {
     }
 
     setClientMessage("Configurações do cliente guardadas com sucesso.");
-    await loadData();
+    await loadData({ syncForms: true });
     setSavingClient(false);
   }
 
   async function saveAdminConfig() {
-    if (!device) return;
+    if (!device || !selectedDeviceId) return;
 
     setSavingAdmin(true);
     setAdminMessage("");
@@ -662,13 +848,13 @@ export default function DashboardPage() {
     const { error } = await supabase
       .from("devices")
       .update({
-        name: adminForm.name.trim() || device?.device_id || DEVICE_ID,
+        name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
         location: adminForm.location.trim() || "Localização por definir",
         config: newConfig,
         config_version: Number(device?.config_version || 0) + 1,
         updated_at: new Date().toISOString(),
       })
-      .eq("device_id", DEVICE_ID);
+      .eq("device_id", selectedDeviceId);
 
     if (error) {
       setAdminMessage("Erro ao guardar configurações admin.");
@@ -678,7 +864,7 @@ export default function DashboardPage() {
     }
 
     setAdminMessage("Configurações admin guardadas com sucesso.");
-    await loadData();
+    await loadData({ syncForms: true });
     setSavingAdmin(false);
   }
 
@@ -689,14 +875,14 @@ export default function DashboardPage() {
           <div>
             <h1 style={styles.title}>Dashboard STS</h1>
             <p style={styles.subtitle}>
-              Monitorização em tempo real do dispositivo {DEVICE_ID}
+              Monitorização em tempo real dos dispositivos STS
             </p>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button
               onClick={async () => {
-                await loadData();
+                await loadData({ syncForms: true });
               }}
               style={styles.refreshButton}
             >
@@ -716,6 +902,39 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Dispositivos</div>
+              <div style={styles.cardHint}>
+                Seleciona o dispositivo a visualizar
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              ...styles.deviceSelectorGrid,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "repeat(auto-fit, minmax(260px, 1fr))",
+            }}
+          >
+            {devices.map((item) => (
+              <DeviceSelectorCard
+                key={item.device_id}
+                device={item}
+                selected={item.device_id === selectedDeviceId}
+                onSelect={(deviceId) => {
+                  setSelectedDeviceId(deviceId);
+                  setClientMessage("");
+                  setAdminMessage("");
+                }}
+              />
+            ))}
+          </div>
+        </section>
+
         <section
           style={{
             ...styles.heroCard,
@@ -731,7 +950,9 @@ export default function DashboardPage() {
                 <div style={styles.deviceName}>{deviceDisplayName}</div>
 
                 <div style={styles.deviceMetaLine}>
-                  <span style={styles.deviceMetaBadge}>{DEVICE_ID}</span>
+                  <span style={styles.deviceMetaBadge}>
+                    {selectedDeviceId || DEFAULT_DEVICE_ID}
+                  </span>
                   <span style={styles.deviceMetaDot}>•</span>
                   <span style={styles.deviceMetaLocation}>{deviceLocation}</span>
                 </div>
@@ -773,7 +994,7 @@ export default function DashboardPage() {
                 ...styles.heroMetaRow,
                 gridTemplateColumns: isMobile
                   ? "1fr"
-                  : "repeat(2, minmax(0, 1fr))",
+                  : "repeat(3, minmax(0, 1fr))",
               }}
             >
               <InfoItem
@@ -783,6 +1004,10 @@ export default function DashboardPage() {
               <InfoItem
                 label="Estado do dispositivo"
                 value={statusInfo.label}
+              />
+              <InfoItem
+                label="Última sincronização"
+                value={formatDateTime(lastSyncAt)}
               />
             </div>
           </div>
@@ -830,7 +1055,7 @@ export default function DashboardPage() {
         >
           <DataChart
             title="Temperatura"
-            data={readings}
+            data={chartReadings}
             dataKey="temperature"
             unit=" °C"
             minThreshold={tempLow}
@@ -841,7 +1066,7 @@ export default function DashboardPage() {
 
           <DataChart
             title="Humidade"
-            data={readings}
+            data={chartReadings}
             dataKey="humidity"
             unit=" %"
             minThreshold={humLow}
@@ -882,7 +1107,7 @@ export default function DashboardPage() {
             <div>
               <div style={styles.cardTitle}>Configurações do cliente</div>
               <div style={styles.cardHint}>
-                Limites operacionais visíveis e editáveis pelo cliente
+                Limites operacionais visíveis e editáveis por dispositivo
               </div>
             </div>
           </div>
@@ -964,7 +1189,7 @@ export default function DashboardPage() {
             <button
               style={styles.primaryButton}
               onClick={saveClientConfig}
-              disabled={savingClient}
+              disabled={savingClient || !selectedDeviceId}
             >
               {savingClient ? "A guardar..." : "Guardar configurações"}
             </button>
@@ -980,7 +1205,7 @@ export default function DashboardPage() {
             <div>
               <div style={styles.cardTitle}>Modo admin</div>
               <div style={styles.cardHint}>
-                Área reservada para informação técnica e gestão futura
+                Área reservada para informação técnica e gestão por dispositivo
               </div>
             </div>
           </div>
@@ -1052,7 +1277,10 @@ export default function DashboardPage() {
                   value={formatDateTime(device?.last_seen)}
                 />
                 <SmallStat label="Status raw" value={device?.status || "-"} />
-                <SmallStat label="Device ID" value={device?.device_id || DEVICE_ID} />
+                <SmallStat
+                  label="Device ID"
+                  value={device?.device_id || selectedDeviceId || "-"}
+                />
                 <SmallStat label="Nome" value={deviceDisplayName} />
                 <SmallStat label="Localização" value={deviceLocation} />
                 <SmallStat
@@ -1175,7 +1403,7 @@ export default function DashboardPage() {
                   <button
                     style={styles.primaryButton}
                     onClick={saveAdminConfig}
-                    disabled={savingAdmin}
+                    disabled={savingAdmin || !selectedDeviceId}
                   >
                     {savingAdmin ? "A guardar..." : "Guardar admin"}
                   </button>
@@ -1253,6 +1481,97 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
     fontSize: "14px",
+  },
+
+  card: {
+    background: "#111827",
+    border: "1px solid #1f2937",
+    borderRadius: "24px",
+    padding: "20px",
+    overflow: "hidden",
+  },
+
+  cardHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginBottom: "16px",
+  },
+
+  cardTitle: {
+    fontSize: "18px",
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    color: "#f8fafc",
+  },
+
+  cardHint: {
+    marginTop: "4px",
+    fontSize: "13px",
+    color: "#94a3b8",
+  },
+
+  deviceSelectorGrid: {
+    display: "grid",
+    gap: "12px",
+  },
+
+  deviceSelectorCard: {
+    textAlign: "left",
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "18px",
+    padding: "16px",
+    cursor: "pointer",
+    color: "#f8fafc",
+    transition: "all 0.15s ease",
+  },
+
+  deviceSelectorCardActive: {
+    border: "1px solid #2563eb",
+    boxShadow: "0 0 0 1px rgba(37,99,235,0.25)",
+    background: "#101c34",
+  },
+
+  deviceSelectorTop: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "10px",
+  },
+
+  deviceSelectorName: {
+    fontSize: "16px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  deviceSelectorStatus: {
+    border: "1px solid",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  deviceSelectorMeta: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginBottom: "6px",
+    wordBreak: "break-word",
+  },
+
+  deviceSelectorMetrics: {
+    marginTop: "10px",
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#e2e8f0",
   },
 
   heroCard: {
@@ -1383,7 +1702,7 @@ const styles = {
 
   heroMetaRow: {
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: "12px",
   },
 
@@ -1450,96 +1769,6 @@ const styles = {
     wordBreak: "break-word",
   },
 
-  card: {
-    background: "#111827",
-    border: "1px solid #1f2937",
-    borderRadius: "24px",
-    padding: "20px",
-    overflow: "hidden",
-  },
-
-  subsection: {
-    background: "#0b1220",
-    border: "1px solid #1f2937",
-    borderRadius: "20px",
-    padding: "18px",
-    overflow: "hidden",
-  },
-
-  subsectionTitle: {
-    fontSize: "16px",
-    fontWeight: 800,
-    color: "#f8fafc",
-    marginBottom: "16px",
-  },
-
-  cardHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-    marginBottom: "16px",
-  },
-
-  cardTitle: {
-    fontSize: "18px",
-    fontWeight: 800,
-    letterSpacing: "-0.02em",
-    color: "#f8fafc",
-  },
-
-  cardHint: {
-    marginTop: "4px",
-    fontSize: "13px",
-    color: "#94a3b8",
-  },
-
-  formGrid: {
-    display: "grid",
-    gap: "12px",
-    alignItems: "end",
-    width: "100%",
-    minWidth: 0,
-  },
-
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    minWidth: 0,
-    width: "100%",
-  },
-
-  label: {
-    fontSize: "11px",
-    color: "#7f90a6",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    lineHeight: 1.2,
-  },
-
-  configInput: {
-    width: "100%",
-    minWidth: 0,
-    maxWidth: "100%",
-    border: "1px solid #253246",
-    background: "#0a1322",
-    color: "#f8fafc",
-    borderRadius: "10px",
-    padding: "7px 10px",
-    fontSize: "13px",
-    outline: "none",
-    height: "34px",
-    boxSizing: "border-box",
-    textAlign: "center",
-    fontVariantNumeric: "tabular-nums",
-    display: "block",
-    overflow: "hidden",
-    appearance: "none",
-    WebkitAppearance: "none",
-  },
-
   chartGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -1599,6 +1828,52 @@ const styles = {
     background: "#1d4ed8",
     color: "#ffffff",
     border: "1px solid #1d4ed8",
+  },
+
+  formGrid: {
+    display: "grid",
+    gap: "12px",
+    alignItems: "end",
+    width: "100%",
+    minWidth: 0,
+  },
+
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    minWidth: 0,
+    width: "100%",
+  },
+
+  label: {
+    fontSize: "11px",
+    color: "#7f90a6",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    lineHeight: 1.2,
+  },
+
+  configInput: {
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    border: "1px solid #253246",
+    background: "#0a1322",
+    color: "#f8fafc",
+    borderRadius: "10px",
+    padding: "7px 10px",
+    fontSize: "13px",
+    outline: "none",
+    height: "34px",
+    boxSizing: "border-box",
+    textAlign: "center",
+    fontVariantNumeric: "tabular-nums",
+    display: "block",
+    overflow: "hidden",
+    appearance: "none",
+    WebkitAppearance: "none",
   },
 
   actionsRow: {
@@ -1725,6 +2000,21 @@ const styles = {
     color: "#f8fafc",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
+  },
+
+  subsection: {
+    background: "#0b1220",
+    border: "1px solid #1f2937",
+    borderRadius: "20px",
+    padding: "18px",
+    overflow: "hidden",
+  },
+
+  subsectionTitle: {
+    fontSize: "16px",
+    fontWeight: 800,
+    color: "#f8fafc",
+    marginBottom: "16px",
   },
 
   tooltip: {
