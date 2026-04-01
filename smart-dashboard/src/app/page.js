@@ -40,13 +40,20 @@ function formatDateTime(value) {
 }
 
 function formatShortTime(value, periodKey = "24h") {
-  if (!value) return "";
+  if (value === null || value === undefined) return "";
   const d = new Date(value);
 
   if (periodKey === "7d") {
     return d.toLocaleDateString("pt-PT", {
       day: "2-digit",
       month: "2-digit",
+    });
+  }
+
+  if (periodKey === "24h") {
+    return d.toLocaleTimeString("pt-PT", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   }
 
@@ -195,8 +202,14 @@ function getReferencePoints(data, key) {
     .map((item) => ({
       value: parseNumber(item?.[key]),
       created_at: item?.created_at,
+      timestamp: item?.timestamp,
     }))
-    .filter((item) => item.value !== null && item.created_at);
+    .filter(
+      (item) =>
+        item.value !== null &&
+        item.created_at &&
+        Number.isFinite(item.timestamp)
+    );
 
   if (!points.length) {
     return { minPoint: null, maxPoint: null };
@@ -253,10 +266,17 @@ function getBucketSizeMs(periodKey) {
     case "24h":
       return 60 * 60 * 1000;
     case "7d":
-      return 6 * 60 * 60 * 1000;
+      return 24 * 60 * 60 * 1000;
     default:
       return 15 * 60 * 1000;
   }
+}
+
+function getTimeDomain(periodKey) {
+  const now = Date.now();
+  const selected = PERIODS.find((p) => p.key === periodKey) || PERIODS[3];
+  const start = now - selected.hours * 60 * 60 * 1000;
+  return [start, now];
 }
 
 function aggregateReadings(readings, periodKey) {
@@ -265,13 +285,15 @@ function aggregateReadings(readings, periodKey) {
   const bucketSizeMs = getBucketSizeMs(periodKey);
 
   if (periodKey === "1h" || periodKey === "6h") {
-    return readings;
+    return readings
+      .filter((item) => Number.isFinite(item?.timestamp))
+      .sort((a, b) => a.timestamp - b.timestamp);
   }
 
   const buckets = new Map();
 
   for (const item of readings) {
-    const time = new Date(item.created_at).getTime();
+    const time = Number(item?.timestamp);
     if (!Number.isFinite(time)) continue;
 
     const bucketStart = Math.floor(time / bucketSizeMs) * bucketSizeMs;
@@ -283,6 +305,7 @@ function aggregateReadings(readings, periodKey) {
     if (!buckets.has(key)) {
       buckets.set(key, {
         created_at: new Date(bucketStart).toISOString(),
+        timestamp: bucketStart,
         temperatureSum: 0,
         temperatureCount: 0,
         humiditySum: 0,
@@ -306,6 +329,7 @@ function aggregateReadings(readings, periodKey) {
   return Array.from(buckets.values())
     .map((bucket) => ({
       created_at: bucket.created_at,
+      timestamp: bucket.timestamp,
       temperature:
         bucket.temperatureCount > 0
           ? Number((bucket.temperatureSum / bucket.temperatureCount).toFixed(2))
@@ -315,7 +339,46 @@ function aggregateReadings(readings, periodKey) {
           ? Number((bucket.humiditySum / bucket.humidityCount).toFixed(2))
           : null,
     }))
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function getXAxisTicks(periodKey) {
+  const [start, end] = getTimeDomain(periodKey);
+  const ticks = [];
+
+  let stepMs = 60 * 60 * 1000;
+
+  switch (periodKey) {
+    case "1h":
+      stepMs = 10 * 60 * 1000;
+      break;
+    case "6h":
+      stepMs = 60 * 60 * 1000;
+      break;
+    case "12h":
+      stepMs = 2 * 60 * 60 * 1000;
+      break;
+    case "24h":
+      stepMs = 4 * 60 * 60 * 1000;
+      break;
+    case "7d":
+      stepMs = 24 * 60 * 60 * 1000;
+      break;
+    default:
+      stepMs = 60 * 60 * 1000;
+  }
+
+  const first = Math.ceil(start / stepMs) * stepMs;
+
+  ticks.push(start);
+
+  for (let t = first; t < end; t += stepMs) {
+    ticks.push(t);
+  }
+
+  ticks.push(end);
+
+  return Array.from(new Set(ticks)).sort((a, b) => a - b);
 }
 
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
@@ -426,6 +489,9 @@ function DataChart({
       ? (value) => `${Math.round(Number(value))}`
       : (value) => `${Number(value).toFixed(1)}`;
 
+  const timeDomain = getTimeDomain(periodKey);
+  const xTicks = getXAxisTicks(periodKey);
+
   return (
     <div style={styles.chartCard}>
       <div style={styles.chartHeader}>
@@ -446,13 +512,16 @@ function DataChart({
             <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
 
             <XAxis
-              dataKey="created_at"
+              type="number"
+              dataKey="timestamp"
+              domain={timeDomain}
+              ticks={xTicks}
+              scale="time"
               tickFormatter={(value) => formatShortTime(value, periodKey)}
               stroke="#7c8aa0"
               tick={{ fontSize: 12 }}
-              minTickGap={28}
-              interval="preserveStartEnd"
               tickMargin={8}
+              minTickGap={28}
             />
 
             <YAxis
@@ -499,7 +568,7 @@ function DataChart({
 
             {minPoint && (
               <ReferenceDot
-                x={minPoint.created_at}
+                x={minPoint.timestamp}
                 y={minPoint.value}
                 r={4}
                 fill="#facc15"
@@ -515,7 +584,7 @@ function DataChart({
 
             {maxPoint && (
               <ReferenceDot
-                x={maxPoint.created_at}
+                x={maxPoint.timestamp}
                 y={maxPoint.value}
                 r={4}
                 fill="#fb7185"
@@ -654,11 +723,18 @@ export default function DashboardPage() {
 
         const devicesData = devicesResponse.data || [];
         const deviceData = deviceResponse.data || null;
-        const readingsData = (readingsResponse.data || []).map((item) => ({
-          ...item,
-          temperature: parseNumber(item.temperature),
-          humidity: parseNumber(item.humidity),
-        }));
+        const readingsData = (readingsResponse.data || [])
+          .map((item) => {
+            const timestamp = new Date(item.created_at).getTime();
+
+            return {
+              ...item,
+              temperature: parseNumber(item.temperature),
+              humidity: parseNumber(item.humidity),
+              timestamp: Number.isFinite(timestamp) ? timestamp : null,
+            };
+          })
+          .filter((item) => Number.isFinite(item.timestamp));
 
         if (!mountedRef.current) return;
 
