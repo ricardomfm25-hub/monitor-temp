@@ -505,6 +505,35 @@ function getHealthToneStyles(tone) {
   };
 }
 
+async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("readings")
+      .select("device_id, temperature, humidity, created_at")
+      .eq("device_id", deviceId)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.warn("readings:", JSON.stringify(error, null, 2));
+      throw error;
+    }
+
+    const chunk = data || [];
+    allRows = allRows.concat(chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return allRows;
+}
+
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -842,7 +871,7 @@ export default function DashboardPage() {
         const windowRange = getPeriodWindow(period);
         const since = new Date(windowRange.start).toISOString();
 
-        const [devicesResponse, deviceResponse, readingsResponse] =
+        const [devicesResponse, deviceResponse, readingsRows] =
           await Promise.all([
             supabase.from("devices").select("*").order("device_id", {
               ascending: true,
@@ -855,12 +884,7 @@ export default function DashboardPage() {
               .limit(1)
               .maybeSingle(),
 
-            supabase
-              .from("readings")
-              .select("*")
-              .eq("device_id", selectedDeviceId)
-              .gte("created_at", since)
-              .order("created_at", { ascending: true }),
+            fetchAllReadingsForPeriod(supabase, selectedDeviceId, since),
           ]);
 
         if (devicesResponse.error) {
@@ -871,13 +895,9 @@ export default function DashboardPage() {
           console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
         }
 
-        if (readingsResponse.error) {
-          console.warn("readings:", JSON.stringify(readingsResponse.error, null, 2));
-        }
-
         const devicesData = devicesResponse.data || [];
         const deviceData = deviceResponse.data || null;
-        const readingsData = (readingsResponse.data || [])
+        const readingsData = (readingsRows || [])
           .map((item) => {
             const timestamp = new Date(item.created_at).getTime();
 
@@ -926,6 +946,8 @@ export default function DashboardPage() {
             display_standby_min: toInputValue(config?.display_standby_min),
           });
         }
+      } catch (error) {
+        console.warn("loadData:", error);
       } finally {
         requestInFlightRef.current = false;
         if (mountedRef.current) {
