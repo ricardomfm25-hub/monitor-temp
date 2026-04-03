@@ -203,7 +203,7 @@ function getAlertLevelInfo(level) {
   }
 
   return {
-    label: "NORMAL",
+    label: "NORMALIZADO",
     color: "#22c55e",
     bg: "#132219",
     border: "#1f3b2a",
@@ -827,10 +827,20 @@ function DeviceSelectorCard({ device, selected, onSelect }) {
 function AlertRow({ item }) {
   const levelInfo = getAlertLevelInfo(item?.level);
 
+  const typeMap = {
+    temperature: "Temperatura",
+    humidity: "Humidade",
+    offline: "Ligação",
+    system: "Sistema",
+  };
+
+  const eventType =
+    typeMap[String(item?.type || "").toLowerCase()] || "Evento";
+
   return (
     <div style={styles.alertRow}>
       <div style={styles.alertRowTop}>
-        <div style={styles.alertRowTitle}>{item?.title || "Evento"}</div>
+        <div style={styles.alertRowTitle}>{eventType}</div>
         <span
           style={{
             ...styles.alertBadge,
@@ -843,17 +853,15 @@ function AlertRow({ item }) {
         </span>
       </div>
 
-      <div style={styles.alertRowMessage}>
-        {item?.message || "Sem detalhe adicional."}
-      </div>
-
       <div style={styles.alertRowMeta}>
         <span>{formatDateTime(item?.sent_at || item?.created_at)}</span>
+
         {item?.temperature !== null && item?.temperature !== undefined ? (
-          <span>{formatValue(item.temperature, " °C")}</span>
+          <span>Temp: {formatValue(item.temperature, " °C")}</span>
         ) : null}
+
         {item?.humidity !== null && item?.humidity !== undefined ? (
-          <span>{formatValue(item.humidity, " %", 0)}</span>
+          <span>Hum: {formatValue(item.humidity, " %", 0)}</span>
         ) : null}
       </div>
     </div>
@@ -1135,7 +1143,11 @@ export default function DashboardPage() {
         setDevices(devicesData);
         setDevice(deviceData);
         setReadings(readingsData);
-        setAlerts(alertsRows || []);
+        setAlerts(
+          (alertsRows || []).filter(
+            (item) => String(item?.event || "").toLowerCase() === "triggered"
+          )
+        );
         setLastSyncAt(new Date().toISOString());
 
         if (!deviceData && devicesData.length > 0) {
@@ -1295,10 +1307,6 @@ export default function DashboardPage() {
 
   async function saveClientConfig() {
     if (!device || !selectedDeviceId) return;
-    if (!isAdmin) {
-      setClientMessage("Só o modo admin pode alterar configurações.");
-      return;
-    }
 
     setSavingClient(true);
     setClientMessage("");
@@ -1807,7 +1815,7 @@ export default function DashboardPage() {
             <div>
               <div style={styles.cardTitle}>Histórico de alertas</div>
               <div style={styles.cardHint}>
-                Eventos reais registados para este dispositivo
+                Alertas reais registados para este dispositivo
               </div>
             </div>
           </div>
@@ -1838,7 +1846,7 @@ export default function DashboardPage() {
             </div>
 
             <div style={styles.readOnlyBadge}>
-              {isAdmin ? "Edição ativa" : "Só leitura"}
+              Configuração disponível
             </div>
           </div>
 
@@ -1863,7 +1871,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={!isAdmin}
+                disabled={false}
               />
             </div>
 
@@ -1880,7 +1888,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={!isAdmin}
+                disabled={false}
               />
             </div>
 
@@ -1897,7 +1905,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={!isAdmin}
+                disabled={false}
               />
             </div>
 
@@ -1914,19 +1922,16 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={!isAdmin}
+                disabled={false}
               />
             </div>
           </div>
 
           <div style={styles.actionsRow}>
             <button
-              style={{
-                ...styles.primaryButton,
-                ...(isAdmin ? {} : styles.disabledButton),
-              }}
+              style={styles.primaryButton}
               onClick={saveClientConfig}
-              disabled={savingClient || !selectedDeviceId || !isAdmin}
+              disabled={savingClient || !selectedDeviceId}
             >
               {savingClient ? "A guardar..." : "Guardar configurações"}
             </button>
@@ -2695,12 +2700,6 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
-  alertRowMessage: {
-    fontSize: "13px",
-    color: "#cbd5e1",
-    lineHeight: 1.5,
-  },
-
   alertRowMeta: {
     marginTop: "10px",
     display: "flex",
@@ -2778,11 +2777,6 @@ const styles = {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  disabledButton: {
-    opacity: 0.55,
-    cursor: "not-allowed",
   },
 
   readOnlyBadge: {
