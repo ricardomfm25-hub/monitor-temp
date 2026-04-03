@@ -17,6 +17,7 @@ import {
 const DEFAULT_DEVICE_ID = "SmartThermoSecure_01";
 const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || "stsadminRM2026";
 const AUTO_REFRESH_MS = 15000;
+const OFFLINE_LIMIT_MS = 120 * 1000;
 
 const PERIODS = [
   { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
@@ -29,6 +30,8 @@ const PERIODS = [
 function formatDateTime(value) {
   if (!value) return "-";
   const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+
   return d.toLocaleString("pt-PT", {
     day: "2-digit",
     month: "2-digit",
@@ -42,6 +45,7 @@ function formatDateTime(value) {
 function formatShortTime(value, periodKey = "24h") {
   if (value === null || value === undefined) return "";
   const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
 
   if (periodKey === "7d") {
     return d.toLocaleDateString("pt-PT", {
@@ -61,6 +65,28 @@ function formatValue(value, suffix = "", digits = 1) {
     return "-";
   }
   return `${Number(value).toFixed(digits)}${suffix}`;
+}
+
+function formatRelativeTime(value) {
+  if (!value) return "-";
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return "-";
+
+  const diff = Date.now() - ts;
+  if (diff < 0) return "agora";
+
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 10) return "agora";
+  if (seconds < 60) return `há ${seconds}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `há ${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `há ${hours} h`;
+
+  const days = Math.floor(hours / 24);
+  return `há ${days} d`;
 }
 
 function formatDurationCompact(ms) {
@@ -95,9 +121,8 @@ function parseNumber(value) {
 function getEffectiveStatus(device) {
   const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
   const now = Date.now();
-  const offlineLimitMs = 120 * 1000;
 
-  if (!lastSeen || now - lastSeen > offlineLimitMs) {
+  if (!lastSeen || now - lastSeen > OFFLINE_LIMIT_MS) {
     return "OFFLINE";
   }
 
@@ -171,15 +196,21 @@ function getSeriesMinMax(data, key) {
   };
 }
 
-function getChartDomain(data, key) {
+function getChartDomain(data, key, thresholds = []) {
   const values = data
     .map((item) => parseNumber(item?.[key]))
     .filter((v) => v !== null);
 
-  if (!values.length) return ["auto", "auto"];
+  const thresholdValues = thresholds
+    .map((v) => parseNumber(v))
+    .filter((v) => v !== null);
 
-  let min = Math.min(...values);
-  let max = Math.max(...values);
+  const combined = [...values, ...thresholdValues];
+
+  if (!combined.length) return ["auto", "auto"];
+
+  let min = Math.min(...combined);
+  let max = Math.max(...combined);
 
   if (min === max) {
     const pad =
@@ -196,8 +227,8 @@ function getChartDomain(data, key) {
   const range = max - min;
   const pad =
     key === "humidity"
-      ? Math.max(range * 0.2, 1)
-      : Math.max(range * 0.2, 0.3);
+      ? Math.max(range * 0.15, 1)
+      : Math.max(range * 0.18, 0.3);
 
   return [
     Number((min - pad).toFixed(2)),
@@ -505,6 +536,53 @@ function getHealthToneStyles(tone) {
   };
 }
 
+function getStatsFromReadings(readings) {
+  const temps = readings
+    .map((r) => parseNumber(r?.temperature))
+    .filter((v) => v !== null);
+
+  const hums = readings
+    .map((r) => parseNumber(r?.humidity))
+    .filter((v) => v !== null);
+
+  const avg = (values) =>
+    values.length
+      ? Number((values.reduce((sum, v) => sum + v, 0) / values.length).toFixed(2))
+      : null;
+
+  return {
+    tempMin: temps.length ? Math.min(...temps) : null,
+    tempMax: temps.length ? Math.max(...temps) : null,
+    tempAvg: avg(temps),
+    humMin: hums.length ? Math.min(...hums) : null,
+    humMax: hums.length ? Math.max(...hums) : null,
+    humAvg: avg(hums),
+    totalReadings: readings.length,
+  };
+}
+
+function countThresholdViolations(readings, limits) {
+  const { tempLow, tempHigh, humLow, humHigh } = limits;
+  let count = 0;
+
+  for (const item of readings || []) {
+    const temp = parseNumber(item?.temperature);
+    const hum = parseNumber(item?.humidity);
+
+    const tempBad =
+      (tempLow !== null && temp !== null && temp < tempLow) ||
+      (tempHigh !== null && temp !== null && temp > tempHigh);
+
+    const humBad =
+      (humLow !== null && hum !== null && hum < humLow) ||
+      (humHigh !== null && hum !== null && hum > humHigh);
+
+    if (tempBad || humBad) count += 1;
+  }
+
+  return count;
+}
+
 async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
   const pageSize = 1000;
   let from = 0;
@@ -554,11 +632,43 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   );
 }
 
-function MetricBox({ label, value }) {
+function MetricBox({ label, value, tone = "neutral", subvalue }) {
+  const toneMap = {
+    neutral: {
+      border: "#1e293b",
+      bg: "#0f172a",
+      value: "#f8fafc",
+    },
+    good: {
+      border: "#1f3b2a",
+      bg: "#0f1d15",
+      value: "#86efac",
+    },
+    warn: {
+      border: "#4b3a1d",
+      bg: "#21180f",
+      value: "#fcd34d",
+    },
+    bad: {
+      border: "#4b1f24",
+      bg: "#211013",
+      value: "#fca5a5",
+    },
+  };
+
+  const selected = toneMap[tone] || toneMap.neutral;
+
   return (
-    <div style={styles.metricCard}>
+    <div
+      style={{
+        ...styles.metricCard,
+        borderColor: selected.border,
+        background: selected.bg,
+      }}
+    >
       <div style={styles.metricLabel}>{label}</div>
-      <div style={styles.metricValue}>{value}</div>
+      <div style={{ ...styles.metricValue, color: selected.value }}>{value}</div>
+      {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
     </div>
   );
 }
@@ -661,7 +771,7 @@ function DataChart({
   periodKey,
 }) {
   const { min, max } = getSeriesMinMax(data, dataKey);
-  const yDomain = getChartDomain(data, dataKey);
+  const yDomain = getChartDomain(data, dataKey, [minThreshold, maxThreshold]);
   const { minPoint, maxPoint } = getReferencePoints(data, dataKey);
   const yTicks =
     dataKey === "temperature" ? getNiceTemperatureTicks(yDomain) : undefined;
@@ -674,6 +784,7 @@ function DataChart({
 
   const timeWindow = getPeriodWindow(periodKey);
   const xTicks = getXAxisTicks(periodKey);
+  const hasData = data.some((item) => parseNumber(item?.[dataKey]) !== null);
 
   return (
     <div style={styles.chartCard}>
@@ -689,101 +800,105 @@ function DataChart({
         </div>
       </div>
 
-      <div style={styles.chartWrap}>
-        <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
-          <LineChart
-            data={data}
-            margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
-          >
-            <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
+      {!hasData ? (
+        <div style={styles.emptyChartState}>Sem leituras neste período.</div>
+      ) : (
+        <div style={styles.chartWrap}>
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
+            <LineChart
+              data={data}
+              margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
+            >
+              <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
 
-            <XAxis
-              type="number"
-              dataKey="timestamp"
-              domain={[timeWindow.start, timeWindow.end]}
-              ticks={xTicks}
-              scale="time"
-              tickFormatter={(value) => formatShortTime(value, periodKey)}
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-              tickMargin={8}
-              minTickGap={24}
-            />
-
-            <YAxis
-              stroke="#7c8aa0"
-              tick={{ fontSize: 12 }}
-              domain={yDomain}
-              ticks={yTicks}
-              width={64}
-              tickMargin={8}
-              allowDecimals={dataKey === "temperature"}
-              tickFormatter={yTickFormatter}
-            />
-
-            <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
-
-            {minThreshold !== null && minThreshold !== undefined && (
-              <ReferenceLine
-                y={Number(minThreshold)}
-                stroke="#f59e0b"
-                strokeDasharray="6 6"
+              <XAxis
+                type="number"
+                dataKey="timestamp"
+                domain={[timeWindow.start, timeWindow.end]}
+                ticks={xTicks}
+                scale="time"
+                tickFormatter={(value) => formatShortTime(value, periodKey)}
+                stroke="#7c8aa0"
+                tick={{ fontSize: 12 }}
+                tickMargin={8}
+                minTickGap={24}
               />
-            )}
 
-            {maxThreshold !== null && maxThreshold !== undefined && (
-              <ReferenceLine
-                y={Number(maxThreshold)}
-                stroke="#ef4444"
-                strokeDasharray="6 6"
+              <YAxis
+                stroke="#7c8aa0"
+                tick={{ fontSize: 12 }}
+                domain={yDomain}
+                ticks={yTicks}
+                width={64}
+                tickMargin={8}
+                allowDecimals={dataKey === "temperature"}
+                tickFormatter={yTickFormatter}
               />
-            )}
 
-            <Line
-              type="linear"
-              dataKey={dataKey}
-              stroke="#3b82f6"
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 4 }}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
+              <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
 
-            {minPoint && (
-              <ReferenceDot
-                x={minPoint.timestamp}
-                y={minPoint.value}
-                r={4}
-                fill="#facc15"
-                stroke="none"
-                label={{
-                  value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
-                  position: "bottom",
-                  fill: "#facc15",
-                  fontSize: 12,
-                }}
+              {minThreshold !== null && minThreshold !== undefined && (
+                <ReferenceLine
+                  y={Number(minThreshold)}
+                  stroke="#f59e0b"
+                  strokeDasharray="6 6"
+                />
+              )}
+
+              {maxThreshold !== null && maxThreshold !== undefined && (
+                <ReferenceLine
+                  y={Number(maxThreshold)}
+                  stroke="#ef4444"
+                  strokeDasharray="6 6"
+                />
+              )}
+
+              <Line
+                type="linear"
+                dataKey={dataKey}
+                stroke="#3b82f6"
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 4 }}
+                connectNulls={false}
+                isAnimationActive={false}
               />
-            )}
 
-            {maxPoint && (
-              <ReferenceDot
-                x={maxPoint.timestamp}
-                y={maxPoint.value}
-                r={4}
-                fill="#fb7185"
-                stroke="none"
-                label={{
-                  value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
-                  position: "top",
-                  fill: "#fb7185",
-                  fontSize: 12,
-                }}
-              />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+              {minPoint && (
+                <ReferenceDot
+                  x={minPoint.timestamp}
+                  y={minPoint.value}
+                  r={4}
+                  fill="#facc15"
+                  stroke="none"
+                  label={{
+                    value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
+                    position: "bottom",
+                    fill: "#facc15",
+                    fontSize: 12,
+                  }}
+                />
+              )}
+
+              {maxPoint && (
+                <ReferenceDot
+                  x={maxPoint.timestamp}
+                  y={maxPoint.value}
+                  r={4}
+                  fill="#fb7185"
+                  stroke="none"
+                  label={{
+                    value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
+                    position: "top",
+                    fill: "#fb7185",
+                    fontSize: 12,
+                  }}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }
@@ -792,6 +907,7 @@ export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
   const [period, setPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
 
@@ -822,20 +938,21 @@ export default function DashboardPage() {
 
   const [clientMessage, setClientMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
+  const [pageError, setPageError] = useState("");
 
   const [isMobile, setIsMobile] = useState(false);
 
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
-  const selectedPeriod = useMemo(
-    () => PERIODS.find((p) => p.key === period) || PERIODS[3],
-    [period]
-  );
-
   const chartReadings = useMemo(
     () => buildTimeSeries(readings, period),
     [readings, period]
+  );
+
+  const currentPeriodStats = useMemo(
+    () => getStatsFromReadings(readings),
+    [readings]
   );
 
   useEffect(() => {
@@ -862,6 +979,7 @@ export default function DashboardPage() {
       if (requestInFlightRef.current) return;
 
       requestInFlightRef.current = true;
+      setPageError("");
 
       if (!silent && mountedRef.current) {
         setLoading(true);
@@ -876,23 +994,23 @@ export default function DashboardPage() {
             supabase.from("devices").select("*").order("device_id", {
               ascending: true,
             }),
-
             supabase
               .from("devices")
               .select("*")
               .eq("device_id", selectedDeviceId)
               .limit(1)
               .maybeSingle(),
-
             fetchAllReadingsForPeriod(supabase, selectedDeviceId, since),
           ]);
 
         if (devicesResponse.error) {
           console.warn("devices list:", JSON.stringify(devicesResponse.error, null, 2));
+          throw new Error("Não foi possível carregar a lista de dispositivos.");
         }
 
         if (deviceResponse.error) {
           console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
+          throw new Error("Não foi possível carregar o dispositivo selecionado.");
         }
 
         const devicesData = devicesResponse.data || [];
@@ -946,8 +1064,15 @@ export default function DashboardPage() {
             display_standby_min: toInputValue(config?.display_standby_min),
           });
         }
+
+        setInitialLoaded(true);
       } catch (error) {
         console.warn("loadData:", error);
+        if (mountedRef.current) {
+          setPageError(
+            error?.message || "Ocorreu um erro ao carregar os dados."
+          );
+        }
       } finally {
         requestInFlightRef.current = false;
         if (mountedRef.current) {
@@ -1006,13 +1131,13 @@ export default function DashboardPage() {
 
   const config = device?.config || {};
 
-  const tempLow = config?.temp_low_c;
-  const tempHigh = config?.temp_high_c;
-  const humLow = config?.hum_low;
-  const humHigh = config?.hum_high;
-  const hystC = config?.hyst_c;
-  const sendIntervalS = config?.send_interval_s;
-  const displayStandbyMin = config?.display_standby_min;
+  const tempLow = parseNumber(config?.temp_low_c);
+  const tempHigh = parseNumber(config?.temp_high_c);
+  const humLow = parseNumber(config?.hum_low);
+  const humHigh = parseNumber(config?.hum_high);
+  const hystC = parseNumber(config?.hyst_c);
+  const sendIntervalS = parseNumber(config?.send_interval_s);
+  const displayStandbyMin = parseNumber(config?.display_standby_min);
 
   const effectiveStatus = getEffectiveStatus(device);
   const statusInfo = getStatusInfo(effectiveStatus);
@@ -1024,8 +1149,41 @@ export default function DashboardPage() {
     [readings, sendIntervalS, device?.last_seen]
   );
 
+  const violationCount = useMemo(
+    () =>
+      countThresholdViolations(readings, {
+        tempLow,
+        tempHigh,
+        humLow,
+        humHigh,
+      }),
+    [readings, tempLow, tempHigh, humLow, humHigh]
+  );
+
+  const currentTempTone =
+    effectiveStatus === "OFFLINE"
+      ? "neutral"
+      : tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh
+      ? "bad"
+      : tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow
+      ? "warn"
+      : "good";
+
+  const currentHumTone =
+    effectiveStatus === "OFFLINE"
+      ? "neutral"
+      : humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh
+      ? "bad"
+      : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
+      ? "warn"
+      : "good";
+
   async function saveClientConfig() {
     if (!device || !selectedDeviceId) return;
+    if (!isAdmin) {
+      setClientMessage("Só o modo admin pode alterar configurações.");
+      return;
+    }
 
     setSavingClient(true);
     setClientMessage("");
@@ -1042,6 +1200,18 @@ export default function DashboardPage() {
       newHumHigh === null
     ) {
       setClientMessage("Preenche todos os campos do cliente com valores válidos.");
+      setSavingClient(false);
+      return;
+    }
+
+    if (newTempLow >= newTempHigh) {
+      setClientMessage("A temperatura mínima deve ser inferior à máxima.");
+      setSavingClient(false);
+      return;
+    }
+
+    if (newHumLow >= newHumHigh) {
+      setClientMessage("A humidade mínima deve ser inferior à máxima.");
       setSavingClient(false);
       return;
     }
@@ -1095,6 +1265,12 @@ export default function DashboardPage() {
       return;
     }
 
+    if (newSendInterval < 5) {
+      setAdminMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+      setSavingAdmin(false);
+      return;
+    }
+
     const newConfig = {
       ...config,
       hyst_c: newHyst,
@@ -1124,6 +1300,9 @@ export default function DashboardPage() {
     await loadData({ syncForms: true });
     setSavingAdmin(false);
   }
+
+  const hasDevices = devices.length > 0;
+  const hasReadings = readings.length > 0;
 
   return (
     <main style={styles.page}>
@@ -1159,6 +1338,12 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {pageError ? (
+          <div style={styles.errorBanner}>
+            {pageError}
+          </div>
+        ) : null}
+
         <section style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
@@ -1169,27 +1354,34 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div
-            style={{
-              ...styles.deviceSelectorGrid,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "repeat(auto-fit, minmax(260px, 1fr))",
-            }}
-          >
-            {devices.map((item) => (
-              <DeviceSelectorCard
-                key={item.device_id}
-                device={item}
-                selected={item.device_id === selectedDeviceId}
-                onSelect={(deviceId) => {
-                  setSelectedDeviceId(deviceId);
-                  setClientMessage("");
-                  setAdminMessage("");
-                }}
-              />
-            ))}
-          </div>
+          {!hasDevices && initialLoaded ? (
+            <div style={styles.emptyState}>
+              Nenhum dispositivo encontrado.
+            </div>
+          ) : (
+            <div
+              style={{
+                ...styles.deviceSelectorGrid,
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(auto-fit, minmax(260px, 1fr))",
+              }}
+            >
+              {devices.map((item) => (
+                <DeviceSelectorCard
+                  key={item.device_id}
+                  device={item}
+                  selected={item.device_id === selectedDeviceId}
+                  onSelect={(deviceId) => {
+                    setSelectedDeviceId(deviceId);
+                    setClientMessage("");
+                    setAdminMessage("");
+                    setPageError("");
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <section
@@ -1239,10 +1431,22 @@ export default function DashboardPage() {
               <MetricBox
                 label="Temperatura atual"
                 value={formatValue(device?.last_temperature, " °C")}
+                tone={currentTempTone}
+                subvalue={
+                  tempLow !== null && tempHigh !== null
+                    ? `Limite: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
+                    : "Sem limites definidos"
+                }
               />
               <MetricBox
                 label="Humidade atual"
                 value={formatValue(device?.last_humidity, " %")}
+                tone={currentHumTone}
+                subvalue={
+                  humLow !== null && humHigh !== null
+                    ? `Limite: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
+                    : "Sem limites definidos"
+                }
               />
             </div>
 
@@ -1255,16 +1459,16 @@ export default function DashboardPage() {
               }}
             >
               <InfoItem
-                label="Última atualização"
-                value={formatDateTime(device?.last_seen)}
+                label="Última atualização do dispositivo"
+                value={`${formatDateTime(device?.last_seen)} (${formatRelativeTime(device?.last_seen)})`}
               />
               <InfoItem
                 label="Estado do dispositivo"
                 value={statusInfo.label}
               />
               <InfoItem
-                label="Última sincronização"
-                value={formatDateTime(lastSyncAt)}
+                label="Última sincronização da dashboard"
+                value={`${formatDateTime(lastSyncAt)} (${formatRelativeTime(lastSyncAt)})`}
               />
             </div>
           </div>
@@ -1301,6 +1505,69 @@ export default function DashboardPage() {
                 <span style={styles.summaryValue}>{humHigh ?? "-"} %</span>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Resumo do período</div>
+              <div style={styles.cardHint}>
+                Indicadores principais para o intervalo selecionado
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              ...styles.healthGrid,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "repeat(4, minmax(0, 1fr))",
+            }}
+          >
+            <HealthStatCard
+              label="Temperatura mínima"
+              value={formatValue(currentPeriodStats.tempMin, " °C")}
+              hint={`Média: ${formatValue(currentPeriodStats.tempAvg, " °C")}`}
+              tone="good"
+            />
+
+            <HealthStatCard
+              label="Temperatura máxima"
+              value={formatValue(currentPeriodStats.tempMax, " °C")}
+              hint={`Leituras no período: ${currentPeriodStats.totalReadings}`}
+              tone={
+                tempHigh !== null &&
+                currentPeriodStats.tempMax !== null &&
+                currentPeriodStats.tempMax > tempHigh
+                  ? "bad"
+                  : "neutral"
+              }
+            />
+
+            <HealthStatCard
+              label="Humidade mínima"
+              value={formatValue(currentPeriodStats.humMin, " %", 0)}
+              hint={`Média: ${formatValue(currentPeriodStats.humAvg, " %", 0)}`}
+              tone="good"
+            />
+
+            <HealthStatCard
+              label="Ocorrências fora do limite"
+              value={String(violationCount)}
+              hint="Contagem baseada nas leituras do período visível"
+              tone={
+                violationCount >= 5 ? "bad" : violationCount >= 1 ? "warn" : "good"
+              }
+              badge={
+                violationCount >= 5
+                  ? "Crítico"
+                  : violationCount >= 1
+                  ? "Atenção"
+                  : "OK"
+              }
+            />
           </div>
         </section>
 
@@ -1369,6 +1636,32 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Período de visualização</div>
+              <div style={styles.cardHint}>
+                Ajusta o intervalo temporal apresentado nos gráficos
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.periodRow}>
+            {PERIODS.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setPeriod(item.key)}
+                style={{
+                  ...styles.periodButton,
+                  ...(period === item.key ? styles.periodButtonActive : {}),
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
         <section
           style={{
             ...styles.chartGrid,
@@ -1401,36 +1694,14 @@ export default function DashboardPage() {
         <section style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Período de visualização</div>
-              <div style={styles.cardHint}>
-                Ajusta o intervalo temporal apresentado nos gráficos
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.periodRow}>
-            {PERIODS.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setPeriod(item.key)}
-                style={{
-                  ...styles.periodButton,
-                  ...(period === item.key ? styles.periodButtonActive : {}),
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
               <div style={styles.cardTitle}>Configurações do cliente</div>
               <div style={styles.cardHint}>
-                Limites operacionais visíveis e editáveis por dispositivo
+                Limites operacionais por dispositivo
               </div>
+            </div>
+
+            <div style={styles.readOnlyBadge}>
+              {isAdmin ? "Edição ativa" : "Só leitura"}
             </div>
           </div>
 
@@ -1455,6 +1726,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
+                disabled={!isAdmin}
               />
             </div>
 
@@ -1471,6 +1743,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
+                disabled={!isAdmin}
               />
             </div>
 
@@ -1487,6 +1760,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
+                disabled={!isAdmin}
               />
             </div>
 
@@ -1503,21 +1777,33 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
+                disabled={!isAdmin}
               />
             </div>
           </div>
 
           <div style={styles.actionsRow}>
             <button
-              style={styles.primaryButton}
+              style={{
+                ...styles.primaryButton,
+                ...(isAdmin ? {} : styles.disabledButton),
+              }}
               onClick={saveClientConfig}
-              disabled={savingClient || !selectedDeviceId}
+              disabled={savingClient || !selectedDeviceId || !isAdmin}
             >
               {savingClient ? "A guardar..." : "Guardar configurações"}
             </button>
 
             {clientMessage ? (
-              <span style={styles.successText}>{clientMessage}</span>
+              <span
+                style={
+                  clientMessage.toLowerCase().includes("sucesso")
+                    ? styles.successText
+                    : styles.errorTextInline
+                }
+              >
+                {clientMessage}
+              </span>
             ) : null}
           </div>
         </section>
@@ -1572,6 +1858,7 @@ export default function DashboardPage() {
                     setAdminCodeInput("");
                     setAdminError("");
                     setAdminMessage("");
+                    setClientMessage("");
                   }}
                 >
                   Sair
@@ -1595,11 +1882,11 @@ export default function DashboardPage() {
                 <SmallStat label="Localização" value={deviceLocation} />
                 <SmallStat label="Última temp." value={formatValue(device?.last_temperature, " °C")} />
                 <SmallStat label="Última hum." value={formatValue(device?.last_humidity, " %")} />
-                <SmallStat label="Histerese" value={hystC !== undefined ? `${hystC} °C` : "-"} />
-                <SmallStat label="Envio" value={sendIntervalS !== undefined ? `${sendIntervalS}s` : "-"} />
+                <SmallStat label="Histerese" value={hystC !== null ? `${hystC} °C` : "-"} />
+                <SmallStat label="Envio" value={sendIntervalS !== null ? `${sendIntervalS}s` : "-"} />
                 <SmallStat
                   label="Standby display"
-                  value={displayStandbyMin !== undefined ? `${displayStandbyMin} min` : "-"}
+                  value={displayStandbyMin !== null ? `${displayStandbyMin} min` : "-"}
                 />
               </div>
 
@@ -1703,7 +1990,15 @@ export default function DashboardPage() {
                   </button>
 
                   {adminMessage ? (
-                    <span style={styles.successText}>{adminMessage}</span>
+                    <span
+                      style={
+                        adminMessage.toLowerCase().includes("sucesso")
+                          ? styles.successText
+                          : styles.errorTextInline
+                      }
+                    >
+                      {adminMessage}
+                    </span>
                   ) : null}
                 </div>
               </div>
@@ -1717,6 +2012,12 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+
+        {!loading && hasDevices && !hasReadings ? (
+          <div style={styles.emptyState}>
+            Ainda não existem leituras para o período selecionado.
+          </div>
+        ) : null}
 
         {loading && <div style={styles.loading}>A carregar dados...</div>}
       </div>
@@ -1791,6 +2092,7 @@ const styles = {
     justifyContent: "space-between",
     gap: "12px",
     marginBottom: "16px",
+    flexWrap: "wrap",
   },
 
   cardTitle: {
@@ -1804,6 +2106,37 @@ const styles = {
     marginTop: "4px",
     fontSize: "13px",
     color: "#94a3b8",
+  },
+
+  errorBanner: {
+    background: "#2a1316",
+    border: "1px solid #4b1f24",
+    color: "#fecaca",
+    borderRadius: "18px",
+    padding: "14px 16px",
+    fontWeight: 700,
+  },
+
+  emptyState: {
+    background: "#0f172a",
+    border: "1px dashed #334155",
+    borderRadius: "18px",
+    padding: "18px",
+    color: "#94a3b8",
+    textAlign: "center",
+    fontWeight: 700,
+  },
+
+  emptyChartState: {
+    height: "320px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#94a3b8",
+    fontWeight: 700,
+    background: "#0c1424",
+    border: "1px dashed #243042",
+    borderRadius: "18px",
   },
 
   deviceSelectorGrid: {
@@ -1992,6 +2325,13 @@ const styles = {
     color: "#f8fafc",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
+  },
+
+  metricSubvalue: {
+    marginTop: "10px",
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontWeight: 700,
   },
 
   heroMetaRow: {
@@ -2250,6 +2590,21 @@ const styles = {
     justifyContent: "center",
   },
 
+  disabledButton: {
+    opacity: 0.55,
+    cursor: "not-allowed",
+  },
+
+  readOnlyBadge: {
+    border: "1px solid #334155",
+    background: "#0f172a",
+    color: "#cbd5e1",
+    borderRadius: "999px",
+    padding: "7px 10px",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
   adminLoginRow: {
     display: "flex",
     gap: "12px",
@@ -2291,6 +2646,12 @@ const styles = {
 
   errorText: {
     marginTop: "10px",
+    color: "#f87171",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+
+  errorTextInline: {
     color: "#f87171",
     fontSize: "13px",
     fontWeight: 700,
