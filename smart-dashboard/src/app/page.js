@@ -142,7 +142,7 @@ function getStatusInfo(status) {
     };
   }
 
-  if (s.includes("alarm")) {
+  if (s.includes("alarm") || s.includes("critical")) {
     return {
       label: "ALARME",
       color: "#ef4444",
@@ -178,6 +178,35 @@ function getStatusInfo(status) {
     soft: "#161b22",
     border: "#293241",
     glow: "0 0 0 1px rgba(148,163,184,0.10)",
+  };
+}
+
+function getAlertLevelInfo(level) {
+  const s = String(level || "").toLowerCase();
+
+  if (s.includes("alarm") || s.includes("critical")) {
+    return {
+      label: "ALARME",
+      color: "#ef4444",
+      bg: "#2a1316",
+      border: "#4b1f24",
+    };
+  }
+
+  if (s.includes("alert")) {
+    return {
+      label: "ALERTA",
+      color: "#f59e0b",
+      bg: "#2a2112",
+      border: "#4b3a1d",
+    };
+  }
+
+  return {
+    label: "NORMAL",
+    color: "#22c55e",
+    bg: "#132219",
+    border: "#1f3b2a",
   };
 }
 
@@ -437,7 +466,7 @@ function getXAxisTicks(periodKey) {
   return Array.from(new Set(ticks)).sort((a, b) => a - b);
 }
 
-function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
+function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen, periodKey) {
   const sorted = [...(rawReadings || [])]
     .filter((item) => Number.isFinite(item?.timestamp))
     .sort((a, b) => a.timestamp - b.timestamp);
@@ -447,7 +476,16 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  const gapThresholdMs = Math.max(expectedMs * 4, 3 * 60 * 1000);
+  const { start, end } = getPeriodWindow(periodKey);
+  const periodMs = Math.max(end - start, expectedMs);
+  const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
+  const receivedReadings = sorted.length;
+  const deliveryPct = Math.max(
+    0,
+    Math.min(100, Math.round((receivedReadings / expectedReadings) * 100))
+  );
+
+  const gapThresholdMs = Math.max(expectedMs * 2.2, 90 * 1000);
 
   if (!sorted.length) {
     return {
@@ -457,7 +495,10 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
       expectedMs,
       maxGapMs: null,
       gapCount: 0,
-      regularityPct: null,
+      regularityPct: 0,
+      deliveryPct,
+      expectedReadings,
+      receivedReadings,
       stabilityLabel: "Sem dados",
       stabilityTone: "neutral",
     };
@@ -466,7 +507,6 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
   const intervals = [];
   let maxGapMs = 0;
   let gapCount = 0;
-  let stableCount = 0;
 
   for (let i = 1; i < sorted.length; i += 1) {
     const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
@@ -474,11 +514,16 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
 
     if (delta > maxGapMs) maxGapMs = delta;
     if (delta > gapThresholdMs) gapCount += 1;
-    if (delta <= gapThresholdMs) stableCount += 1;
   }
 
-  const regularityPct =
-    intervals.length > 0 ? Math.round((stableCount / intervals.length) * 100) : 100;
+  const intervalScore =
+    intervals.length > 0
+      ? Math.max(0, Math.round(((intervals.length - gapCount) / intervals.length) * 100))
+      : receivedReadings >= expectedReadings
+      ? 100
+      : deliveryPct;
+
+  const regularityPct = Math.round((deliveryPct * 0.6) + (intervalScore * 0.4));
 
   let stabilityLabel = "Estável";
   let stabilityTone = "good";
@@ -486,7 +531,7 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
   if (regularityPct < 70 || gapCount >= 3) {
     stabilityLabel = "Instável";
     stabilityTone = "bad";
-  } else if (regularityPct < 90 || gapCount >= 1) {
+  } else if (regularityPct < 92 || gapCount >= 1) {
     stabilityLabel = "Com falhas";
     stabilityTone = "warn";
   }
@@ -499,6 +544,9 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen) {
     maxGapMs: maxGapMs || null,
     gapCount,
     regularityPct,
+    deliveryPct,
+    expectedReadings,
+    receivedReadings,
     stabilityLabel,
     stabilityTone,
   };
@@ -610,6 +658,22 @@ async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
   }
 
   return allRows;
+}
+
+async function fetchRecentAlerts(supabase, deviceId, limit = 20) {
+  const { data, error } = await supabase
+    .from("alerts")
+    .select("*")
+    .eq("device_id", deviceId)
+    .order("sent_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn("alerts:", JSON.stringify(error, null, 2));
+    throw error;
+  }
+
+  return data || [];
 }
 
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
@@ -757,6 +821,42 @@ function DeviceSelectorCard({ device, selected, onSelect }) {
         <span>{formatValue(device?.last_humidity, " %")}</span>
       </div>
     </button>
+  );
+}
+
+function AlertRow({ item }) {
+  const levelInfo = getAlertLevelInfo(item?.level);
+
+  return (
+    <div style={styles.alertRow}>
+      <div style={styles.alertRowTop}>
+        <div style={styles.alertRowTitle}>{item?.title || "Evento"}</div>
+        <span
+          style={{
+            ...styles.alertBadge,
+            color: levelInfo.color,
+            background: levelInfo.bg,
+            borderColor: levelInfo.border,
+          }}
+        >
+          {levelInfo.label}
+        </span>
+      </div>
+
+      <div style={styles.alertRowMessage}>
+        {item?.message || "Sem detalhe adicional."}
+      </div>
+
+      <div style={styles.alertRowMeta}>
+        <span>{formatDateTime(item?.sent_at || item?.created_at)}</span>
+        {item?.temperature !== null && item?.temperature !== undefined ? (
+          <span>{formatValue(item.temperature, " °C")}</span>
+        ) : null}
+        {item?.humidity !== null && item?.humidity !== undefined ? (
+          <span>{formatValue(item.humidity, " %", 0)}</span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -915,6 +1015,7 @@ export default function DashboardPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [device, setDevice] = useState(null);
   const [readings, setReadings] = useState([]);
+  const [alerts, setAlerts] = useState([]);
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
   const [isAdmin, setIsAdmin] = useState(false);
@@ -989,7 +1090,7 @@ export default function DashboardPage() {
         const windowRange = getPeriodWindow(period);
         const since = new Date(windowRange.start).toISOString();
 
-        const [devicesResponse, deviceResponse, readingsRows] =
+        const [devicesResponse, deviceResponse, readingsRows, alertsRows] =
           await Promise.all([
             supabase.from("devices").select("*").order("device_id", {
               ascending: true,
@@ -1001,6 +1102,7 @@ export default function DashboardPage() {
               .limit(1)
               .maybeSingle(),
             fetchAllReadingsForPeriod(supabase, selectedDeviceId, since),
+            fetchRecentAlerts(supabase, selectedDeviceId, 20),
           ]);
 
         if (devicesResponse.error) {
@@ -1033,6 +1135,7 @@ export default function DashboardPage() {
         setDevices(devicesData);
         setDevice(deviceData);
         setReadings(readingsData);
+        setAlerts(alertsRows || []);
         setLastSyncAt(new Date().toISOString());
 
         if (!deviceData && devicesData.length > 0) {
@@ -1122,6 +1225,18 @@ export default function DashboardPage() {
           loadData({ silent: true, syncForms: false });
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "alerts",
+          filter: `device_id=eq.${selectedDeviceId}`,
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
       .subscribe();
 
     return () => {
@@ -1145,8 +1260,8 @@ export default function DashboardPage() {
   const deviceLocation = device?.location || "Localização por definir";
 
   const communicationStats = useMemo(
-    () => getCommunicationStats(readings, sendIntervalS, device?.last_seen),
-    [readings, sendIntervalS, device?.last_seen]
+    () => getCommunicationStats(readings, sendIntervalS, device?.last_seen, period),
+    [readings, sendIntervalS, device?.last_seen, period]
   );
 
   const violationCount = useMemo(
@@ -1338,11 +1453,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {pageError ? (
-          <div style={styles.errorBanner}>
-            {pageError}
-          </div>
-        ) : null}
+        {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
 
         <section style={styles.card}>
           <div style={styles.cardHeader}>
@@ -1610,13 +1721,13 @@ export default function DashboardPage() {
             />
 
             <HealthStatCard
-              label="Maior falha detetada"
-              value={formatDurationCompact(communicationStats.maxGapMs)}
-              hint={`Falhas detetadas no período: ${communicationStats.gapCount}`}
+              label="Cobertura de leituras"
+              value={`${communicationStats.deliveryPct ?? 0}%`}
+              hint={`${communicationStats.receivedReadings}/${communicationStats.expectedReadings} leituras esperadas`}
               tone={
-                communicationStats.gapCount >= 3
+                (communicationStats.deliveryPct ?? 0) < 70
                   ? "bad"
-                  : communicationStats.gapCount >= 1
+                  : (communicationStats.deliveryPct ?? 0) < 92
                   ? "warn"
                   : "good"
               }
@@ -1629,7 +1740,7 @@ export default function DashboardPage() {
                   ? `${communicationStats.regularityPct}%`
                   : "-"
               }
-              hint="Percentagem de intervalos dentro da regularidade esperada"
+              hint={`Falhas detetadas: ${communicationStats.gapCount} · Maior gap: ${formatDurationCompact(communicationStats.maxGapMs)}`}
               tone={communicationStats.stabilityTone}
               badge={communicationStats.stabilityLabel}
             />
@@ -1689,6 +1800,32 @@ export default function DashboardPage() {
             isMobile={isMobile}
             periodKey={period}
           />
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Histórico de alertas</div>
+              <div style={styles.cardHint}>
+                Eventos reais registados para este dispositivo
+              </div>
+            </div>
+          </div>
+
+          {!alerts.length ? (
+            <div style={styles.emptyState}>
+              Sem alertas registados para este dispositivo.
+            </div>
+          ) : (
+            <div style={styles.alertList}>
+              {alerts.map((item, index) => (
+                <AlertRow
+                  key={item.id || `${item.sent_at || item.created_at}-${index}`}
+                  item={item}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <section style={styles.card}>
@@ -2519,6 +2656,59 @@ const styles = {
     background: "#1d4ed8",
     color: "#ffffff",
     border: "1px solid #1d4ed8",
+  },
+
+  alertList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  alertRow: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "18px",
+    padding: "14px",
+  },
+
+  alertRowTop: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "8px",
+  },
+
+  alertRowTitle: {
+    fontSize: "15px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  alertBadge: {
+    border: "1px solid",
+    borderRadius: "999px",
+    padding: "5px 9px",
+    fontSize: "11px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  alertRowMessage: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+  },
+
+  alertRowMeta: {
+    marginTop: "10px",
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    fontSize: "12px",
+    color: "#94a3b8",
+    fontWeight: 700,
   },
 
   formGrid: {
