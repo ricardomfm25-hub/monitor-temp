@@ -6,15 +6,6 @@ const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-app.use(
-  cors({
-    origin: ["http://localhost:3000"],
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
 const API_TOKEN = process.env.API_TOKEN;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -27,7 +18,32 @@ const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const ALERT_FROM_EMAIL = process.env.ALERT_FROM_EMAIL;
 const ALERT_TO_EMAIL = process.env.ALERT_TO_EMAIL;
 
-const OFFLINE_ALERT_SECONDS = parseInt(process.env.OFFLINE_ALERT_SECONDS || "180", 10);
+const OFFLINE_ALERT_SECONDS = parseInt(
+  process.env.OFFLINE_ALERT_SECONDS || "180",
+  10
+);
+
+const FRONTEND_ORIGINS = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  process.env.DASHBOARD_URL,
+  process.env.FRONTEND_URL,
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+].filter(Boolean);
+
+app.use(express.json());
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (FRONTEND_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(null, true);
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -46,6 +62,8 @@ function nowIso() {
 
 function formatDateTimePt(dateValue, withSeconds = false) {
   const d = new Date(dateValue);
+  if (Number.isNaN(d.getTime())) return "-";
+
   return d.toLocaleString("pt-PT", {
     day: "2-digit",
     month: "2-digit",
@@ -71,18 +89,110 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function toNumberOrDefault(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sanitizeDeviceName(value, fallback) {
+  const v = String(value || "").trim();
+  return v || fallback;
+}
+
+function sanitizeLocation(value) {
+  const v = String(value || "").trim();
+  return v || "Localização por definir";
+}
+
+function validateConfigNumbers(payload) {
+  const errors = [];
+
+  const tempLow =
+    payload.temp_low_c !== undefined ? Number(payload.temp_low_c) : undefined;
+  const tempHigh =
+    payload.temp_high_c !== undefined ? Number(payload.temp_high_c) : undefined;
+  const humLow = payload.hum_low !== undefined ? Number(payload.hum_low) : undefined;
+  const humHigh =
+    payload.hum_high !== undefined ? Number(payload.hum_high) : undefined;
+  const hyst = payload.hyst_c !== undefined ? Number(payload.hyst_c) : undefined;
+  const sendInterval =
+    payload.send_interval_s !== undefined
+      ? Number(payload.send_interval_s)
+      : undefined;
+  const standby =
+    payload.display_standby_min !== undefined
+      ? Number(payload.display_standby_min)
+      : undefined;
+
+  if (tempLow !== undefined && !Number.isFinite(tempLow)) {
+    errors.push("temp_low_c inválido");
+  }
+
+  if (tempHigh !== undefined && !Number.isFinite(tempHigh)) {
+    errors.push("temp_high_c inválido");
+  }
+
+  if (
+    tempLow !== undefined &&
+    tempHigh !== undefined &&
+    Number.isFinite(tempLow) &&
+    Number.isFinite(tempHigh) &&
+    tempLow >= tempHigh
+  ) {
+    errors.push("temp_low_c deve ser inferior a temp_high_c");
+  }
+
+  if (humLow !== undefined && !Number.isFinite(humLow)) {
+    errors.push("hum_low inválido");
+  }
+
+  if (humHigh !== undefined && !Number.isFinite(humHigh)) {
+    errors.push("hum_high inválido");
+  }
+
+  if (
+    humLow !== undefined &&
+    humHigh !== undefined &&
+    Number.isFinite(humLow) &&
+    Number.isFinite(humHigh) &&
+    humLow >= humHigh
+  ) {
+    errors.push("hum_low deve ser inferior a hum_high");
+  }
+
+  if (hyst !== undefined && (!Number.isFinite(hyst) || hyst < 0)) {
+    errors.push("hyst_c inválido");
+  }
+
+  if (
+    sendInterval !== undefined &&
+    (!Number.isFinite(sendInterval) || sendInterval < 5)
+  ) {
+    errors.push("send_interval_s deve ser pelo menos 5");
+  }
+
+  if (
+    standby !== undefined &&
+    (!Number.isFinite(standby) || standby < 0)
+  ) {
+    errors.push("display_standby_min inválido");
+  }
+
+  return errors;
+}
+
 function getDeviceConfig(deviceRow) {
   const cfg = deviceRow?.config || {};
   const alertState = cfg.alert_state || {};
 
   return {
-    temp_low_c: Number(cfg.temp_low_c ?? 18),
-    temp_high_c: Number(cfg.temp_high_c ?? TEMP_LIMIT),
-    hum_low: Number(cfg.hum_low ?? 30),
-    hum_high: Number(cfg.hum_high ?? 60),
-    hyst_c: Number(cfg.hyst_c ?? 0.5),
-    send_interval_s: Number(cfg.send_interval_s ?? 30),
-    display_standby_min: Number(cfg.display_standby_min ?? 10),
+    temp_low_c: toNumberOrDefault(cfg.temp_low_c, 18),
+    temp_high_c: toNumberOrDefault(cfg.temp_high_c, TEMP_LIMIT),
+    hum_low: toNumberOrDefault(cfg.hum_low, 30),
+    hum_high: toNumberOrDefault(cfg.hum_high, 60),
+    hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
+    send_interval_s: toNumberOrDefault(cfg.send_interval_s, 30),
+    display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     alert_state: {
       temp_active: Boolean(alertState.temp_active),
       hum_active: Boolean(alertState.hum_active),
@@ -217,6 +327,7 @@ async function sendEmail({ subject, htmlContent }) {
         "api-key": BREVO_API_KEY,
         "Content-Type": "application/json",
       },
+      timeout: 20000,
     }
   );
 }
@@ -278,7 +389,9 @@ function buildEmailShell({ heading, intro, blocks, footer }) {
             ${blocksHtml}
           </table>
           <p style="margin:22px 0 0 0;color:#64748b;font-size:13px;line-height:1.6;">
-            ${escapeHtml(footer || "Enviado automaticamente pelo SmartThermoSecure.")}
+            ${escapeHtml(
+              footer || "Enviado automaticamente pelo SmartThermoSecure."
+            )}
           </p>
         </div>
       </div>
@@ -306,20 +419,37 @@ async function sendTemperatureTriggeredEmail({
         { label: "Dispositivo", value: deviceName },
         { label: "Device ID", value: device.device_id },
         { label: "Localização", value: location },
-        { label: "Temperatura atual", value: `${formatNumber(temperature, 1)} °C` },
-        { label: "Humidade atual", value: `${formatNumber(humidity, 0)} %` },
+        {
+          label: "Temperatura atual",
+          value: `${formatNumber(temperature, 1)} °C`,
+        },
+        {
+          label: "Humidade atual",
+          value: `${formatNumber(humidity, 0)} %`,
+        },
         {
           label: "Intervalo configurado",
-          value: `${formatNumber(cfg.temp_low_c, 1)} °C a ${formatNumber(cfg.temp_high_c, 1)} °C`,
+          value: `${formatNumber(cfg.temp_low_c, 1)} °C a ${formatNumber(
+            cfg.temp_high_c,
+            1
+          )} °C`,
         },
-        { label: "Limite ultrapassado", value: `${formatNumber(direction.limit, 1)} °C` },
+        {
+          label: "Limite ultrapassado",
+          value: `${formatNumber(direction.limit, 1)} °C`,
+        },
         { label: "Hora", value: formatDateTimePt(new Date(), true) },
       ],
     }),
   });
 }
 
-async function sendTemperatureResolvedEmail({ device, temperature, humidity, cfg }) {
+async function sendTemperatureResolvedEmail({
+  device,
+  temperature,
+  humidity,
+  cfg,
+}) {
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura normalizada — ${deviceName}`;
@@ -333,11 +463,20 @@ async function sendTemperatureResolvedEmail({ device, temperature, humidity, cfg
         { label: "Dispositivo", value: deviceName },
         { label: "Device ID", value: device.device_id },
         { label: "Localização", value: location },
-        { label: "Temperatura atual", value: `${formatNumber(temperature, 1)} °C` },
-        { label: "Humidade atual", value: `${formatNumber(humidity, 0)} %` },
+        {
+          label: "Temperatura atual",
+          value: `${formatNumber(temperature, 1)} °C`,
+        },
+        {
+          label: "Humidade atual",
+          value: `${formatNumber(humidity, 0)} %`,
+        },
         {
           label: "Intervalo configurado",
-          value: `${formatNumber(cfg.temp_low_c, 1)} °C a ${formatNumber(cfg.temp_high_c, 1)} °C`,
+          value: `${formatNumber(cfg.temp_low_c, 1)} °C a ${formatNumber(
+            cfg.temp_high_c,
+            1
+          )} °C`,
         },
         { label: "Hora", value: formatDateTimePt(new Date(), true) },
       ],
@@ -365,20 +504,37 @@ async function sendHumidityTriggeredEmail({
         { label: "Dispositivo", value: deviceName },
         { label: "Device ID", value: device.device_id },
         { label: "Localização", value: location },
-        { label: "Temperatura atual", value: `${formatNumber(temperature, 1)} °C` },
-        { label: "Humidade atual", value: `${formatNumber(humidity, 0)} %` },
+        {
+          label: "Temperatura atual",
+          value: `${formatNumber(temperature, 1)} °C`,
+        },
+        {
+          label: "Humidade atual",
+          value: `${formatNumber(humidity, 0)} %`,
+        },
         {
           label: "Intervalo configurado",
-          value: `${formatNumber(cfg.hum_low, 0)} % a ${formatNumber(cfg.hum_high, 0)} %`,
+          value: `${formatNumber(cfg.hum_low, 0)} % a ${formatNumber(
+            cfg.hum_high,
+            0
+          )} %`,
         },
-        { label: "Limite ultrapassado", value: `${formatNumber(direction.limit, 0)} %` },
+        {
+          label: "Limite ultrapassado",
+          value: `${formatNumber(direction.limit, 0)} %`,
+        },
         { label: "Hora", value: formatDateTimePt(new Date(), true) },
       ],
     }),
   });
 }
 
-async function sendHumidityResolvedEmail({ device, temperature, humidity, cfg }) {
+async function sendHumidityResolvedEmail({
+  device,
+  temperature,
+  humidity,
+  cfg,
+}) {
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade normalizada — ${deviceName}`;
@@ -392,11 +548,20 @@ async function sendHumidityResolvedEmail({ device, temperature, humidity, cfg })
         { label: "Dispositivo", value: deviceName },
         { label: "Device ID", value: device.device_id },
         { label: "Localização", value: location },
-        { label: "Temperatura atual", value: `${formatNumber(temperature, 1)} °C` },
-        { label: "Humidade atual", value: `${formatNumber(humidity, 0)} %` },
+        {
+          label: "Temperatura atual",
+          value: `${formatNumber(temperature, 1)} °C`,
+        },
+        {
+          label: "Humidade atual",
+          value: `${formatNumber(humidity, 0)} %`,
+        },
         {
           label: "Intervalo configurado",
-          value: `${formatNumber(cfg.hum_low, 0)} % a ${formatNumber(cfg.hum_high, 0)} %`,
+          value: `${formatNumber(cfg.hum_low, 0)} % a ${formatNumber(
+            cfg.hum_high,
+            0
+          )} %`,
         },
         { label: "Hora", value: formatDateTimePt(new Date(), true) },
       ],
@@ -419,11 +584,15 @@ async function sendOfflineTriggeredEmail({ device, cfg }) {
         { label: "Dispositivo", value: deviceName },
         { label: "Device ID", value: device.device_id },
         { label: "Localização", value: location },
-        { label: "Última comunicação", value: formatDateTimePt(device.last_seen || new Date(), true) },
+        {
+          label: "Última comunicação",
+          value: formatDateTimePt(device.last_seen || new Date(), true),
+        },
         {
           label: "Última temperatura",
           value:
-            device.last_temperature !== null && device.last_temperature !== undefined
+            device.last_temperature !== null &&
+            device.last_temperature !== undefined
               ? `${formatNumber(device.last_temperature, 1)} °C`
               : "-",
         },
@@ -440,7 +609,8 @@ async function sendOfflineTriggeredEmail({ device, cfg }) {
         },
         { label: "Hora", value: formatDateTimePt(new Date(), true) },
       ],
-      footer: "Verificar alimentação, Wi-Fi, cobertura de rede e estado do dispositivo.",
+      footer:
+        "Verificar alimentação, Wi-Fi, cobertura de rede e estado do dispositivo.",
     }),
   });
 }
@@ -462,7 +632,8 @@ async function sendOnlineRecoveredEmail({ device }) {
         {
           label: "Temperatura atual",
           value:
-            device.last_temperature !== null && device.last_temperature !== undefined
+            device.last_temperature !== null &&
+            device.last_temperature !== undefined
               ? `${formatNumber(device.last_temperature, 1)} °C`
               : "-",
         },
@@ -485,36 +656,25 @@ function canSendByCooldown(lastSentAt) {
   return diffMs >= COOLDOWN_MIN * 60 * 1000;
 }
 
-async function updateDeviceConfigAndStatus(deviceRow, {
-  configPatch = null,
-  status = null,
-  last_seen = undefined,
-  last_temperature = undefined,
-  last_humidity = undefined,
-}) {
+async function updateDeviceConfigAndStatus(
+  deviceRow,
+  {
+    configPatch = null,
+    status = null,
+    last_seen = undefined,
+    last_temperature = undefined,
+    last_humidity = undefined,
+  }
+) {
   const payload = {
     updated_at: nowIso(),
   };
 
-  if (configPatch) {
-    payload.config = configPatch;
-  }
-
-  if (status !== null) {
-    payload.status = status;
-  }
-
-  if (last_seen !== undefined) {
-    payload.last_seen = last_seen;
-  }
-
-  if (last_temperature !== undefined) {
-    payload.last_temperature = last_temperature;
-  }
-
-  if (last_humidity !== undefined) {
-    payload.last_humidity = last_humidity;
-  }
+  if (configPatch) payload.config = configPatch;
+  if (status !== null) payload.status = status;
+  if (last_seen !== undefined) payload.last_seen = last_seen;
+  if (last_temperature !== undefined) payload.last_temperature = last_temperature;
+  if (last_humidity !== undefined) payload.last_humidity = last_humidity;
 
   const { error } = await supabase
     .from("devices")
@@ -530,10 +690,20 @@ function statusToDbLabel(status) {
   const map = {
     normal: "NORMAL",
     alert: "ALERT",
-    critical: "CRITICAL",
+    critical: "ALARM",
     offline: "OFFLINE",
   };
   return map[status] || "NORMAL";
+}
+
+function statusToApiLabel(status) {
+  const map = {
+    normal: "normal",
+    alert: "alert",
+    critical: "alarm",
+    offline: "offline",
+  };
+  return map[status] || "normal";
 }
 
 async function processTriggeredAndResolvedAlerts({
@@ -548,7 +718,11 @@ async function processTriggeredAndResolvedAlerts({
 
   let nextAlertState = { ...alertState };
 
-  if (tempInfo.breached && !alertState.temp_active && canSendByCooldown(alertState.temp_last_sent_at)) {
+  if (
+    tempInfo.breached &&
+    !alertState.temp_active &&
+    canSendByCooldown(alertState.temp_last_sent_at)
+  ) {
     await sendTemperatureTriggeredEmail({
       device: deviceRow,
       temperature: numericTemperature,
@@ -562,7 +736,10 @@ async function processTriggeredAndResolvedAlerts({
       type: "temperature",
       event: "triggered",
       title: "Temperatura fora do limite",
-      message: `Temperatura ${tempInfo.label}. Valor atual: ${formatNumber(numericTemperature, 1)} °C.`,
+      message: `Temperatura ${tempInfo.label}. Valor atual: ${formatNumber(
+        numericTemperature,
+        1
+      )} °C.`,
       temperature: numericTemperature,
       humidity: numericHumidity,
     });
@@ -584,7 +761,10 @@ async function processTriggeredAndResolvedAlerts({
       type: "temperature",
       event: "resolved",
       title: "Temperatura normalizada",
-      message: `Temperatura voltou ao intervalo normal. Valor atual: ${formatNumber(numericTemperature, 1)} °C.`,
+      message: `Temperatura voltou ao intervalo normal. Valor atual: ${formatNumber(
+        numericTemperature,
+        1
+      )} °C.`,
       temperature: numericTemperature,
       humidity: numericHumidity,
     });
@@ -593,7 +773,11 @@ async function processTriggeredAndResolvedAlerts({
     nextAlertState.temp_last_resolved_at = nowIso();
   }
 
-  if (humInfo.breached && !alertState.hum_active && canSendByCooldown(alertState.hum_last_sent_at)) {
+  if (
+    humInfo.breached &&
+    !alertState.hum_active &&
+    canSendByCooldown(alertState.hum_last_sent_at)
+  ) {
     await sendHumidityTriggeredEmail({
       device: deviceRow,
       temperature: numericTemperature,
@@ -607,7 +791,10 @@ async function processTriggeredAndResolvedAlerts({
       type: "humidity",
       event: "triggered",
       title: "Humidade fora do limite",
-      message: `Humidade ${humInfo.label}. Valor atual: ${formatNumber(numericHumidity, 0)} %.`,
+      message: `Humidade ${humInfo.label}. Valor atual: ${formatNumber(
+        numericHumidity,
+        0
+      )} %.`,
       temperature: numericTemperature,
       humidity: numericHumidity,
     });
@@ -629,7 +816,10 @@ async function processTriggeredAndResolvedAlerts({
       type: "humidity",
       event: "resolved",
       title: "Humidade normalizada",
-      message: `Humidade voltou ao intervalo normal. Valor atual: ${formatNumber(numericHumidity, 0)} %.`,
+      message: `Humidade voltou ao intervalo normal. Valor atual: ${formatNumber(
+        numericHumidity,
+        0
+      )} %.`,
       temperature: numericTemperature,
       humidity: numericHumidity,
     });
@@ -683,7 +873,9 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
 
     const cfg = getDeviceConfig(deviceRow);
     const alertState = cfg.alert_state;
-    const lastSeenTs = deviceRow?.last_seen ? new Date(deviceRow.last_seen).getTime() : null;
+    const lastSeenTs = deviceRow?.last_seen
+      ? new Date(deviceRow.last_seen).getTime()
+      : null;
     const thresholdMs = getOfflineThresholdMs(cfg.send_interval_s);
     const isOffline = !lastSeenTs || Date.now() - lastSeenTs > thresholdMs;
 
@@ -698,7 +890,9 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
       type: "offline",
       event: "triggered",
       title: "Dispositivo offline",
-      message: `O dispositivo deixou de comunicar há mais de ${Math.round(thresholdMs / 1000)} segundos.`,
+      message: `O dispositivo deixou de comunicar há mais de ${Math.round(
+        thresholdMs / 1000
+      )} segundos.`,
       temperature: deviceRow?.last_temperature ?? null,
       humidity: deviceRow?.last_humidity ?? null,
     });
@@ -721,26 +915,29 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
 
 // -------------------- RESUMO SEMANAL --------------------
 async function sendWeeklyReport() {
-  const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const sinceIso = new Date(
+    Date.now() - 7 * 24 * 60 * 60 * 1000
+  ).toISOString();
 
-  const [{ data: readings, error: readingsError }, { data: alerts, error: alertsError }, { data: devicesData, error: devicesError }] =
-    await Promise.all([
-      supabase
-        .from("readings")
-        .select("*")
-        .gte("created_at", sinceIso)
-        .order("created_at", { ascending: true }),
+  const [
+    { data: readings, error: readingsError },
+    { data: alerts, error: alertsError },
+    { data: devicesData, error: devicesError },
+  ] = await Promise.all([
+    supabase
+      .from("readings")
+      .select("*")
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: true }),
 
-      supabase
-        .from("alerts")
-        .select("device_id,type,event,sent_at")
-        .gte("sent_at", sinceIso)
-        .order("sent_at", { ascending: true }),
+    supabase
+      .from("alerts")
+      .select("device_id,type,event,sent_at")
+      .gte("sent_at", sinceIso)
+      .order("sent_at", { ascending: true }),
 
-      supabase
-        .from("devices")
-        .select("device_id,name,location"),
-    ]);
+    supabase.from("devices").select("device_id,name,location"),
+  ]);
 
   if (readingsError) {
     console.error("Erro no resumo semanal / readings:", readingsError);
@@ -889,16 +1086,18 @@ async function sendWeeklyReport() {
       offline_resolved: 0,
     };
 
-    const avgTemp =
-      weekly.tempCount > 0 ? weekly.tempSum / weekly.tempCount : null;
-    const avgHum =
-      weekly.humCount > 0 ? weekly.humSum / weekly.humCount : null;
+    const avgTemp = weekly.tempCount > 0 ? weekly.tempSum / weekly.tempCount : null;
+    const avgHum = weekly.humCount > 0 ? weekly.humSum / weekly.humCount : null;
 
     html += `
       <div style="margin-bottom:34px;">
-        <h3 style="margin:0 0 8px 0;color:#0f172a;font-size:20px;">${escapeHtml(meta.name)}</h3>
+        <h3 style="margin:0 0 8px 0;color:#0f172a;font-size:20px;">${escapeHtml(
+          meta.name
+        )}</h3>
         <p style="margin:0 0 18px 0;color:#64748b;font-size:14px;">
-          Device ID: ${escapeHtml(deviceId)} · Localização: ${escapeHtml(meta.location)}
+          Device ID: ${escapeHtml(deviceId)} · Localização: ${escapeHtml(
+      meta.location
+    )}
         </p>
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
@@ -907,12 +1106,24 @@ async function sendWeeklyReport() {
             <th style="text-align:right;padding:8px;border-bottom:1px solid #e2e8f0;">Valor</th>
           </tr>
           <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Leituras da semana</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${weekly.readingsCount}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Temperatura mínima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${weekly.tempMin !== null ? `${formatNumber(weekly.tempMin, 1)} °C` : "-"}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Temperatura máxima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${weekly.tempMax !== null ? `${formatNumber(weekly.tempMax, 1)} °C` : "-"}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Temperatura média</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${avgTemp !== null ? `${formatNumber(avgTemp, 1)} °C` : "-"}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Humidade mínima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${weekly.humMin !== null ? `${formatNumber(weekly.humMin, 0)} %` : "-"}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Humidade máxima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${weekly.humMax !== null ? `${formatNumber(weekly.humMax, 0)} %` : "-"}</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Humidade média</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${avgHum !== null ? `${formatNumber(avgHum, 0)} %` : "-"}</td></tr>
+          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Temperatura mínima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            weekly.tempMin !== null ? `${formatNumber(weekly.tempMin, 1)} °C` : "-"
+          }</td></tr>
+          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Temperatura máxima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            weekly.tempMax !== null ? `${formatNumber(weekly.tempMax, 1)} °C` : "-"
+          }</td></tr>
+          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Temperatura média</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            avgTemp !== null ? `${formatNumber(avgTemp, 1)} °C` : "-"
+          }</td></tr>
+          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Humidade mínima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            weekly.humMin !== null ? `${formatNumber(weekly.humMin, 0)} %` : "-"
+          }</td></tr>
+          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Humidade máxima</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            weekly.humMax !== null ? `${formatNumber(weekly.humMax, 0)} %` : "-"
+          }</td></tr>
+          <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Humidade média</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            avgHum !== null ? `${formatNumber(avgHum, 0)} %` : "-"
+          }</td></tr>
           <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Alertas temperatura</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${counts.temperature_triggered}</td></tr>
           <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Recuperações temperatura</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${counts.temperature_resolved}</td></tr>
           <tr><td style="padding:8px;border-bottom:1px solid #f1f5f9;">Alertas humidade</td><td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${counts.humidity_triggered}</td></tr>
@@ -942,12 +1153,24 @@ async function sendWeeklyReport() {
       html += `
         <tr>
           <td style="padding:8px;border-bottom:1px solid #f1f5f9;">${escapeHtml(day)}</td>
-          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${d.tempMin !== null ? `${formatNumber(d.tempMin, 1)} °C` : "-"}</td>
-          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${d.tempMax !== null ? `${formatNumber(d.tempMax, 1)} °C` : "-"}</td>
-          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${dayAvgTemp !== null ? `${formatNumber(dayAvgTemp, 1)} °C` : "-"}</td>
-          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${d.humMin !== null ? `${formatNumber(d.humMin, 0)} %` : "-"}</td>
-          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${d.humMax !== null ? `${formatNumber(d.humMax, 0)} %` : "-"}</td>
-          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${dayAvgHum !== null ? `${formatNumber(dayAvgHum, 0)} %` : "-"}</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            d.tempMin !== null ? `${formatNumber(d.tempMin, 1)} °C` : "-"
+          }</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            d.tempMax !== null ? `${formatNumber(d.tempMax, 1)} °C` : "-"
+          }</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            dayAvgTemp !== null ? `${formatNumber(dayAvgTemp, 1)} °C` : "-"
+          }</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            d.humMin !== null ? `${formatNumber(d.humMin, 0)} %` : "-"
+          }</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            d.humMax !== null ? `${formatNumber(d.humMax, 0)} %` : "-"
+          }</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${
+            dayAvgHum !== null ? `${formatNumber(dayAvgHum, 0)} %` : "-"
+          }</td>
           <td style="padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;">${d.readingsCount}</td>
         </tr>
       `;
@@ -1016,16 +1239,21 @@ app.post("/api/temperature", async (req, res) => {
     const { device_id, temperature, humidity } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
-      return res
-        .status(400)
-        .json({ error: "device_id, temperature e humidity são obrigatórios" });
+      return res.status(400).json({
+        error: "device_id, temperature e humidity são obrigatórios",
+      });
     }
 
     const numericTemperature = Number(temperature);
     const numericHumidity = Number(humidity);
 
-    if (!Number.isFinite(numericTemperature) || !Number.isFinite(numericHumidity)) {
-      return res.status(400).json({ error: "temperature e humidity devem ser numéricos" });
+    if (
+      !Number.isFinite(numericTemperature) ||
+      !Number.isFinite(numericHumidity)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "temperature e humidity devem ser numéricos" });
     }
 
     const insertReadingsResult = await supabase.from("readings").insert([
@@ -1077,8 +1305,8 @@ app.post("/api/temperature", async (req, res) => {
 
     const upsertPayload = {
       device_id,
-      name: baseDeviceRow.name || device_id,
-      location: baseDeviceRow.location || "Localização por definir",
+      name: sanitizeDeviceName(baseDeviceRow.name, device_id),
+      location: sanitizeLocation(baseDeviceRow.location),
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
       last_seen: currentNowIso,
@@ -1105,7 +1333,9 @@ app.post("/api/temperature", async (req, res) => {
 
     if (freshDeviceError || !freshDeviceRow) {
       console.error("Erro ao obter device atualizado:", freshDeviceError);
-      return res.status(500).json({ error: "Erro ao obter dispositivo atualizado" });
+      return res
+        .status(500)
+        .json({ error: "Erro ao obter dispositivo atualizado" });
     }
 
     const refreshedCfg = getDeviceConfig(freshDeviceRow);
@@ -1130,7 +1360,7 @@ app.post("/api/temperature", async (req, res) => {
     res.json({
       message: "OK",
       applied_config: getDeviceConfig({ config: finalConfig }),
-      status: computedStatus,
+      status: statusToApiLabel(computedStatus),
     });
   } catch (error) {
     console.error("Erro em /api/temperature:", error);
@@ -1178,7 +1408,8 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const cfg = getDeviceConfig(deviceRow);
     const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
 
-    const temperature = latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
+    const temperature =
+      latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
     const humidity = latestReading?.humidity ?? deviceRow?.last_humidity ?? null;
 
     const lastSeenIso = deviceRow?.last_seen || latestReading?.created_at || null;
@@ -1186,7 +1417,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
       : 999999;
 
-    const online = lastSeenSeconds <= Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
+    const online =
+      lastSeenSeconds <=
+      Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
 
     const normalizedStatus =
       temperature !== null && humidity !== null
@@ -1203,7 +1436,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
         ? "normal"
         : "offline";
 
-    const since24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const since24hIso = new Date(
+      Date.now() - 24 * 60 * 60 * 1000
+    ).toISOString();
 
     const { count: alerts24hCount, error: alertsCountError } = await supabase
       .from("alerts")
@@ -1237,7 +1472,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       temp_high_c,
       hum_low,
       hum_high,
-      status: normalizedStatus,
+      status: statusToApiLabel(normalizedStatus),
       online,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24hCount || 0,
@@ -1260,13 +1495,14 @@ app.get("/api/dashboard/device/:id/history", async (req, res) => {
 
   try {
     const deviceId = req.params.id;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 2000);
 
     const { data, error } = await supabase
       .from("readings")
       .select("temperature, humidity, created_at")
       .eq("device_id", deviceId)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(limit);
 
     if (error) {
       console.error("Erro ao obter histórico:", error);
@@ -1304,7 +1540,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
       .select("*")
       .eq("device_id", deviceId)
       .order("sent_at", { ascending: false })
-      .limit(20);
+      .limit(50);
 
     if (error) {
       console.error("Erro ao obter alertas:", error);
@@ -1316,7 +1552,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
       const event = row.event || "triggered";
 
       let level = "normal";
-      if (type === "offline" && event === "triggered") level = "critical";
+      if (type === "offline" && event === "triggered") level = "alarm";
       else if (event === "triggered") level = "alert";
       else level = "normal";
 
@@ -1327,7 +1563,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
         level,
         title: row.title || "Evento registado",
         message: row.message || "Sem detalhe adicional.",
-        created_at: formatDateTimePt(row.sent_at),
+        created_at: formatDateTimePt(row.sent_at, true),
         temperature:
           row.temperature !== null && row.temperature !== undefined
             ? Number(row.temperature)
@@ -1348,7 +1584,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
           level: "normal",
           title: "Sistema estável",
           message: "Sem alertas registados para este dispositivo.",
-          created_at: formatDateTimePt(new Date()),
+          created_at: formatDateTimePt(new Date(), true),
         },
       ]);
     }
@@ -1356,6 +1592,65 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
     res.json(alerts);
   } catch (error) {
     console.error("Erro em /api/dashboard/device/:id/alerts:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
+  }
+});
+
+// -------------------- DASHBOARD: DEVICE SUMMARY --------------------
+app.get("/api/dashboard/device/:id/summary", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+    const hours = Math.min(Math.max(Number(req.query.hours) || 24, 1), 24 * 30);
+    const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+    const { data: readings, error: readingsError } = await supabase
+      .from("readings")
+      .select("temperature, humidity, created_at")
+      .eq("device_id", deviceId)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: true });
+
+    if (readingsError) {
+      console.error("Erro ao obter summary:", readingsError);
+      return res.status(500).json({ error: "Erro ao obter resumo" });
+    }
+
+    const temps = [];
+    const hums = [];
+
+    for (const row of readings || []) {
+      const temp = Number(row.temperature);
+      const hum = Number(row.humidity);
+
+      if (Number.isFinite(temp)) temps.push(temp);
+      if (Number.isFinite(hum)) hums.push(hum);
+    }
+
+    const avg = (arr, digits = 2) =>
+      arr.length
+        ? Number((arr.reduce((sum, v) => sum + v, 0) / arr.length).toFixed(digits))
+        : null;
+
+    res.json({
+      hours,
+      total_readings: (readings || []).length,
+      temperature: {
+        min: temps.length ? Math.min(...temps) : null,
+        max: temps.length ? Math.max(...temps) : null,
+        avg: avg(temps, 2),
+      },
+      humidity: {
+        min: hums.length ? Math.min(...hums) : null,
+        max: hums.length ? Math.max(...hums) : null,
+        avg: avg(hums, 2),
+      },
+    });
+  } catch (error) {
+    console.error("Erro em /api/dashboard/device/:id/summary:", error);
     res.status(500).json({ error: "Erro interno no servidor" });
   }
 });
@@ -1376,16 +1671,36 @@ app.post("/api/device/:id/config", async (req, res) => {
       hyst_c,
       send_interval_s,
       display_standby_min,
+      name,
+      location,
     } = req.body;
+
+    const validationErrors = validateConfigNumbers({
+      temp_low_c,
+      temp_high_c,
+      hum_low,
+      hum_high,
+      hyst_c,
+      send_interval_s,
+      display_standby_min,
+    });
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ error: validationErrors.join(" | ") });
+    }
 
     const { data: deviceRow, error: fetchError } = await supabase
       .from("devices")
-      .select("config, config_version")
+      .select("*")
       .eq("device_id", deviceId)
       .maybeSingle();
 
     if (fetchError) {
       return res.status(500).json({ error: fetchError.message });
+    }
+
+    if (!deviceRow) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
     }
 
     const currentConfig = deviceRow?.config || {};
@@ -1398,7 +1713,9 @@ app.post("/api/device/:id/config", async (req, res) => {
       ...(hum_low !== undefined ? { hum_low: Number(hum_low) } : {}),
       ...(hum_high !== undefined ? { hum_high: Number(hum_high) } : {}),
       ...(hyst_c !== undefined ? { hyst_c: Number(hyst_c) } : {}),
-      ...(send_interval_s !== undefined ? { send_interval_s: Number(send_interval_s) } : {}),
+      ...(send_interval_s !== undefined
+        ? { send_interval_s: Number(send_interval_s) }
+        : {}),
       ...(display_standby_min !== undefined
         ? { display_standby_min: Number(display_standby_min) }
         : {}),
@@ -1409,13 +1726,23 @@ app.post("/api/device/:id/config", async (req, res) => {
       },
     };
 
+    const payload = {
+      config: updatedConfig,
+      config_version: nextVersion,
+      updated_at: nowIso(),
+    };
+
+    if (name !== undefined) {
+      payload.name = sanitizeDeviceName(name, deviceId);
+    }
+
+    if (location !== undefined) {
+      payload.location = sanitizeLocation(location);
+    }
+
     const { error } = await supabase
       .from("devices")
-      .update({
-        config: updatedConfig,
-        config_version: nextVersion,
-        updated_at: nowIso(),
-      })
+      .update(payload)
       .eq("device_id", deviceId);
 
     if (error) {
@@ -1426,6 +1753,8 @@ app.post("/api/device/:id/config", async (req, res) => {
       message: "Configuração atualizada com sucesso",
       config_version: nextVersion,
       config: updatedConfig,
+      name: payload.name || deviceRow.name,
+      location: payload.location || deviceRow.location,
     });
   } catch (error) {
     console.error("Erro em /api/device/:id/config [POST]:", error);
@@ -1444,7 +1773,7 @@ app.get("/api/device/:id/config", async (req, res) => {
 
     const { data, error } = await supabase
       .from("devices")
-      .select("device_id, config, config_version, updated_at")
+      .select("device_id,name,location,config,config_version,updated_at")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -1460,6 +1789,8 @@ app.get("/api/device/:id/config", async (req, res) => {
 
     res.json({
       device_id: deviceId,
+      name: data.name || deviceId,
+      location: data.location || "Localização por definir",
       config_version: data.config_version || 1,
       updated_at: data.updated_at || null,
       config,
