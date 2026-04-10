@@ -26,6 +26,7 @@ const OFFLINE_ALERT_SECONDS = parseInt(
 const FRONTEND_ORIGINS = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "https://app.ar3dparts.com",
   process.env.DASHBOARD_URL,
   process.env.FRONTEND_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,

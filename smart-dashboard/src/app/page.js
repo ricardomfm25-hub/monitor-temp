@@ -1010,12 +1010,20 @@ export default function DashboardPage() {
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
-  const isAdmin = profile?.role === "admin";
+  const isSuperAdmin = profile?.role === "super_admin";
+  const isClientAdmin = profile?.role === "client_admin";
+  const isAdmin = isSuperAdmin || isClientAdmin;
+
   const canEditSelectedDevice = useMemo(() => {
-    if (isAdmin) return true;
-    const access = devicePermissions.find((item) => item.device_id === selectedDeviceId);
+    const access = devicePermissions.find(
+      (item) => item.device_id === selectedDeviceId
+    );
+
+    if (isSuperAdmin) return true;
+    if (isClientAdmin) return Boolean(access?.can_edit);
+
     return Boolean(access?.can_edit);
-  }, [devicePermissions, isAdmin, selectedDeviceId]);
+  }, [devicePermissions, isSuperAdmin, isClientAdmin, selectedDeviceId]);
 
   const chartReadings = useMemo(
     () => buildTimeSeries(readings, period),
@@ -1042,7 +1050,6 @@ export default function DashboardPage() {
 
   const loadData = useCallback(
     async ({ silent = false, syncForms = true } = {}) => {
-      if (!selectedDeviceId) return;
       if (requestInFlightRef.current) return;
 
       requestInFlightRef.current = true;
@@ -1067,30 +1074,12 @@ export default function DashboardPage() {
         const windowRange = getPeriodWindow(period);
         const since = new Date(windowRange.start).toISOString();
 
-        const [
-          profileResponse,
-          permissionsResponse,
-          devicesResponse,
-          deviceResponse,
-          readingsRows,
-          alertsRows,
-        ] = await Promise.all([
+        const [profileResponse, permissionsResponse] = await Promise.all([
           supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
           supabase
             .from("device_access")
             .select("device_id, can_view, can_edit")
             .eq("user_id", user.id),
-          supabase.from("devices").select("*").order("device_id", {
-            ascending: true,
-          }),
-          supabase
-            .from("devices")
-            .select("*")
-            .eq("device_id", selectedDeviceId)
-            .limit(1)
-            .maybeSingle(),
-          fetchAllReadingsForPeriod(supabase, selectedDeviceId, since),
-          fetchRecentAlerts(supabase, selectedDeviceId, 20),
         ]);
 
         if (profileResponse.error) {
@@ -1103,20 +1092,83 @@ export default function DashboardPage() {
           throw new Error("Não foi possível carregar as permissões do utilizador.");
         }
 
-        if (devicesResponse.error) {
-          console.warn("devices list:", JSON.stringify(devicesResponse.error, null, 2));
+const profileData = profileResponse.data || null;
+const permissionsData = permissionsResponse.data || [];
+
+if (!profileData) {
+  throw new Error("O utilizador autenticado não tem perfil criado em public.profiles.");
+}
+
+if (!profileData.is_active) {
+  throw new Error("O teu utilizador está inativo.");
+}
+        let devicesQuery = supabase
+          .from("devices")
+          .select("*")
+          .order("device_id", { ascending: true });
+
+        if (profileData.role !== "super_admin") {
+          const allowedDeviceIds = permissionsData
+            .filter((item) => item.can_view)
+            .map((item) => item.device_id);
+
+          if (!allowedDeviceIds.length) {
+            if (!mountedRef.current) return;
+
+            setProfile(profileData);
+            setDevicePermissions(permissionsData);
+            setDevices([]);
+            setDevice(null);
+            setReadings([]);
+            setAlerts([]);
+            setInitialLoaded(true);
+            return;
+          }
+
+          devicesQuery = devicesQuery.in("device_id", allowedDeviceIds);
+        }
+
+        const { data: devicesData, error: devicesError } = await devicesQuery;
+
+        if (devicesError) {
+          console.warn("devices list:", JSON.stringify(devicesError, null, 2));
           throw new Error("Não foi possível carregar a lista de dispositivos.");
         }
 
-        if (deviceResponse.error) {
+        const allowedSelectedDevice =
+          profileData?.role === "super_admin" ||
+          permissionsData.some(
+            (item) => item.device_id === selectedDeviceId && item.can_view
+          );
+
+        const safeSelectedDeviceId =
+          allowedSelectedDevice && devicesData?.some((d) => d.device_id === selectedDeviceId)
+            ? selectedDeviceId
+            : devicesData?.[0]?.device_id || null;
+
+        const [deviceResponse, readingsRows, alertsRows] = await Promise.all([
+          safeSelectedDeviceId
+            ? supabase
+                .from("devices")
+                .select("*")
+                .eq("device_id", safeSelectedDeviceId)
+                .limit(1)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
+          safeSelectedDeviceId
+            ? fetchAllReadingsForPeriod(supabase, safeSelectedDeviceId, since)
+            : Promise.resolve([]),
+          safeSelectedDeviceId
+            ? fetchRecentAlerts(supabase, safeSelectedDeviceId, 20)
+            : Promise.resolve([]),
+        ]);
+
+        if (deviceResponse?.error) {
           console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
           throw new Error("Não foi possível carregar o dispositivo selecionado.");
         }
 
-        const profileData = profileResponse.data || null;
-        const permissionsData = permissionsResponse.data || [];
-        const devicesData = devicesResponse.data || [];
-        const deviceData = deviceResponse.data || null;
+        const deviceData = deviceResponse?.data || null;
 
         const readingsData = (readingsRows || [])
           .map((item) => {
@@ -1133,23 +1185,16 @@ export default function DashboardPage() {
 
         if (!mountedRef.current) return;
 
+        if (safeSelectedDeviceId && safeSelectedDeviceId !== selectedDeviceId) {
+          setSelectedDeviceId(safeSelectedDeviceId);
+        }
+
         setProfile(profileData);
         setDevicePermissions(permissionsData);
-        setDevices(devicesData);
+        setDevices(devicesData || []);
         setDevice(deviceData);
         setReadings(readingsData);
         setAlerts(alertsRows || []);
-
-        if (!deviceData && devicesData.length > 0) {
-          const fallbackDeviceId =
-            devicesData.find((d) => d.device_id === DEFAULT_DEVICE_ID)?.device_id ||
-            devicesData[0].device_id;
-
-          if (fallbackDeviceId && fallbackDeviceId !== selectedDeviceId) {
-            setSelectedDeviceId(fallbackDeviceId);
-            return;
-          }
-        }
 
         if (syncForms) {
           const config = deviceData?.config || {};
@@ -1357,7 +1402,7 @@ export default function DashboardPage() {
   }
 
   async function saveAdminConfig() {
-    if (!device || !selectedDeviceId || !isAdmin) return;
+    if (!device || !selectedDeviceId || !isSuperAdmin) return;
 
     setSavingAdmin(true);
     setAdminMessage("");
@@ -1882,7 +1927,7 @@ export default function DashboardPage() {
           ) : null}
         </section>
 
-        {isAdmin ? (
+        {isSuperAdmin ? (
           <section style={styles.card}>
             <div style={styles.cardHeader}>
               <div>
