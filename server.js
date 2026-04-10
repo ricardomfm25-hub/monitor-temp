@@ -38,7 +38,7 @@ app.use(
     origin(origin, callback) {
       if (!origin) return callback(null, true);
       if (FRONTEND_ORIGINS.includes(origin)) return callback(null, true);
-      return callback(null, true);
+      return callback(new Error("CORS não permitido"));
     },
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -65,6 +65,7 @@ function formatDateTimePt(dateValue, withSeconds = false) {
   if (Number.isNaN(d.getTime())) return "-";
 
   return d.toLocaleString("pt-PT", {
+    timeZone: "Europe/Lisbon",
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
@@ -111,10 +112,12 @@ function validateConfigNumbers(payload) {
     payload.temp_low_c !== undefined ? Number(payload.temp_low_c) : undefined;
   const tempHigh =
     payload.temp_high_c !== undefined ? Number(payload.temp_high_c) : undefined;
-  const humLow = payload.hum_low !== undefined ? Number(payload.hum_low) : undefined;
+  const humLow =
+    payload.hum_low !== undefined ? Number(payload.hum_low) : undefined;
   const humHigh =
     payload.hum_high !== undefined ? Number(payload.hum_high) : undefined;
-  const hyst = payload.hyst_c !== undefined ? Number(payload.hyst_c) : undefined;
+  const hyst =
+    payload.hyst_c !== undefined ? Number(payload.hyst_c) : undefined;
   const sendInterval =
     payload.send_interval_s !== undefined
       ? Number(payload.send_interval_s)
@@ -171,10 +174,7 @@ function validateConfigNumbers(payload) {
     errors.push("send_interval_s deve ser pelo menos 5");
   }
 
-  if (
-    standby !== undefined &&
-    (!Number.isFinite(standby) || standby < 0)
-  ) {
+  if (standby !== undefined && (!Number.isFinite(standby) || standby < 0)) {
     errors.push("display_standby_min inválido");
   }
 
@@ -308,17 +308,87 @@ function getHumidityAlertDirection(humidity, cfg) {
   };
 }
 
-async function sendEmail({ subject, htmlContent }) {
-  if (!BREVO_API_KEY || !ALERT_FROM_EMAIL || !ALERT_TO_EMAIL) {
+async function getDeviceAlertRecipients(deviceId) {
+  const { data, error } = await supabase
+    .from("device_alert_recipients")
+    .select("email, name")
+    .eq("device_id", deviceId)
+    .eq("is_active", true);
+
+  if (error) {
+    console.error("Erro ao obter recipients do dispositivo:", error);
+    return [];
+  }
+
+  const recipients = (data || [])
+    .map((row) => ({
+      email: String(row.email || "").trim(),
+      name: String(row.name || "").trim() || undefined,
+    }))
+    .filter((row) => row.email);
+
+  if (recipients.length > 0) return recipients;
+
+  if (ALERT_TO_EMAIL) {
+    return [{ email: ALERT_TO_EMAIL }];
+  }
+
+  return [];
+}
+
+async function getWeeklyReportRecipients() {
+  const { data, error } = await supabase
+    .from("device_alert_recipients")
+    .select("email, name")
+    .eq("is_active", true);
+
+  if (error) {
+    console.error("Erro ao obter recipients do resumo semanal:", error);
+    return ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
+  }
+
+  const uniqueMap = new Map();
+
+  for (const row of data || []) {
+    const email = String(row.email || "").trim().toLowerCase();
+    if (!email) continue;
+    if (!uniqueMap.has(email)) {
+      uniqueMap.set(email, {
+        email,
+        name: String(row.name || "").trim() || undefined,
+      });
+    }
+  }
+
+  const recipients = Array.from(uniqueMap.values());
+  if (recipients.length > 0) return recipients;
+
+  return ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
+}
+
+async function sendEmail({ to, subject, htmlContent }) {
+  if (!BREVO_API_KEY || !ALERT_FROM_EMAIL) {
     console.warn("Brevo/email não configurado. Email não enviado.");
+    return;
+  }
+
+  const normalizedTo = (to || [])
+    .map((row) => ({
+      email: String(row.email || "").trim(),
+      ...(row.name ? { name: row.name } : {}),
+    }))
+    .filter((row) => row.email);
+
+  if (!normalizedTo.length) {
+    console.warn("Sem destinatários para envio de email.");
     return;
   }
 
   await axios.post(
     "https://api.brevo.com/v3/smtp/email",
     {
-      sender: { email: ALERT_FROM_EMAIL },
-      to: [{ email: ALERT_TO_EMAIL }],
+      sender: { email: ALERT_FROM_EMAIL, name: "SmartTempSystems" },
+      to: normalizedTo,
       subject,
       htmlContent,
     },
@@ -390,7 +460,7 @@ function buildEmailShell({ heading, intro, blocks, footer }) {
           </table>
           <p style="margin:22px 0 0 0;color:#64748b;font-size:13px;line-height:1.6;">
             ${escapeHtml(
-              footer || "Enviado automaticamente pelo SmartThermoSecure."
+              footer || "Enviado automaticamente pelo SmartTempSystems."
             )}
           </p>
         </div>
@@ -409,8 +479,10 @@ async function sendTemperatureTriggeredEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura fora do limite — ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
+    to: recipients,
     subject,
     htmlContent: buildEmailShell({
       heading: "Alerta de temperatura",
@@ -453,8 +525,10 @@ async function sendTemperatureResolvedEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura normalizada — ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
+    to: recipients,
     subject,
     htmlContent: buildEmailShell({
       heading: "Temperatura normalizada",
@@ -494,8 +568,10 @@ async function sendHumidityTriggeredEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade fora do limite — ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
+    to: recipients,
     subject,
     htmlContent: buildEmailShell({
       heading: "Alerta de humidade",
@@ -538,8 +614,10 @@ async function sendHumidityResolvedEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade normalizada — ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
+    to: recipients,
     subject,
     htmlContent: buildEmailShell({
       heading: "Humidade normalizada",
@@ -574,8 +652,10 @@ async function sendOfflineTriggeredEmail({ device, cfg }) {
   const location = device?.location || "Localização por definir";
   const thresholdMs = getOfflineThresholdMs(cfg.send_interval_s);
   const subject = `[STS] Dispositivo offline — ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
+    to: recipients,
     subject,
     htmlContent: buildEmailShell({
       heading: "Dispositivo offline",
@@ -619,8 +699,10 @@ async function sendOnlineRecoveredEmail({ device }) {
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Dispositivo novamente online — ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
+    to: recipients,
     subject,
     htmlContent: buildEmailShell({
       heading: "Dispositivo novamente online",
@@ -926,7 +1008,7 @@ async function sendWeeklyReport() {
   ] = await Promise.all([
     supabase
       .from("readings")
-      .select("*")
+      .select("device_id, temperature, humidity, created_at")
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: true }),
 
@@ -956,6 +1038,12 @@ async function sendWeeklyReport() {
 
   if (!readings || readings.length === 0) return;
 
+  const recipients = await getWeeklyReportRecipients();
+  if (!recipients.length) {
+    console.warn("Sem recipients para resumo semanal.");
+    return;
+  }
+
   const deviceMetaMap = new Map(
     (devicesData || []).map((d) => [
       d.device_id,
@@ -975,6 +1063,7 @@ async function sendWeeklyReport() {
     const hum = Number(row.humidity);
     const d = new Date(row.created_at);
     const dayKey = d.toLocaleDateString("pt-PT", {
+      timeZone: "Europe/Lisbon",
       day: "2-digit",
       month: "2-digit",
       year: "2-digit",
@@ -1062,7 +1151,7 @@ async function sendWeeklyReport() {
     <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;">
       <div style="max-width:900px;margin:0 auto;">
         <div style="background:#0f172a;color:#ffffff;padding:22px 24px;border-radius:18px 18px 0 0;">
-          <h2 style="margin:0;font-size:24px;">Resumo Semanal SmartThermoSecure</h2>
+          <h2 style="margin:0;font-size:24px;">Resumo Semanal SmartTempSystems</h2>
           <p style="margin:8px 0 0 0;font-size:14px;color:#cbd5e1;">
             Inclui mínimos, máximos, médias semanais e indicadores de alerta.
           </p>
@@ -1145,7 +1234,7 @@ async function sendWeeklyReport() {
           </tr>
     `;
 
-    for (const day of Object.keys(perDeviceDaily[deviceId])) {
+    for (const day of Object.keys(perDeviceDaily[deviceId]).sort()) {
       const d = perDeviceDaily[deviceId][day];
       const dayAvgTemp = d.tempCount > 0 ? d.tempSum / d.tempCount : null;
       const dayAvgHum = d.humCount > 0 ? d.humSum / d.humCount : null;
@@ -1186,14 +1275,15 @@ async function sendWeeklyReport() {
   `;
 
   await sendEmail({
-    subject: "Resumo Semanal SmartThermoSecure",
+    to: recipients,
+    subject: "Resumo Semanal SmartTempSystems",
     htmlContent: html,
   });
 }
 
 // -------------------- ROOT --------------------
 app.get("/", (req, res) => {
-  res.send("Servidor ativo!");
+  res.send("Servidor SmartTempSystems ativo!");
 });
 
 // -------------------- WEEKLY REPORT --------------------
@@ -1511,6 +1601,7 @@ app.get("/api/dashboard/device/:id/history", async (req, res) => {
 
     const history = (data || []).reverse().map((row) => ({
       time: new Date(row.created_at).toLocaleTimeString("pt-PT", {
+        timeZone: "Europe/Lisbon",
         hour: "2-digit",
         minute: "2-digit",
       }),
@@ -1740,10 +1831,12 @@ app.post("/api/device/:id/config", async (req, res) => {
       payload.location = sanitizeLocation(location);
     }
 
-    const { error } = await supabase
+    const { data: updatedRow, error } = await supabase
       .from("devices")
       .update(payload)
-      .eq("device_id", deviceId);
+      .eq("device_id", deviceId)
+      .select("*")
+      .single();
 
     if (error) {
       return res.status(500).json({ error: error.message });
@@ -1751,10 +1844,11 @@ app.post("/api/device/:id/config", async (req, res) => {
 
     res.json({
       message: "Configuração atualizada com sucesso",
-      config_version: nextVersion,
-      config: updatedConfig,
-      name: payload.name || deviceRow.name,
-      location: payload.location || deviceRow.location,
+      config_version: updatedRow.config_version,
+      config: updatedRow.config,
+      name: updatedRow.name,
+      location: updatedRow.location,
+      updated_at: updatedRow.updated_at,
     });
   } catch (error) {
     console.error("Erro em /api/device/:id/config [POST]:", error);
@@ -1802,5 +1896,5 @@ app.get("/api/device/:id/config", async (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("Servidor ativo na porta " + PORT);
+  console.log("Servidor SmartTempSystems ativo na porta " + PORT);
 });

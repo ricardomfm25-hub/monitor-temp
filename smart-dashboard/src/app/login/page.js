@@ -1,62 +1,96 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
+    let isMounted = true;
+
     async function checkSession() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (session) {
-        router.replace("/");
-        router.refresh();
-        return;
+        if (!isMounted) return;
+
+        if (session) {
+          router.replace("/");
+          router.refresh();
+          return;
+        }
+
+        setCheckingSession(false);
+      } catch {
+        if (!isMounted) return;
+        setCheckingSession(false);
+        setErrorMsg("Não foi possível verificar a sessão.");
       }
-
-      setCheckingSession(false);
     }
 
     checkSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router, supabase]);
 
   async function handleLogin(e) {
     e.preventDefault();
+
+    if (loading) return;
+
     setLoading(true);
     setErrorMsg("");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (error) {
-      setErrorMsg("Login inválido.");
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (error) {
+        if (
+          error.message?.toLowerCase().includes("invalid login credentials")
+        ) {
+          setErrorMsg("Email ou palavra-passe incorretos.");
+        } else {
+          setErrorMsg("Não foi possível iniciar sessão. Tenta novamente.");
+        }
+        setLoading(false);
+        return;
+      }
+
+      router.replace("/");
+      router.refresh();
+    } catch {
+      setErrorMsg("Ocorreu um erro inesperado ao iniciar sessão.");
       setLoading(false);
-      return;
     }
-
-    router.replace("/");
-    router.refresh();
   }
 
   if (checkingSession) {
     return (
       <main style={styles.page}>
         <div style={styles.card}>
-          <p style={styles.subtitle}>A verificar sessão...</p>
+          <div style={styles.statusWrap}>
+            <div style={styles.spinner} />
+            <p style={styles.subtitle}>A verificar sessão...</p>
+          </div>
         </div>
       </main>
     );
@@ -66,34 +100,66 @@ export default function LoginPage() {
     <main style={styles.page}>
       <div style={styles.card}>
         <div style={styles.header}>
+          <div style={styles.badge}>Smart Temp Systems</div>
           <h1 style={styles.title}>STS Dashboard</h1>
           <p style={styles.subtitle}>Entrar para aceder à monitorização</p>
         </div>
 
         <form onSubmit={handleLogin} style={styles.form}>
           <div style={styles.field}>
-            <label style={styles.label}>Email</label>
+            <label htmlFor="email" style={styles.label}>
+              Email
+            </label>
             <input
+              id="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={styles.input}
+              placeholder="exemplo@empresa.com"
+              disabled={loading}
               required
             />
           </div>
 
           <div style={styles.field}>
-            <label style={styles.label}>Palavra-passe</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={styles.input}
-              required
-            />
+            <label htmlFor="password" style={styles.label}>
+              Palavra-passe
+            </label>
+
+            <div style={styles.passwordWrap}>
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={styles.passwordInput}
+                placeholder="Introduz a tua palavra-passe"
+                disabled={loading}
+                required
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                style={styles.showButton}
+                disabled={loading}
+              >
+                {showPassword ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
           </div>
 
-          <button type="submit" style={styles.button} disabled={loading}>
+          <button
+            type="submit"
+            style={{
+              ...styles.button,
+              ...(loading ? styles.buttonDisabled : {}),
+            }}
+            disabled={loading}
+          >
             {loading ? "A entrar..." : "Entrar"}
           </button>
 
@@ -107,7 +173,8 @@ export default function LoginPage() {
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "#0b1220",
+    background:
+      "radial-gradient(circle at top, #162235 0%, #0b1220 45%, #060c16 100%)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -116,19 +183,35 @@ const styles = {
   },
   card: {
     width: "100%",
-    maxWidth: "420px",
-    background: "#111827",
+    maxWidth: "430px",
+    background: "rgba(17, 24, 39, 0.92)",
     border: "1px solid #1f2937",
     borderRadius: "24px",
-    padding: "24px",
+    padding: "28px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+    backdropFilter: "blur(10px)",
   },
   header: {
-    marginBottom: "20px",
+    marginBottom: "22px",
+  },
+  badge: {
+    display: "inline-block",
+    marginBottom: "10px",
+    padding: "6px 10px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 800,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "#93c5fd",
+    background: "rgba(37, 99, 235, 0.12)",
+    border: "1px solid rgba(59, 130, 246, 0.25)",
   },
   title: {
     margin: 0,
     fontSize: "28px",
     fontWeight: 800,
+    lineHeight: 1.1,
   },
   subtitle: {
     margin: "8px 0 0 0",
@@ -157,27 +240,79 @@ const styles = {
     border: "1px solid #253246",
     background: "#0a1322",
     color: "#f8fafc",
-    borderRadius: "10px",
-    padding: "10px 12px",
+    borderRadius: "12px",
+    padding: "12px 14px",
     fontSize: "14px",
     outline: "none",
-    height: "40px",
+    minHeight: "44px",
     boxSizing: "border-box",
+  },
+  passwordWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  passwordInput: {
+    flex: 1,
+    border: "1px solid #253246",
+    background: "#0a1322",
+    color: "#f8fafc",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    fontSize: "14px",
+    outline: "none",
+    minHeight: "44px",
+    boxSizing: "border-box",
+  },
+  showButton: {
+    border: "1px solid #334155",
+    background: "#111c2e",
+    color: "#cbd5e1",
+    borderRadius: "12px",
+    padding: "0 14px",
+    minHeight: "44px",
+    cursor: "pointer",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   },
   button: {
     border: "1px solid #2563eb",
-    background: "#163b7a",
+    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
     color: "#ffffff",
-    borderRadius: "10px",
-    padding: "11px 14px",
+    borderRadius: "12px",
+    padding: "12px 14px",
     cursor: "pointer",
     fontWeight: 800,
     fontSize: "14px",
     marginTop: "4px",
+    transition: "0.2s ease",
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+    cursor: "not-allowed",
   },
   error: {
-    color: "#f87171",
+    color: "#fca5a5",
     fontSize: "13px",
     fontWeight: 700,
+    background: "rgba(127, 29, 29, 0.18)",
+    border: "1px solid rgba(248, 113, 113, 0.25)",
+    padding: "10px 12px",
+    borderRadius: "12px",
+  },
+  statusWrap: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "12px",
+    padding: "18px 0",
+  },
+  spinner: {
+    width: "28px",
+    height: "28px",
+    borderRadius: "999px",
+    border: "3px solid #1e293b",
+    borderTop: "3px solid #60a5fa",
+    animation: "spin 1s linear infinite",
   },
 };

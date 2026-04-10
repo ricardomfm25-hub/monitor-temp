@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 
+const PUBLIC_ROUTES = ["/login"];
+
 export async function middleware(request) {
   let response = NextResponse.next({
     request: {
@@ -17,17 +19,17 @@ export async function middleware(request) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            request.cookies.set(name, value)
-          );
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
 
           response = NextResponse.next({
             request,
           });
 
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     }
@@ -39,8 +41,8 @@ export async function middleware(request) {
 
   const { pathname } = request.nextUrl;
 
-  const isLoginPage = pathname === "/login";
-  const isProtectedRoute = pathname === "/";
+  const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
+  const isProtectedRoute = !isPublicRoute;
 
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
@@ -48,7 +50,7 @@ export async function middleware(request) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isLoginPage) {
+  if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
@@ -58,5 +60,5 @@ export async function middleware(request) {
 }
 
 export const config = {
-  matcher: ["/", "/login"],
+  matcher: ["/", "/login", "/admin/:path*", "/dashboard/:path*"],
 };

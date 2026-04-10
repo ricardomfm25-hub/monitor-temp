@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import {
   LineChart,
@@ -14,8 +15,7 @@ import {
   ReferenceDot,
 } from "recharts";
 
-const DEFAULT_DEVICE_ID = "SmartThermoSecure_01";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE || "stsadminRM2026";
+const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
 const OFFLINE_LIMIT_MS = 120 * 1000;
 
@@ -33,6 +33,7 @@ function formatDateTime(value) {
   if (Number.isNaN(d.getTime())) return "-";
 
   return d.toLocaleString("pt-PT", {
+    timeZone: "Europe/Lisbon",
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
@@ -49,12 +50,14 @@ function formatShortTime(value, periodKey = "24h") {
 
   if (periodKey === "7d") {
     return d.toLocaleDateString("pt-PT", {
+      timeZone: "Europe/Lisbon",
       day: "2-digit",
       month: "2-digit",
     });
   }
 
   return d.toLocaleTimeString("pt-PT", {
+    timeZone: "Europe/Lisbon",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -584,53 +587,6 @@ function getHealthToneStyles(tone) {
   };
 }
 
-function getStatsFromReadings(readings) {
-  const temps = readings
-    .map((r) => parseNumber(r?.temperature))
-    .filter((v) => v !== null);
-
-  const hums = readings
-    .map((r) => parseNumber(r?.humidity))
-    .filter((v) => v !== null);
-
-  const avg = (values) =>
-    values.length
-      ? Number((values.reduce((sum, v) => sum + v, 0) / values.length).toFixed(2))
-      : null;
-
-  return {
-    tempMin: temps.length ? Math.min(...temps) : null,
-    tempMax: temps.length ? Math.max(...temps) : null,
-    tempAvg: avg(temps),
-    humMin: hums.length ? Math.min(...hums) : null,
-    humMax: hums.length ? Math.max(...hums) : null,
-    humAvg: avg(hums),
-    totalReadings: readings.length,
-  };
-}
-
-function countThresholdViolations(readings, limits) {
-  const { tempLow, tempHigh, humLow, humHigh } = limits;
-  let count = 0;
-
-  for (const item of readings || []) {
-    const temp = parseNumber(item?.temperature);
-    const hum = parseNumber(item?.humidity);
-
-    const tempBad =
-      (tempLow !== null && temp !== null && temp < tempLow) ||
-      (tempHigh !== null && temp !== null && temp > tempHigh);
-
-    const humBad =
-      (humLow !== null && hum !== null && hum < humLow) ||
-      (humHigh !== null && hum !== null && hum > humHigh);
-
-    if (tempBad || humBad) count += 1;
-  }
-
-  return count;
-}
-
 async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
   const pageSize = 1000;
   let from = 0;
@@ -665,6 +621,7 @@ async function fetchRecentAlerts(supabase, deviceId, limit = 20) {
     .from("alerts")
     .select("*")
     .eq("device_id", deviceId)
+    .eq("event", "triggered")
     .order("sent_at", { ascending: false })
     .limit(limit);
 
@@ -1012,23 +969,22 @@ function DataChart({
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+
   const [period, setPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
 
+  const [profile, setProfile] = useState(null);
+  const [devicePermissions, setDevicePermissions] = useState([]);
   const [devices, setDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [device, setDevice] = useState(null);
   const [readings, setReadings] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [lastSyncAt, setLastSyncAt] = useState(null);
-
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminCodeInput, setAdminCodeInput] = useState("");
-  const [adminError, setAdminError] = useState("");
 
   const [clientForm, setClientForm] = useState({
     temp_low_c: "",
@@ -1054,14 +1010,16 @@ export default function DashboardPage() {
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
 
+  const isAdmin = profile?.role === "admin";
+  const canEditSelectedDevice = useMemo(() => {
+    if (isAdmin) return true;
+    const access = devicePermissions.find((item) => item.device_id === selectedDeviceId);
+    return Boolean(access?.can_edit);
+  }, [devicePermissions, isAdmin, selectedDeviceId]);
+
   const chartReadings = useMemo(
     () => buildTimeSeries(readings, period),
     [readings, period]
-  );
-
-  const currentPeriodStats = useMemo(
-    () => getStatsFromReadings(readings),
-    [readings]
   );
 
   useEffect(() => {
@@ -1095,23 +1053,55 @@ export default function DashboardPage() {
       }
 
       try {
+        const {
+          data: { user },
+          error: sessionError,
+        } = await supabase.auth.getUser();
+
+        if (sessionError) throw sessionError;
+        if (!user) {
+          router.replace("/login");
+          return;
+        }
+
         const windowRange = getPeriodWindow(period);
         const since = new Date(windowRange.start).toISOString();
 
-        const [devicesResponse, deviceResponse, readingsRows, alertsRows] =
-          await Promise.all([
-            supabase.from("devices").select("*").order("device_id", {
-              ascending: true,
-            }),
-            supabase
-              .from("devices")
-              .select("*")
-              .eq("device_id", selectedDeviceId)
-              .limit(1)
-              .maybeSingle(),
-            fetchAllReadingsForPeriod(supabase, selectedDeviceId, since),
-            fetchRecentAlerts(supabase, selectedDeviceId, 20),
-          ]);
+        const [
+          profileResponse,
+          permissionsResponse,
+          devicesResponse,
+          deviceResponse,
+          readingsRows,
+          alertsRows,
+        ] = await Promise.all([
+          supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+          supabase
+            .from("device_access")
+            .select("device_id, can_view, can_edit")
+            .eq("user_id", user.id),
+          supabase.from("devices").select("*").order("device_id", {
+            ascending: true,
+          }),
+          supabase
+            .from("devices")
+            .select("*")
+            .eq("device_id", selectedDeviceId)
+            .limit(1)
+            .maybeSingle(),
+          fetchAllReadingsForPeriod(supabase, selectedDeviceId, since),
+          fetchRecentAlerts(supabase, selectedDeviceId, 20),
+        ]);
+
+        if (profileResponse.error) {
+          console.warn("profile:", JSON.stringify(profileResponse.error, null, 2));
+          throw new Error("Não foi possível carregar o perfil do utilizador.");
+        }
+
+        if (permissionsResponse.error) {
+          console.warn("permissions:", JSON.stringify(permissionsResponse.error, null, 2));
+          throw new Error("Não foi possível carregar as permissões do utilizador.");
+        }
 
         if (devicesResponse.error) {
           console.warn("devices list:", JSON.stringify(devicesResponse.error, null, 2));
@@ -1123,8 +1113,11 @@ export default function DashboardPage() {
           throw new Error("Não foi possível carregar o dispositivo selecionado.");
         }
 
+        const profileData = profileResponse.data || null;
+        const permissionsData = permissionsResponse.data || [];
         const devicesData = devicesResponse.data || [];
         const deviceData = deviceResponse.data || null;
+
         const readingsData = (readingsRows || [])
           .map((item) => {
             const timestamp = new Date(item.created_at).getTime();
@@ -1140,15 +1133,12 @@ export default function DashboardPage() {
 
         if (!mountedRef.current) return;
 
+        setProfile(profileData);
+        setDevicePermissions(permissionsData);
         setDevices(devicesData);
         setDevice(deviceData);
         setReadings(readingsData);
-        setAlerts(
-          (alertsRows || []).filter(
-            (item) => String(item?.event || "").toLowerCase() === "triggered"
-          )
-        );
-        setLastSyncAt(new Date().toISOString());
+        setAlerts(alertsRows || []);
 
         if (!deviceData && devicesData.length > 0) {
           const fallbackDeviceId =
@@ -1195,7 +1185,7 @@ export default function DashboardPage() {
         }
       }
     },
-    [selectedDeviceId, period, supabase]
+    [selectedDeviceId, period, supabase, router]
   );
 
   useEffect(() => {
@@ -1276,17 +1266,6 @@ export default function DashboardPage() {
     [readings, sendIntervalS, device?.last_seen, period]
   );
 
-  const violationCount = useMemo(
-    () =>
-      countThresholdViolations(readings, {
-        tempLow,
-        tempHigh,
-        humLow,
-        humHigh,
-      }),
-    [readings, tempLow, tempHigh, humLow, humHigh]
-  );
-
   const currentTempTone =
     effectiveStatus === "OFFLINE"
       ? "neutral"
@@ -1306,7 +1285,7 @@ export default function DashboardPage() {
       : "good";
 
   async function saveClientConfig() {
-    if (!device || !selectedDeviceId) return;
+    if (!device || !selectedDeviceId || !canEditSelectedDevice) return;
 
     setSavingClient(true);
     setClientMessage("");
@@ -1347,29 +1326,38 @@ export default function DashboardPage() {
       hum_high: newHumHigh,
     };
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("devices")
       .update({
         config: newConfig,
         config_version: Number(device?.config_version || 0) + 1,
         updated_at: new Date().toISOString(),
       })
-      .eq("device_id", selectedDeviceId);
+      .eq("device_id", selectedDeviceId)
+      .select("*")
+      .single();
 
-    if (error) {
+    if (error || !data) {
       setClientMessage("Erro ao guardar configurações do cliente.");
       console.warn("saveClientConfig:", JSON.stringify(error, null, 2));
       setSavingClient(false);
       return;
     }
 
+    setDevice(data);
+    setClientForm({
+      temp_low_c: toInputValue(data?.config?.temp_low_c),
+      temp_high_c: toInputValue(data?.config?.temp_high_c),
+      hum_low: toInputValue(data?.config?.hum_low),
+      hum_high: toInputValue(data?.config?.hum_high),
+    });
+
     setClientMessage("Configurações do cliente guardadas com sucesso.");
-    await loadData({ syncForms: true });
     setSavingClient(false);
   }
 
   async function saveAdminConfig() {
-    if (!device || !selectedDeviceId) return;
+    if (!device || !selectedDeviceId || !isAdmin) return;
 
     setSavingAdmin(true);
     setAdminMessage("");
@@ -1401,7 +1389,7 @@ export default function DashboardPage() {
       display_standby_min: newDisplayStandby,
     };
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("devices")
       .update({
         name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
@@ -1410,17 +1398,27 @@ export default function DashboardPage() {
         config_version: Number(device?.config_version || 0) + 1,
         updated_at: new Date().toISOString(),
       })
-      .eq("device_id", selectedDeviceId);
+      .eq("device_id", selectedDeviceId)
+      .select("*")
+      .single();
 
-    if (error) {
+    if (error || !data) {
       setAdminMessage("Erro ao guardar configurações admin.");
       console.warn("saveAdminConfig:", JSON.stringify(error, null, 2));
       setSavingAdmin(false);
       return;
     }
 
+    setDevice(data);
+    setAdminForm({
+      name: data?.name || "",
+      location: data?.location || "",
+      hyst_c: toInputValue(data?.config?.hyst_c),
+      send_interval_s: toInputValue(data?.config?.send_interval_s),
+      display_standby_min: toInputValue(data?.config?.display_standby_min),
+    });
+
     setAdminMessage("Configurações admin guardadas com sucesso.");
-    await loadData({ syncForms: true });
     setSavingAdmin(false);
   }
 
@@ -1432,9 +1430,9 @@ export default function DashboardPage() {
       <div style={styles.container}>
         <div style={styles.topBar}>
           <div>
-            <h1 style={styles.title}>Dashboard STS</h1>
+            <h1 style={styles.title}>SmartTempSystems</h1>
             <p style={styles.subtitle}>
-              Monitorização em tempo real dos dispositivos STS
+              Monitorização em tempo real dos dispositivos
             </p>
           </div>
 
@@ -1450,9 +1448,8 @@ export default function DashboardPage() {
 
             <button
               onClick={async () => {
-                const supabaseClient = createClient();
-                await supabaseClient.auth.signOut();
-                window.location.href = "/login";
+                await supabase.auth.signOut();
+                router.replace("/login");
               }}
               style={styles.refreshButton}
             >
@@ -1574,7 +1571,7 @@ export default function DashboardPage() {
                 ...styles.heroMetaRow,
                 gridTemplateColumns: isMobile
                   ? "1fr"
-                  : "repeat(3, minmax(0, 1fr))",
+                  : "repeat(2, minmax(0, 1fr))",
               }}
             >
               <InfoItem
@@ -1584,10 +1581,6 @@ export default function DashboardPage() {
               <InfoItem
                 label="Estado do dispositivo"
                 value={statusInfo.label}
-              />
-              <InfoItem
-                label="Última sincronização da dashboard"
-                value={`${formatDateTime(lastSyncAt)} (${formatRelativeTime(lastSyncAt)})`}
               />
             </div>
           </div>
@@ -1601,7 +1594,7 @@ export default function DashboardPage() {
               paddingTop: isMobile ? "16px" : "0",
             }}
           >
-            <div style={styles.sideTitle}>Configurações do cliente</div>
+            <div style={styles.sideTitle}>Configurações do dispositivo</div>
 
             <div style={styles.sideSummary}>
               <div style={styles.summaryBlock}>
@@ -1624,69 +1617,6 @@ export default function DashboardPage() {
                 <span style={styles.summaryValue}>{humHigh ?? "-"} %</span>
               </div>
             </div>
-          </div>
-        </section>
-
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Resumo do período</div>
-              <div style={styles.cardHint}>
-                Indicadores principais para o intervalo selecionado
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              ...styles.healthGrid,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "repeat(4, minmax(0, 1fr))",
-            }}
-          >
-            <HealthStatCard
-              label="Temperatura mínima"
-              value={formatValue(currentPeriodStats.tempMin, " °C")}
-              hint={`Média: ${formatValue(currentPeriodStats.tempAvg, " °C")}`}
-              tone="good"
-            />
-
-            <HealthStatCard
-              label="Temperatura máxima"
-              value={formatValue(currentPeriodStats.tempMax, " °C")}
-              hint={`Leituras no período: ${currentPeriodStats.totalReadings}`}
-              tone={
-                tempHigh !== null &&
-                currentPeriodStats.tempMax !== null &&
-                currentPeriodStats.tempMax > tempHigh
-                  ? "bad"
-                  : "neutral"
-              }
-            />
-
-            <HealthStatCard
-              label="Humidade mínima"
-              value={formatValue(currentPeriodStats.humMin, " %", 0)}
-              hint={`Média: ${formatValue(currentPeriodStats.humAvg, " %", 0)}`}
-              tone="good"
-            />
-
-            <HealthStatCard
-              label="Ocorrências fora do limite"
-              value={String(violationCount)}
-              hint="Contagem baseada nas leituras do período visível"
-              tone={
-                violationCount >= 5 ? "bad" : violationCount >= 1 ? "warn" : "good"
-              }
-              badge={
-                violationCount >= 5
-                  ? "Crítico"
-                  : violationCount >= 1
-                  ? "Atenção"
-                  : "OK"
-              }
-            />
           </div>
         </section>
 
@@ -1846,7 +1776,7 @@ export default function DashboardPage() {
             </div>
 
             <div style={styles.readOnlyBadge}>
-              Configuração disponível
+              {canEditSelectedDevice ? "Configuração editável" : "Só leitura"}
             </div>
           </div>
 
@@ -1871,7 +1801,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={false}
+                disabled={!canEditSelectedDevice}
               />
             </div>
 
@@ -1888,7 +1818,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={false}
+                disabled={!canEditSelectedDevice}
               />
             </div>
 
@@ -1905,7 +1835,7 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={false}
+                disabled={!canEditSelectedDevice}
               />
             </div>
 
@@ -1922,89 +1852,50 @@ export default function DashboardPage() {
                   }))
                 }
                 style={styles.configInput}
-                disabled={false}
+                disabled={!canEditSelectedDevice}
               />
             </div>
           </div>
 
-          <div style={styles.actionsRow}>
-            <button
-              style={styles.primaryButton}
-              onClick={saveClientConfig}
-              disabled={savingClient || !selectedDeviceId}
-            >
-              {savingClient ? "A guardar..." : "Guardar configurações"}
-            </button>
-
-            {clientMessage ? (
-              <span
-                style={
-                  clientMessage.toLowerCase().includes("sucesso")
-                    ? styles.successText
-                    : styles.errorTextInline
-                }
+          {canEditSelectedDevice ? (
+            <div style={styles.actionsRow}>
+              <button
+                style={styles.primaryButton}
+                onClick={saveClientConfig}
+                disabled={savingClient || !selectedDeviceId}
               >
-                {clientMessage}
-              </span>
-            ) : null}
-          </div>
+                {savingClient ? "A guardar..." : "Guardar configurações"}
+              </button>
+
+              {clientMessage ? (
+                <span
+                  style={
+                    clientMessage.toLowerCase().includes("sucesso")
+                      ? styles.successText
+                      : styles.errorTextInline
+                  }
+                >
+                  {clientMessage}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Modo admin</div>
-              <div style={styles.cardHint}>
-                Área reservada para informação técnica e gestão por dispositivo
+        {isAdmin ? (
+          <section style={styles.card}>
+            <div style={styles.cardHeader}>
+              <div>
+                <div style={styles.cardTitle}>Modo admin</div>
+                <div style={styles.cardHint}>
+                  Área reservada para informação técnica e gestão por dispositivo
+                </div>
               </div>
             </div>
-          </div>
 
-          {!isAdmin ? (
-            <>
-              <div style={styles.adminLoginRow}>
-                <input
-                  type="password"
-                  placeholder="Código admin"
-                  value={adminCodeInput}
-                  onChange={(e) => setAdminCodeInput(e.target.value)}
-                  style={styles.input}
-                />
-                <button
-                  style={styles.loginButton}
-                  onClick={() => {
-                    if (adminCodeInput === ADMIN_CODE) {
-                      setIsAdmin(true);
-                      setAdminError("");
-                    } else {
-                      setAdminError("Código inválido");
-                    }
-                  }}
-                >
-                  Entrar
-                </button>
-              </div>
-
-              {adminError ? (
-                <div style={styles.errorText}>{adminError}</div>
-              ) : null}
-            </>
-          ) : (
             <div style={styles.adminPanel}>
               <div style={styles.adminPanelTop}>
                 <div style={styles.adminActive}>Modo admin ativo</div>
-                <button
-                  style={styles.logoutButton}
-                  onClick={() => {
-                    setIsAdmin(false);
-                    setAdminCodeInput("");
-                    setAdminError("");
-                    setAdminMessage("");
-                    setClientMessage("");
-                  }}
-                >
-                  Sair
-                </button>
               </div>
 
               <div
@@ -2152,8 +2043,8 @@ export default function DashboardPage() {
                 </pre>
               </div>
             </div>
-          )}
-        </section>
+          </section>
+        ) : null}
 
         {!loading && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
@@ -2787,52 +2678,6 @@ const styles = {
     padding: "7px 10px",
     fontSize: "12px",
     fontWeight: 800,
-  },
-
-  adminLoginRow: {
-    display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
-  },
-
-  input: {
-    flex: "1 1 260px",
-    minWidth: "220px",
-    border: "1px solid #2a3547",
-    background: "#0f172a",
-    color: "#f8fafc",
-    borderRadius: "12px",
-    padding: "9px 12px",
-    fontSize: "13px",
-    outline: "none",
-    height: "38px",
-  },
-
-  loginButton: {
-    border: "1px solid #1d4ed8",
-    background: "#1d4ed8",
-    color: "#ffffff",
-    borderRadius: "14px",
-    padding: "12px 16px",
-    cursor: "pointer",
-    fontWeight: 800,
-  },
-
-  logoutButton: {
-    border: "1px solid #2a3547",
-    background: "#0f172a",
-    color: "#e5edf7",
-    borderRadius: "14px",
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontWeight: 800,
-  },
-
-  errorText: {
-    marginTop: "10px",
-    color: "#f87171",
-    fontSize: "13px",
-    fontWeight: 700,
   },
 
   errorTextInline: {
