@@ -1491,7 +1491,7 @@ if (!profileData.is_active) {
               Atualizar
             </button>
 
-{isAdmin && (
+{isSuperAdmin && (
   <button
     onClick={() => router.push("/admin")}
     style={styles.refreshButton}
@@ -1499,7 +1499,6 @@ if (!profileData.is_active) {
     Admin
   </button>
 )}
-
             <button
               onClick={async () => {
                 await supabase.auth.signOut();
