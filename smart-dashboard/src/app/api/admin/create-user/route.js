@@ -27,7 +27,7 @@ export async function POST(req) {
 
     if (userError || !user) {
       return NextResponse.json(
-        { error: "Não autenticado." },
+        { error: userError?.message || "Não autenticado." },
         { status: 401 }
       );
     }
@@ -38,7 +38,14 @@ export async function POST(req) {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profileError || !profile) {
+    if (profileError) {
+      return NextResponse.json(
+        { error: `Erro ao ler perfil: ${profileError.message}` },
+        { status: 403 }
+      );
+    }
+
+    if (!profile) {
       return NextResponse.json(
         { error: "Perfil não encontrado." },
         { status: 403 }
@@ -72,10 +79,30 @@ export async function POST(req) {
       );
     }
 
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { error: "SUPABASE_SERVICE_ROLE_KEY não definida." },
+        { status: 500 }
+      );
+    }
+
     const supabaseAdmin = createServiceClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
+
+    const { data: existingProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingProfile) {
+      return NextResponse.json(
+        { error: "Já existe um utilizador com esse email." },
+        { status: 400 }
+      );
+    }
 
     const { data: authData, error: authError } =
       await supabaseAdmin.auth.admin.createUser({
@@ -106,7 +133,7 @@ export async function POST(req) {
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
 
       return NextResponse.json(
-        { error: profileInsertError.message || "Erro ao criar perfil." },
+        { error: `Erro ao criar perfil: ${profileInsertError.message}` },
         { status: 400 }
       );
     }
@@ -120,7 +147,7 @@ export async function POST(req) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: "Erro interno ao criar utilizador." },
+      { error: error?.message || "Erro interno ao criar utilizador." },
       { status: 500 }
     );
   }

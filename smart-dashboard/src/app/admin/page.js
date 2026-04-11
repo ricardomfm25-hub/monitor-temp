@@ -22,6 +22,7 @@ export default function AdminPage() {
   });
 
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("success");
   const [savingAccess, setSavingAccess] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
 
@@ -45,6 +46,7 @@ export default function AdminPage() {
   async function assignDevice() {
     if (!selectedUser || !selectedDevice) {
       setMessage("Seleciona utilizador e dispositivo.");
+      setMessageType("error");
       return;
     }
 
@@ -68,11 +70,13 @@ export default function AdminPage() {
 
       if (error) {
         setMessage("Erro ao atualizar acesso.");
+        setMessageType("error");
         setSavingAccess(false);
         return;
       }
 
       setMessage("Acesso atualizado com sucesso.");
+      setMessageType("success");
       await loadData();
       setSavingAccess(false);
       return;
@@ -87,11 +91,13 @@ export default function AdminPage() {
 
     if (error) {
       setMessage("Erro ao atribuir acesso.");
+      setMessageType("error");
       setSavingAccess(false);
       return;
     }
 
     setMessage("Acesso atribuído com sucesso.");
+    setMessageType("success");
     await loadData();
     setSavingAccess(false);
   }
@@ -107,10 +113,12 @@ export default function AdminPage() {
 
     if (error) {
       setMessage("Erro ao remover acesso.");
+      setMessageType("error");
       return;
     }
 
     setMessage("Acesso removido.");
+    setMessageType("success");
     await loadData();
   }
 
@@ -122,42 +130,52 @@ export default function AdminPage() {
 
     if (!full_name || !email || !password) {
       setMessage("Preenche nome, email e password.");
+      setMessageType("error");
       return;
     }
 
     setCreatingUser(true);
     setMessage("");
 
-    const res = await fetch("/api/admin/create-user", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        full_name,
-        email,
-        password,
-        role,
-      }),
-    });
+    try {
+      const res = await fetch("/api/admin/create-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          full_name,
+          email,
+          password,
+          role,
+        }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      setMessage(data?.error || "Erro ao criar utilizador.");
-      setCreatingUser(false);
-      return;
+      if (!res.ok) {
+        setMessage(data?.error || "Erro ao criar utilizador.");
+        setMessageType("error");
+        setCreatingUser(false);
+        return;
+      }
+
+      setMessage("Utilizador criado com sucesso.");
+      setMessageType("success");
+
+      setNewUser({
+        full_name: "",
+        email: "",
+        password: "",
+        role: "viewer",
+      });
+
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro inesperado ao criar utilizador.");
+      setMessageType("error");
     }
 
-    setMessage("Utilizador criado com sucesso.");
-    setNewUser({
-      full_name: "",
-      email: "",
-      password: "",
-      role: "viewer",
-    });
-
-    await loadData();
     setCreatingUser(false);
   }
 
@@ -293,7 +311,17 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {message ? <div style={styles.message}>{message}</div> : null}
+        {message ? (
+          <div
+            style={
+              messageType === "error"
+                ? styles.messageError
+                : styles.messageSuccess
+            }
+          >
+            {message}
+          </div>
+        ) : null}
 
         <section style={styles.card}>
           <div style={styles.cardTitle}>Utilizadores</div>
@@ -448,10 +476,19 @@ const styles = {
     fontSize: "14px",
   },
 
-  message: {
+  messageSuccess: {
     background: "#0f172a",
     border: "1px solid #1f3b2a",
     color: "#86efac",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    fontWeight: 700,
+  },
+
+  messageError: {
+    background: "#2a1316",
+    border: "1px solid #4b1f24",
+    color: "#fecaca",
     borderRadius: "14px",
     padding: "12px 14px",
     fontWeight: 700,
