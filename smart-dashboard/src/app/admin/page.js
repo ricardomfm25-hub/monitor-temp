@@ -14,26 +14,28 @@ export default function AdminPage() {
   const [selectedDevice, setSelectedDevice] = useState("");
   const [canEdit, setCanEdit] = useState(false);
 
+  const [newUser, setNewUser] = useState({
+    full_name: "",
+    email: "",
+    password: "",
+    role: "viewer",
+  });
+
   const [message, setMessage] = useState("");
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
 
   useEffect(() => {
     loadData();
   }, []);
 
   async function loadData() {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("email");
-
-    const { data: devicesData } = await supabase
-      .from("devices")
-      .select("*")
-      .order("device_id");
-
-    const { data: accessData } = await supabase
-      .from("device_access")
-      .select("*");
+    const [{ data: profiles }, { data: devicesData }, { data: accessData }] =
+      await Promise.all([
+        supabase.from("profiles").select("*").order("email"),
+        supabase.from("devices").select("*").order("device_id"),
+        supabase.from("device_access").select("*"),
+      ]);
 
     setUsers(profiles || []);
     setDevices(devicesData || []);
@@ -46,6 +48,36 @@ export default function AdminPage() {
       return;
     }
 
+    setSavingAccess(true);
+    setMessage("");
+
+    const existing = deviceAccess.find(
+      (row) =>
+        row.user_id === selectedUser && row.device_id === selectedDevice
+    );
+
+    if (existing) {
+      const { error } = await supabase
+        .from("device_access")
+        .update({
+          can_view: true,
+          can_edit: canEdit,
+        })
+        .eq("user_id", selectedUser)
+        .eq("device_id", selectedDevice);
+
+      if (error) {
+        setMessage("Erro ao atualizar acesso.");
+        setSavingAccess(false);
+        return;
+      }
+
+      setMessage("Acesso atualizado com sucesso.");
+      await loadData();
+      setSavingAccess(false);
+      return;
+    }
+
     const { error } = await supabase.from("device_access").insert({
       user_id: selectedUser,
       device_id: selectedDevice,
@@ -54,15 +86,19 @@ export default function AdminPage() {
     });
 
     if (error) {
-      setMessage("Erro ao atribuir.");
+      setMessage("Erro ao atribuir acesso.");
+      setSavingAccess(false);
       return;
     }
 
     setMessage("Acesso atribuído com sucesso.");
-    loadData();
+    await loadData();
+    setSavingAccess(false);
   }
 
   async function removeAccess(userId, deviceId) {
+    setMessage("");
+
     const { error } = await supabase
       .from("device_access")
       .delete()
@@ -70,12 +106,59 @@ export default function AdminPage() {
       .eq("device_id", deviceId);
 
     if (error) {
-      setMessage("Erro ao remover.");
+      setMessage("Erro ao remover acesso.");
       return;
     }
 
     setMessage("Acesso removido.");
-    loadData();
+    await loadData();
+  }
+
+  async function createUser() {
+    const full_name = newUser.full_name.trim();
+    const email = newUser.email.trim().toLowerCase();
+    const password = newUser.password;
+    const role = newUser.role;
+
+    if (!full_name || !email || !password) {
+      setMessage("Preenche nome, email e password.");
+      return;
+    }
+
+    setCreatingUser(true);
+    setMessage("");
+
+    const res = await fetch("/api/admin/create-user", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        full_name,
+        email,
+        password,
+        role,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      setMessage(data?.error || "Erro ao criar utilizador.");
+      setCreatingUser(false);
+      return;
+    }
+
+    setMessage("Utilizador criado com sucesso.");
+    setNewUser({
+      full_name: "",
+      email: "",
+      password: "",
+      role: "viewer",
+    });
+
+    await loadData();
+    setCreatingUser(false);
   }
 
   return (
@@ -88,22 +171,92 @@ export default function AdminPage() {
           </p>
         </div>
 
-        {/* ASSIGN */}
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>Criar utilizador</div>
+
+          <div style={styles.formGrid}>
+            <input
+              type="text"
+              placeholder="Nome completo"
+              value={newUser.full_name}
+              onChange={(e) =>
+                setNewUser((prev) => ({
+                  ...prev,
+                  full_name: e.target.value,
+                }))
+              }
+              style={styles.input}
+            />
+
+            <input
+              type="email"
+              placeholder="Email"
+              value={newUser.email}
+              onChange={(e) =>
+                setNewUser((prev) => ({
+                  ...prev,
+                  email: e.target.value,
+                }))
+              }
+              style={styles.input}
+            />
+
+            <input
+              type="text"
+              placeholder="Password inicial"
+              value={newUser.password}
+              onChange={(e) =>
+                setNewUser((prev) => ({
+                  ...prev,
+                  password: e.target.value,
+                }))
+              }
+              style={styles.input}
+            />
+
+            <select
+              value={newUser.role}
+              onChange={(e) =>
+                setNewUser((prev) => ({
+                  ...prev,
+                  role: e.target.value,
+                }))
+              }
+              style={styles.input}
+            >
+              <option value="viewer">Viewer</option>
+              <option value="client_admin">Client Admin</option>
+            </select>
+          </div>
+
+          <div style={styles.actionsRow}>
+            <button
+              onClick={createUser}
+              style={styles.primaryButton}
+              disabled={creatingUser}
+            >
+              {creatingUser ? "A criar..." : "Criar utilizador"}
+            </button>
+          </div>
+        </section>
+
         <section style={styles.card}>
           <div style={styles.cardTitle}>Atribuir dispositivo</div>
 
-          <div style={styles.form}>
+          <div style={styles.formGrid}>
             <select
               value={selectedUser}
               onChange={(e) => setSelectedUser(e.target.value)}
               style={styles.input}
             >
               <option value="">Selecionar utilizador</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name} ({u.email})
-                </option>
-              ))}
+              {users
+                .filter((u) => u.role !== "super_admin")
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
             </select>
 
             <select
@@ -114,72 +267,81 @@ export default function AdminPage() {
               <option value="">Selecionar dispositivo</option>
               {devices.map((d) => (
                 <option key={d.device_id} value={d.device_id}>
-                  {d.device_id}
+                  {d.name ? `${d.name} (${d.device_id})` : d.device_id}
                 </option>
               ))}
             </select>
+          </div>
 
-            <label style={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={canEdit}
-                onChange={() => setCanEdit(!canEdit)}
-              />
-              Permitir edição
-            </label>
+          <label style={styles.checkboxRow}>
+            <input
+              type="checkbox"
+              checked={canEdit}
+              onChange={() => setCanEdit((prev) => !prev)}
+            />
+            <span>Permitir edição</span>
+          </label>
 
-            <button onClick={assignDevice} style={styles.primaryButton}>
-              Atribuir acesso
+          <div style={styles.actionsRow}>
+            <button
+              onClick={assignDevice}
+              style={styles.primaryButton}
+              disabled={savingAccess}
+            >
+              {savingAccess ? "A guardar..." : "Atribuir acesso"}
             </button>
-
-            {message && <div style={styles.message}>{message}</div>}
           </div>
         </section>
 
-        {/* USERS */}
+        {message ? <div style={styles.message}>{message}</div> : null}
+
         <section style={styles.card}>
           <div style={styles.cardTitle}>Utilizadores</div>
 
           <div style={styles.userList}>
             {users.map((user) => {
               const accesses = deviceAccess.filter(
-                (a) => a.user_id === user.id
+                (row) => row.user_id === user.id
               );
 
               return (
                 <div key={user.id} style={styles.userCard}>
                   <div style={styles.userHeader}>
                     <div>
-                      <div style={styles.userName}>
-                        {user.full_name}
-                      </div>
+                      <div style={styles.userName}>{user.full_name}</div>
                       <div style={styles.meta}>{user.email}</div>
                     </div>
 
-                    <div style={styles.role}>{user.role}</div>
+                    <div style={styles.roleBadge}>{user.role}</div>
                   </div>
 
                   <div style={styles.deviceList}>
-                    {accesses.length === 0 && (
-                      <div style={styles.noDevice}>
-                        Sem dispositivos
-                      </div>
-                    )}
-
-                    {accesses.map((a) => (
-                      <div key={a.device_id} style={styles.deviceRow}>
-                        <span>{a.device_id}</span>
-
-                        <button
-                          style={styles.removeBtn}
-                          onClick={() =>
-                            removeAccess(user.id, a.device_id)
-                          }
+                    {accesses.length === 0 ? (
+                      <div style={styles.noDevice}>Sem dispositivos atribuídos</div>
+                    ) : (
+                      accesses.map((access) => (
+                        <div
+                          key={`${access.user_id}-${access.device_id}`}
+                          style={styles.deviceRow}
                         >
-                          Remover
-                        </button>
-                      </div>
-                    ))}
+                          <div>
+                            <div style={styles.deviceName}>{access.device_id}</div>
+                            <div style={styles.meta}>
+                              {access.can_edit ? "Com edição" : "Só leitura"}
+                            </div>
+                          </div>
+
+                          <button
+                            style={styles.removeBtn}
+                            onClick={() =>
+                              removeAccess(access.user_id, access.device_id)
+                            }
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               );
@@ -200,7 +362,7 @@ const styles = {
   },
 
   container: {
-    maxWidth: "1000px",
+    maxWidth: "1100px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -208,18 +370,22 @@ const styles = {
   },
 
   header: {
-    marginBottom: "10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
   },
 
   title: {
-    fontSize: "28px",
-    fontWeight: "800",
     margin: 0,
+    fontSize: "28px",
+    fontWeight: 800,
+    color: "#f8fafc",
   },
 
   subtitle: {
+    margin: 0,
     color: "#94a3b8",
-    marginTop: "6px",
+    fontSize: "14px",
   },
 
   card: {
@@ -231,45 +397,64 @@ const styles = {
 
   cardTitle: {
     fontSize: "18px",
-    fontWeight: "800",
-    marginBottom: "14px",
+    fontWeight: 800,
+    marginBottom: "16px",
+    color: "#f8fafc",
   },
 
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "12px",
   },
 
   input: {
-    padding: "10px",
-    borderRadius: "10px",
-    border: "1px solid #334155",
-    background: "#0f172a",
-    color: "#fff",
+    width: "100%",
+    border: "1px solid #253246",
+    background: "#0a1322",
+    color: "#f8fafc",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    fontSize: "14px",
+    outline: "none",
+    minHeight: "44px",
+    boxSizing: "border-box",
   },
 
-  checkbox: {
+  checkboxRow: {
     display: "flex",
-    gap: "8px",
     alignItems: "center",
-    fontSize: "13px",
+    gap: "8px",
+    marginTop: "14px",
+    fontSize: "14px",
+    color: "#cbd5e1",
+  },
+
+  actionsRow: {
+    marginTop: "16px",
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
   },
 
   primaryButton: {
-    background: "#2563eb",
-    border: "none",
-    padding: "10px",
-    borderRadius: "10px",
-    fontWeight: "700",
+    border: "1px solid #2563eb",
+    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+    color: "#ffffff",
+    borderRadius: "12px",
+    padding: "12px 16px",
     cursor: "pointer",
-    color: "#fff",
+    fontWeight: 800,
+    fontSize: "14px",
   },
 
   message: {
-    marginTop: "10px",
-    color: "#22c55e",
-    fontWeight: "700",
+    background: "#0f172a",
+    border: "1px solid #1f3b2a",
+    color: "#86efac",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    fontWeight: 700,
   },
 
   userList: {
@@ -282,57 +467,78 @@ const styles = {
     background: "#0f172a",
     border: "1px solid #1e293b",
     borderRadius: "16px",
-    padding: "14px",
+    padding: "16px",
   },
 
   userHeader: {
     display: "flex",
     justifyContent: "space-between",
-    marginBottom: "10px",
+    alignItems: "flex-start",
+    gap: "12px",
+    marginBottom: "12px",
+    flexWrap: "wrap",
   },
 
   userName: {
-    fontWeight: "800",
+    fontSize: "16px",
+    fontWeight: 800,
+    color: "#f8fafc",
   },
 
   meta: {
     fontSize: "12px",
     color: "#94a3b8",
+    marginTop: "4px",
   },
 
-  role: {
-    fontSize: "12px",
-    background: "#1e293b",
-    padding: "6px 10px",
+  roleBadge: {
+    border: "1px solid #334155",
+    background: "#111c2e",
+    color: "#cbd5e1",
     borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   },
 
   deviceList: {
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    gap: "8px",
+  },
+
+  noDevice: {
+    color: "#64748b",
+    fontSize: "13px",
+    fontWeight: 700,
   },
 
   deviceRow: {
     display: "flex",
     justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
     background: "#020617",
-    padding: "8px 10px",
-    borderRadius: "10px",
+    border: "1px solid #172033",
+    padding: "10px 12px",
+    borderRadius: "12px",
+    flexWrap: "wrap",
   },
 
-  noDevice: {
-    color: "#64748b",
-    fontSize: "12px",
+  deviceName: {
+    fontWeight: 700,
+    color: "#f8fafc",
   },
 
   removeBtn: {
-    background: "#ef4444",
-    border: "none",
-    padding: "4px 8px",
-    borderRadius: "6px",
+    background: "#7f1d1d",
+    border: "1px solid #b91c1c",
+    padding: "8px 10px",
+    borderRadius: "8px",
     color: "#fff",
     cursor: "pointer",
     fontSize: "12px",
+    fontWeight: 700,
   },
 };
