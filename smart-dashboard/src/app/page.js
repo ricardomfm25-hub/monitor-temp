@@ -18,6 +18,7 @@ import {
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
 const OFFLINE_LIMIT_MS = 120 * 1000;
+const MAX_HISTORY_HOURS = 24 * 7;
 
 const PERIODS = [
   { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
@@ -26,6 +27,10 @@ const PERIODS = [
   { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000 },
   { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 24 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000 },
 ];
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -372,6 +377,7 @@ function getPeriodWindow(periodKey) {
 
 function buildTimeSeries(readings, periodKey) {
   const { start, end, bucketMs } = getPeriodWindow(periodKey);
+
   const filtered = (readings || [])
     .filter((item) => Number.isFinite(item?.timestamp))
     .filter((item) => item.timestamp >= start && item.timestamp <= end)
@@ -380,16 +386,22 @@ function buildTimeSeries(readings, periodKey) {
   const buckets = new Map();
 
   for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
-    if (t >= start) {
-      buckets.set(t, {
-        timestamp: t,
-        created_at: new Date(t).toISOString(),
+    const bucketTime =
+      periodKey === "7d"
+        ? new Date(new Date(t).getFullYear(), new Date(t).getMonth(), new Date(t).getDate(), 0, 0, 0, 0).getTime()
+        : t;
+
+    if (bucketTime >= start && !buckets.has(bucketTime)) {
+      buckets.set(bucketTime, {
+        timestamp: bucketTime,
+        created_at: new Date(bucketTime).toISOString(),
         temperature: null,
         humidity: null,
         tempSum: 0,
         tempCount: 0,
         humSum: 0,
         humCount: 0,
+        hasData: false,
       });
     }
   }
@@ -421,11 +433,13 @@ function buildTimeSeries(readings, periodKey) {
     if (temp !== null) {
       bucket.tempSum += temp;
       bucket.tempCount += 1;
+      bucket.hasData = true;
     }
 
     if (hum !== null) {
       bucket.humSum += hum;
       bucket.humCount += 1;
+      bucket.hasData = true;
     }
   }
 
@@ -441,6 +455,7 @@ function buildTimeSeries(readings, periodKey) {
         bucket.humCount > 0
           ? Number((bucket.humSum / bucket.humCount).toFixed(2))
           : null,
+      hasData: bucket.hasData,
     }))
     .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
@@ -472,6 +487,10 @@ function getXAxisTicks(periodKey) {
 function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen, periodKey) {
   const sorted = [...(rawReadings || [])]
     .filter((item) => Number.isFinite(item?.timestamp))
+    .filter((item) => {
+      const { start, end } = getPeriodWindow(periodKey);
+      return item.timestamp >= start && item.timestamp <= end;
+    })
     .sort((a, b) => a.timestamp - b.timestamp);
 
   const expectedMs =
@@ -584,6 +603,235 @@ function getHealthToneStyles(tone) {
     valueColor: "#cbd5e1",
     badgeBg: "#162033",
     badgeBorder: "#243042",
+  };
+}
+
+function getMinutesDiff(a, b) {
+  const diffMs = new Date(b).getTime() - new Date(a).getTime();
+  return diffMs / 60000;
+}
+
+function getRiskLabel(score) {
+  if (score >= 75) return "Crítico iminente";
+  if (score >= 50) return "Elevado";
+  if (score >= 25) return "Moderado";
+  return "Baixo";
+}
+
+function getRiskTone(score) {
+  if (score >= 75) return "danger";
+  if (score >= 50) return "warning";
+  if (score >= 25) return "neutral";
+  return "safe";
+}
+
+function getTempPredictiveRisk(readings, config) {
+  const tempHigh = parseNumber(config?.temp_high_c);
+  const tempLow = parseNumber(config?.temp_low_c);
+
+  if (!Array.isArray(readings) || readings.length < 4) {
+    return {
+      riskScore: null,
+      riskLabel: "Sem dados suficientes",
+      riskTone: "neutral",
+      direction: null,
+      reason: "São necessárias mais leituras para calcular a tendência preditiva.",
+      etaMinutes: null,
+      trendLabel: "Indefinida",
+      consistency: null,
+      maxAbsSpike: null,
+    };
+  }
+
+  const clean = readings
+    .map((r) => ({
+      created_at: r.created_at,
+      temperature: parseNumber(r.temperature),
+    }))
+    .filter((r) => r.created_at && r.temperature !== null)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (clean.length < 4) {
+    return {
+      riskScore: null,
+      riskLabel: "Sem dados suficientes",
+      riskTone: "neutral",
+      direction: null,
+      reason: "São necessárias mais leituras válidas para calcular tendência.",
+      etaMinutes: null,
+      trendLabel: "Indefinida",
+      consistency: null,
+      maxAbsSpike: null,
+    };
+  }
+
+  const recent = clean.slice(-8);
+  const current = recent[recent.length - 1];
+  const previous = recent[recent.length - 2];
+
+  const deltas = [];
+  const slopesPerMinute = [];
+
+  for (let i = 1; i < recent.length; i += 1) {
+    const prev = recent[i - 1];
+    const curr = recent[i];
+    const delta = curr.temperature - prev.temperature;
+    const minutes = getMinutesDiff(prev.created_at, curr.created_at);
+
+    if (!Number.isFinite(delta) || !Number.isFinite(minutes) || minutes <= 0) continue;
+
+    deltas.push(delta);
+    slopesPerMinute.push(delta / minutes);
+  }
+
+  if (slopesPerMinute.length < 3) {
+    return {
+      riskScore: null,
+      riskLabel: "Sem dados suficientes",
+      riskTone: "neutral",
+      direction: null,
+      reason: "Não foi possível calcular a variação temporal com consistência.",
+      etaMinutes: null,
+      trendLabel: "Indefinida",
+      consistency: null,
+      maxAbsSpike: null,
+    };
+  }
+
+  const avgSlope = slopesPerMinute.reduce((sum, v) => sum + v, 0) / slopesPerMinute.length;
+  const absAvgSlope = Math.abs(avgSlope);
+  const maxAbsSpike = Math.max(...deltas.map((v) => Math.abs(v)), 0);
+
+  const positiveMoves = deltas.filter((d) => d > 0).length;
+  const negativeMoves = deltas.filter((d) => d < 0).length;
+
+  const direction =
+    avgSlope > 0.003 ? "up" :
+    avgSlope < -0.003 ? "down" :
+    "flat";
+
+  const consistency =
+    direction === "up"
+      ? positiveMoves / deltas.length
+      : direction === "down"
+      ? negativeMoves / deltas.length
+      : 0;
+
+  let acceleration = 0;
+  for (let i = 1; i < slopesPerMinute.length; i += 1) {
+    const prevSlope = slopesPerMinute[i - 1];
+    const currSlope = slopesPerMinute[i];
+    if (direction === "up" && currSlope > prevSlope) acceleration += 1;
+    if (direction === "down" && currSlope < prevSlope) acceleration += 1;
+  }
+
+  const accelerationRatio =
+    slopesPerMinute.length > 1 ? acceleration / (slopesPerMinute.length - 1) : 0;
+
+  let targetLimit = null;
+  if (direction === "up" && tempHigh !== null) targetLimit = tempHigh;
+  if (direction === "down" && tempLow !== null) targetLimit = tempLow;
+
+  let proximityScore = 0;
+  let etaMinutes = null;
+
+  if (targetLimit !== null) {
+    const distance = Math.abs(targetLimit - current.temperature);
+    const rangeBase = Math.max(Math.abs(targetLimit) * 0.08, 1.5);
+    proximityScore = clamp((1 - distance / rangeBase) * 100, 0, 100);
+
+    if (absAvgSlope > 0.0001) {
+      etaMinutes = distance / absAvgSlope;
+      if (!Number.isFinite(etaMinutes)) etaMinutes = null;
+    }
+  }
+
+  const spikeScore = clamp((maxAbsSpike / 1.2) * 100, 0, 100);
+  const trendScore = clamp(consistency * 100, 0, 100);
+  const accelerationScore = clamp(accelerationRatio * 100, 0, 100);
+
+  let baseScore = 0;
+
+  if (direction === "flat") {
+    baseScore = Math.max(0, proximityScore * 0.35);
+  } else {
+    baseScore =
+      proximityScore * 0.35 +
+      spikeScore * 0.30 +
+      trendScore * 0.20 +
+      accelerationScore * 0.15;
+  }
+
+  if (etaMinutes !== null) {
+    if (etaMinutes <= 10) baseScore += 18;
+    else if (etaMinutes <= 20) baseScore += 12;
+    else if (etaMinutes <= 45) baseScore += 6;
+  }
+
+  const currentStepDelta = current.temperature - previous.temperature;
+  if (Math.abs(currentStepDelta) >= 0.6) {
+    baseScore += 8;
+  } else if (Math.abs(currentStepDelta) >= 0.3) {
+    baseScore += 4;
+  }
+
+  if (consistency < 0.5) {
+    baseScore -= 10;
+  }
+
+  const riskScore = clamp(Math.round(baseScore), 0, 100);
+  const riskLabel = getRiskLabel(riskScore);
+  const riskTone = getRiskTone(riskScore);
+
+  let trendLabel = "Estável";
+  if (direction === "up") {
+    trendLabel =
+      absAvgSlope >= 0.08 ? "Subida rápida" :
+      absAvgSlope >= 0.03 ? "Subida moderada" :
+      "Subida lenta";
+  } else if (direction === "down") {
+    trendLabel =
+      absAvgSlope >= 0.08 ? "Descida rápida" :
+      absAvgSlope >= 0.03 ? "Descida moderada" :
+      "Descida lenta";
+  }
+
+  let reason = "Sem risco relevante detetado.";
+  if (direction === "up" && tempHigh !== null) {
+    reason =
+      riskScore >= 75
+        ? "Subida acentuada e consistente perto do limite superior."
+        : riskScore >= 50
+        ? "Tendência de subida consistente com aproximação ao limite superior."
+        : riskScore >= 25
+        ? "Há sinais de subida recente, mas ainda com alguma margem."
+        : "Temperatura controlada sem aproximação relevante ao limite superior.";
+  } else if (direction === "down" && tempLow !== null) {
+    reason =
+      riskScore >= 75
+        ? "Descida acentuada e consistente perto do limite inferior."
+        : riskScore >= 50
+        ? "Tendência de descida consistente com aproximação ao limite inferior."
+        : riskScore >= 25
+        ? "Há sinais de descida recente, mas ainda com alguma margem."
+        : "Temperatura controlada sem aproximação relevante ao limite inferior.";
+  } else if (direction === "flat") {
+    reason = "Sem tendência acentuada nas leituras mais recentes.";
+  }
+
+  return {
+    riskScore,
+    riskLabel,
+    riskTone,
+    direction,
+    reason,
+    etaMinutes: etaMinutes !== null ? Math.round(etaMinutes) : null,
+    trendLabel,
+    avgSlopePerMinute: avgSlope,
+    maxAbsSpike,
+    consistency: Math.round(consistency * 100),
+    targetLimit,
+    currentTemperature: current.temperature,
   };
 }
 
@@ -825,6 +1073,141 @@ function AlertRow({ item }) {
   );
 }
 
+function PredictiveRiskCard({ risk, isOffline }) {
+  const toneMap = {
+    danger: {
+      border: "#4b1f24",
+      bg: "#211013",
+      value: "#fca5a5",
+      badgeBg: "#2a1316",
+      badgeBorder: "#4b1f24",
+    },
+    warning: {
+      border: "#4b3a1d",
+      bg: "#21180f",
+      value: "#fcd34d",
+      badgeBg: "#2a2112",
+      badgeBorder: "#4b3a1d",
+    },
+    neutral: {
+      border: "#253246",
+      bg: "#0f172a",
+      value: "#cbd5e1",
+      badgeBg: "#162033",
+      badgeBorder: "#243042",
+    },
+    safe: {
+      border: "#1f3b2a",
+      bg: "#0f1d15",
+      value: "#86efac",
+      badgeBg: "#132219",
+      badgeBorder: "#1f3b2a",
+    },
+  };
+
+  const selected = toneMap[risk?.riskTone] || toneMap.neutral;
+
+  return (
+    <section
+      style={{
+        ...styles.card,
+        borderColor: selected.border,
+        background: selected.bg,
+      }}
+    >
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Risco preditivo</div>
+          <div style={styles.cardHint}>
+            Estimativa baseada em pico recente, tendência e proximidade ao limite
+          </div>
+        </div>
+
+        <div
+          style={{
+            ...styles.healthBadge,
+            background: selected.badgeBg,
+            borderColor: selected.badgeBorder,
+            color: selected.value,
+          }}
+        >
+          {risk?.trendLabel || "Indefinida"}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
+          gap: "16px",
+        }}
+      >
+        <div>
+          <div style={styles.predictiveBigValue}>
+            <span style={{ color: selected.value }}>
+              {risk?.riskScore !== null && risk?.riskScore !== undefined
+                ? `${risk.riskScore}%`
+                : "—"}
+            </span>
+            <span style={styles.predictiveLabelText}>
+              {risk?.riskLabel || "Sem dados suficientes"}
+            </span>
+          </div>
+
+          <div style={styles.predictiveReason}>
+            {risk?.reason || "Sem dados suficientes para calcular o risco preditivo."}
+          </div>
+
+          {isOffline ? (
+            <div style={styles.predictiveOfflineNote}>
+              O dispositivo está offline. A previsão usa as últimas leituras válidas disponíveis.
+            </div>
+          ) : null}
+        </div>
+
+        <div style={styles.predictiveMiniGrid}>
+          <SmallStat
+            label="ETA alerta"
+            value={
+              risk?.etaMinutes !== null && risk?.etaMinutes !== undefined
+                ? `~${risk.etaMinutes} min`
+                : "-"
+            }
+          />
+          <SmallStat
+            label="Consistência"
+            value={
+              risk?.consistency !== null && risk?.consistency !== undefined
+                ? `${risk.consistency}%`
+                : "-"
+            }
+          />
+          <SmallStat
+            label="Pico recente"
+            value={
+              risk?.maxAbsSpike !== null && risk?.maxAbsSpike !== undefined
+                ? `${Number(risk.maxAbsSpike).toFixed(2)} °C`
+                : "-"
+            }
+          />
+          <SmallStat
+            label="Direção"
+            value={
+              risk?.direction === "up"
+                ? "Subida"
+                : risk?.direction === "down"
+                ? "Descida"
+                : risk?.direction === "flat"
+                ? "Estável"
+                : "-"
+            }
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DataChart({
   title,
   data,
@@ -834,6 +1217,7 @@ function DataChart({
   maxThreshold,
   isMobile,
   periodKey,
+  isOffline,
 }) {
   const { min, max } = getSeriesMinMax(data, dataKey);
   const yDomain = getChartDomain(data, dataKey, [minThreshold, maxThreshold]);
@@ -862,6 +1246,11 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()}
           </div>
+          {isOffline ? (
+            <div style={styles.chartOfflineHint}>
+              Dispositivo offline · histórico preservado até à última leitura válida
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1071,8 +1460,8 @@ export default function DashboardPage() {
           return;
         }
 
-        const windowRange = getPeriodWindow(period);
-        const since = new Date(windowRange.start).toISOString();
+        const maxHistoryStart = Date.now() - MAX_HISTORY_HOURS * 60 * 60 * 1000;
+        const since = new Date(maxHistoryStart).toISOString();
 
         const [profileResponse, permissionsResponse] = await Promise.all([
           supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
@@ -1092,16 +1481,17 @@ export default function DashboardPage() {
           throw new Error("Não foi possível carregar as permissões do utilizador.");
         }
 
-const profileData = profileResponse.data || null;
-const permissionsData = permissionsResponse.data || [];
+        const profileData = profileResponse.data || null;
+        const permissionsData = permissionsResponse.data || [];
 
-if (!profileData) {
-  throw new Error("O utilizador autenticado não tem perfil criado em public.profiles.");
-}
+        if (!profileData) {
+          throw new Error("O utilizador autenticado não tem perfil criado em public.profiles.");
+        }
 
-if (!profileData.is_active) {
-  throw new Error("O teu utilizador está inativo.");
-}
+        if (!profileData.is_active) {
+          throw new Error("O teu utilizador está inativo.");
+        }
+
         let devicesQuery = supabase
           .from("devices")
           .select("*")
@@ -1230,7 +1620,7 @@ if (!profileData.is_active) {
         }
       }
     },
-    [selectedDeviceId, period, supabase, router]
+    [selectedDeviceId, supabase, router]
   );
 
   useEffect(() => {
@@ -1309,6 +1699,11 @@ if (!profileData.is_active) {
   const communicationStats = useMemo(
     () => getCommunicationStats(readings, sendIntervalS, device?.last_seen, period),
     [readings, sendIntervalS, device?.last_seen, period]
+  );
+
+  const predictiveRisk = useMemo(
+    () => getTempPredictiveRisk(readings, config),
+    [readings, config]
   );
 
   const currentTempTone =
@@ -1491,14 +1886,15 @@ if (!profileData.is_active) {
               Atualizar
             </button>
 
-{isSuperAdmin && (
-  <button
-    onClick={() => router.push("/admin")}
-    style={styles.refreshButton}
-  >
-    Admin
-  </button>
-)}
+            {isSuperAdmin && (
+              <button
+                onClick={() => router.push("/admin")}
+                style={styles.refreshButton}
+              >
+                Admin
+              </button>
+            )}
+
             <button
               onClick={async () => {
                 await supabase.auth.signOut();
@@ -1673,6 +2069,11 @@ if (!profileData.is_active) {
           </div>
         </section>
 
+        <PredictiveRiskCard
+          risk={predictiveRisk}
+          isOffline={effectiveStatus === "OFFLINE"}
+        />
+
         <section style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
@@ -1779,6 +2180,7 @@ if (!profileData.is_active) {
             maxThreshold={tempHigh}
             isMobile={isMobile}
             periodKey={period}
+            isOffline={effectiveStatus === "OFFLINE"}
           />
 
           <DataChart
@@ -1790,6 +2192,7 @@ if (!profileData.is_active) {
             maxThreshold={humHigh}
             isMobile={isMobile}
             periodKey={period}
+            isOffline={effectiveStatus === "OFFLINE"}
           />
         </section>
 
@@ -2101,7 +2504,7 @@ if (!profileData.is_active) {
 
         {!loading && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
-            Ainda não existem leituras para o período selecionado.
+            Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
           </div>
         ) : null}
 
@@ -2540,6 +2943,39 @@ const styles = {
     lineHeight: 1.4,
   },
 
+  predictiveBigValue: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: "10px",
+    flexWrap: "wrap",
+    marginBottom: "10px",
+  },
+
+  predictiveLabelText: {
+    fontSize: "16px",
+    fontWeight: 800,
+    color: "#f8fafc",
+    paddingBottom: "6px",
+  },
+
+  predictiveReason: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+  },
+
+  predictiveOfflineNote: {
+    marginTop: "12px",
+    fontSize: "12px",
+    color: "#94a3b8",
+  },
+
+  predictiveMiniGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "12px",
+  },
+
   chartGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -2575,6 +3011,12 @@ const styles = {
     marginTop: "6px",
     fontSize: "12px",
     color: "#7c8aa0",
+  },
+
+  chartOfflineHint: {
+    marginTop: "6px",
+    fontSize: "12px",
+    color: "#cbd5e1",
   },
 
   chartWrap: {
