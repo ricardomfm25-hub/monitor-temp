@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
+
+  const nextPath = searchParams.get("next") || "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +30,7 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (session) {
-          router.replace("/");
+          router.replace(nextPath);
           router.refresh();
           return;
         }
@@ -45,7 +48,7 @@ export default function LoginPage() {
     return () => {
       isMounted = false;
     };
-  }, [router, supabase]);
+  }, [router, supabase, nextPath]);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -75,7 +78,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.replace("/");
+      router.replace(nextPath);
       router.refresh();
     } catch {
       setErrorMsg("Ocorreu um erro inesperado ao iniciar sessão.");
