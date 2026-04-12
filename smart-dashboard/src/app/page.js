@@ -1502,6 +1502,7 @@ export default function DashboardPage() {
 
   const [period, setPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
@@ -1583,7 +1584,11 @@ export default function DashboardPage() {
       setPageError("");
 
       if (!silent && mountedRef.current) {
-        setLoading(true);
+        if (!initialLoaded) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
+        }
       }
 
       try {
@@ -1646,9 +1651,6 @@ export default function DashboardPage() {
             setProfile(profileData);
             setDevicePermissions(permissionsData);
             setDevices([]);
-            setDevice(null);
-            setReadings([]);
-            setAlerts([]);
             setInitialLoaded(true);
             return;
           }
@@ -1724,8 +1726,8 @@ export default function DashboardPage() {
         setReadings(readingsData);
         setAlerts(alertsRows || []);
 
-        if (syncForms) {
-          const deviceConfig = deviceData?.config || {};
+        if (syncForms && deviceData) {
+          const deviceConfig = deviceData?.config ?? {};
 
           setClientForm({
             temp_low_c: toInputValue(deviceConfig?.temp_low_c),
@@ -1755,10 +1757,11 @@ export default function DashboardPage() {
         requestInFlightRef.current = false;
         if (mountedRef.current) {
           setLoading(false);
+          setRefreshing(false);
         }
       }
     },
-    [selectedDeviceId, supabase, router]
+    [selectedDeviceId, supabase, router, initialLoaded]
   );
 
   useEffect(() => {
@@ -1819,7 +1822,7 @@ export default function DashboardPage() {
     };
   }, [selectedDeviceId, loadData, supabase]);
 
-  const config = device?.config || {};
+  const config = device?.config ?? {};
 
   const tempLow = parseNumber(config?.temp_low_c);
   const tempHigh = parseNumber(config?.temp_high_c);
@@ -1831,7 +1834,7 @@ export default function DashboardPage() {
 
   const effectiveStatus = getEffectiveStatus(device);
   const statusInfo = getStatusInfo(effectiveStatus);
-  const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId;
+  const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
   const communicationStats = useMemo(
@@ -2024,7 +2027,11 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            {refreshing ? (
+              <div style={styles.refreshingText}>A atualizar...</div>
+            ) : null}
+
             <button
               onClick={async () => {
                 await loadData({ syncForms: true });
@@ -2090,6 +2097,7 @@ export default function DashboardPage() {
                     setClientMessage("");
                     setAdminMessage("");
                     setPageError("");
+                    setRefreshing(true);
                   }}
                 />
               ))}
@@ -2653,13 +2661,15 @@ export default function DashboardPage() {
           </section>
         ) : null}
 
-        {!loading && hasDevices && !hasReadings ? (
+        {!loading && initialLoaded && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
             Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
           </div>
         ) : null}
 
-        {loading && <div style={styles.loading}>A carregar dados...</div>}
+        {loading && !initialLoaded && (
+          <div style={styles.loading}>A carregar dados...</div>
+        )}
       </div>
     </main>
   );
@@ -2705,6 +2715,12 @@ const styles = {
     margin: "6px 0 0 0",
     color: "#94a3b8",
     fontSize: "14px",
+  },
+
+  refreshingText: {
+    fontSize: "13px",
+    color: "#93c5fd",
+    fontWeight: 700,
   },
 
   refreshButton: {
