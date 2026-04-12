@@ -612,80 +612,53 @@ function getMinutesDiff(a, b) {
   return diffMs / 60000;
 }
 
-function getRiskLabel(score) {
-  if (score >= 75) return "Crítico iminente";
-  if (score >= 50) return "Elevado";
-  if (score >= 25) return "Moderado";
-  return "Baixo";
+function getTrendDirectionLabel(direction, type) {
+  if (direction === "up") {
+    return type === "temperature"
+      ? "Temperatura a subir rapidamente"
+      : "Humidade a subir rapidamente";
+  }
+
+  if (direction === "down") {
+    return type === "temperature"
+      ? "Temperatura a descer rapidamente"
+      : "Humidade a descer rapidamente";
+  }
+
+  return "Sem tendência relevante";
 }
 
-function getRiskTone(score) {
-  if (score >= 75) return "danger";
-  if (score >= 50) return "warning";
-  if (score >= 25) return "neutral";
-  return "safe";
-}
-
-function buildPredictiveRisk({
+function buildSimpleAlertSignal({
   readings,
   valueKey,
   lowLimit,
   highLimit,
-  spikeScale,
-  unitSuffix,
+  type,
 }) {
-  if (!Array.isArray(readings) || readings.length < 4) {
-    return {
-      riskScore: null,
-      riskLabel: "Sem dados suficientes",
-      riskTone: "neutral",
-      direction: null,
-      reason: "São necessárias mais leituras para calcular a tendência preditiva.",
-      etaMinutes: null,
-      etaLabel: "-",
-      forecastWindowLabel: "Sem previsão",
-      alertProbabilityLabel: "Sem previsão",
-      trendLabel: "Indefinida",
-      consistency: null,
-      maxAbsSpike: null,
-      valueLabel: "-",
-      unitSuffix,
-    };
-  }
-
-  const clean = readings
+  const clean = (readings || [])
     .map((r) => ({
       created_at: r.created_at,
-      value: parseNumber(r[valueKey]),
+      value: parseNumber(r?.[valueKey]),
     }))
     .filter((r) => r.created_at && r.value !== null)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-  if (clean.length < 4) {
+  if (clean.length < 6) {
     return {
-      riskScore: null,
-      riskLabel: "Sem dados suficientes",
-      riskTone: "neutral",
-      direction: null,
-      reason: "São necessárias mais leituras válidas para calcular tendência.",
+      active: false,
+      severity: "none",
       etaMinutes: null,
-      etaLabel: "-",
-      forecastWindowLabel: "Sem previsão",
-      alertProbabilityLabel: "Sem previsão",
-      trendLabel: "Indefinida",
-      consistency: null,
-      maxAbsSpike: null,
-      valueLabel: "-",
-      unitSuffix,
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
     };
   }
 
-  const recent = clean.slice(-8);
+  const recent = clean.slice(-6);
   const current = recent[recent.length - 1];
-  const previous = recent[recent.length - 2];
-
   const deltas = [];
-  const slopesPerMinute = [];
+  const slopes = [];
 
   for (let i = 1; i < recent.length; i += 1) {
     const prev = recent[i - 1];
@@ -693,268 +666,197 @@ function buildPredictiveRisk({
     const delta = curr.value - prev.value;
     const minutes = getMinutesDiff(prev.created_at, curr.created_at);
 
-    if (!Number.isFinite(delta) || !Number.isFinite(minutes) || minutes <= 0) continue;
+    if (!Number.isFinite(delta) || !Number.isFinite(minutes) || minutes <= 0) {
+      continue;
+    }
 
     deltas.push(delta);
-    slopesPerMinute.push(delta / minutes);
+    slopes.push(delta / minutes);
   }
 
-  if (slopesPerMinute.length < 3) {
+  if (deltas.length < 5 || slopes.length < 5) {
     return {
-      riskScore: null,
-      riskLabel: "Sem dados suficientes",
-      riskTone: "neutral",
-      direction: null,
-      reason: "Não foi possível calcular a variação temporal com consistência.",
+      active: false,
+      severity: "none",
       etaMinutes: null,
-      etaLabel: "-",
-      forecastWindowLabel: "Sem previsão",
-      alertProbabilityLabel: "Sem previsão",
-      trendLabel: "Indefinida",
-      consistency: null,
-      maxAbsSpike: null,
-      valueLabel: formatValue(current?.value, unitSuffix, unitSuffix === " %" ? 0 : 1),
-      unitSuffix,
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
     };
   }
 
-  const avgSlope = slopesPerMinute.reduce((sum, v) => sum + v, 0) / slopesPerMinute.length;
-  const absAvgSlope = Math.abs(avgSlope);
-  const maxAbsSpike = Math.max(...deltas.map((v) => Math.abs(v)), 0);
+  const upCount = deltas.filter((d) => d > 0).length;
+  const downCount = deltas.filter((d) => d < 0).length;
 
-  const positiveMoves = deltas.filter((d) => d > 0).length;
-  const negativeMoves = deltas.filter((d) => d < 0).length;
+  const strongUp = upCount >= 5;
+  const strongDown = downCount >= 5;
 
-  const direction =
-    avgSlope > 0.003 ? "up" :
-    avgSlope < -0.003 ? "down" :
-    "flat";
-
-  const consistency =
-    direction === "up"
-      ? positiveMoves / deltas.length
-      : direction === "down"
-      ? negativeMoves / deltas.length
-      : 0;
-
-  let acceleration = 0;
-  for (let i = 1; i < slopesPerMinute.length; i += 1) {
-    const prevSlope = slopesPerMinute[i - 1];
-    const currSlope = slopesPerMinute[i];
-    if (direction === "up" && currSlope > prevSlope) acceleration += 1;
-    if (direction === "down" && currSlope < prevSlope) acceleration += 1;
-  }
-
-  const accelerationRatio =
-    slopesPerMinute.length > 1 ? acceleration / (slopesPerMinute.length - 1) : 0;
-
-  let targetLimit = null;
-  if (direction === "up" && highLimit !== null) targetLimit = highLimit;
-  if (direction === "down" && lowLimit !== null) targetLimit = lowLimit;
-
-  let proximityScore = 0;
-  let etaMinutes = null;
-
-  if (targetLimit !== null) {
-    const distance = Math.abs(targetLimit - current.value);
-    const rangeBase = Math.max(Math.abs(targetLimit) * 0.08, unitSuffix === " %" ? 6 : 1.5);
-    proximityScore = clamp((1 - distance / rangeBase) * 100, 0, 100);
-
-    if (absAvgSlope > 0.0001) {
-      etaMinutes = distance / absAvgSlope;
-      if (!Number.isFinite(etaMinutes)) etaMinutes = null;
-    }
-  }
-
-  const spikeScore = clamp((maxAbsSpike / spikeScale) * 100, 0, 100);
-  const trendScore = clamp(consistency * 100, 0, 100);
-  const accelerationScore = clamp(accelerationRatio * 100, 0, 100);
-
-  let baseScore = 0;
+  let direction = "flat";
+  if (strongUp) direction = "up";
+  if (strongDown) direction = "down";
 
   if (direction === "flat") {
-    baseScore = Math.max(0, proximityScore * 0.35);
-  } else {
-    baseScore =
-      proximityScore * 0.35 +
-      spikeScore * 0.30 +
-      trendScore * 0.20 +
-      accelerationScore * 0.15;
+    return {
+      active: false,
+      severity: "none",
+      etaMinutes: null,
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
   }
 
-  if (etaMinutes !== null) {
-    if (etaMinutes <= 15) baseScore += 22;
-    else if (etaMinutes <= 30) baseScore += 16;
-    else if (etaMinutes <= 60) baseScore += 10;
-    else if (etaMinutes <= 120) baseScore += 5;
+  const avgSlope =
+    slopes.reduce((sum, value) => sum + value, 0) / slopes.length;
+  const absAvgSlope = Math.abs(avgSlope);
+
+  const targetLimit =
+    direction === "up" ? highLimit : direction === "down" ? lowLimit : null;
+
+  if (targetLimit === null || targetLimit === undefined) {
+    return {
+      active: false,
+      severity: "none",
+      etaMinutes: null,
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
   }
 
-  const currentStepDelta = current.value - previous.value;
-  if (Math.abs(currentStepDelta) >= spikeScale * 0.5) {
-    baseScore += 8;
-  } else if (Math.abs(currentStepDelta) >= spikeScale * 0.25) {
-    baseScore += 4;
+  const distance = Math.abs(targetLimit - current.value);
+
+  const speedThreshold =
+    type === "temperature" ? 0.03 : 0.18;
+
+  if (absAvgSlope < speedThreshold) {
+    return {
+      active: false,
+      severity: "none",
+      etaMinutes: null,
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
   }
 
-  if (consistency < 0.5) {
-    baseScore -= 10;
+  if (distance <= 0) {
+    return {
+      active: true,
+      severity: "high",
+      etaMinutes: 0,
+      title: "Alerta provável agora",
+      detail: getTrendDirectionLabel(direction, type),
+      source: type,
+      score: 100,
+    };
   }
 
-  const riskScore = clamp(Math.round(baseScore), 0, 100);
-  const riskLabel = getRiskLabel(riskScore);
-  const riskTone = getRiskTone(riskScore);
+  const etaMinutes = distance / absAvgSlope;
 
-  let trendLabel = "Estável";
-  if (direction === "up") {
-    trendLabel =
-      absAvgSlope >= spikeScale * 0.08 ? "Subida rápida" :
-      absAvgSlope >= spikeScale * 0.03 ? "Subida moderada" :
-      "Subida lenta";
-  } else if (direction === "down") {
-    trendLabel =
-      absAvgSlope >= spikeScale * 0.08 ? "Descida rápida" :
-      absAvgSlope >= spikeScale * 0.03 ? "Descida moderada" :
-      "Descida lenta";
+  if (!Number.isFinite(etaMinutes)) {
+    return {
+      active: false,
+      severity: "none",
+      etaMinutes: null,
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
   }
 
-  let etaLabel = "-";
-  if (etaMinutes !== null) {
-    if (etaMinutes < 60) {
-      etaLabel = `~${Math.round(etaMinutes)} min`;
-    } else {
-      const hours = etaMinutes / 60;
-      etaLabel = `~${hours.toFixed(hours >= 10 ? 0 : 1)} h`;
-    }
+  const closeMargin = type === "temperature" ? 1.2 : 8;
+  const closeToLimit = distance <= closeMargin;
+
+  if (etaMinutes <= 45 && closeToLimit) {
+    return {
+      active: true,
+      severity: "high",
+      etaMinutes: Math.max(1, Math.round(etaMinutes)),
+      title: `Alerta provável em ~${Math.max(1, Math.round(etaMinutes))} min`,
+      detail: getTrendDirectionLabel(direction, type),
+      source: type,
+      score: 90,
+    };
   }
 
-  let forecastWindowLabel = "Sem alerta provável";
-  let alertProbabilityLabel = "Baixa probabilidade";
-
-  if (etaMinutes !== null) {
-    if (etaMinutes <= 15) {
-      forecastWindowLabel = "Alerta provável nos próximos 15 min";
-      alertProbabilityLabel = "Crítico iminente";
-    } else if (etaMinutes <= 30) {
-      forecastWindowLabel = "Alerta provável nos próximos 30 min";
-      alertProbabilityLabel = "Probabilidade muito alta";
-    } else if (etaMinutes <= 60) {
-      forecastWindowLabel = "Risco elevado na próxima 1h";
-      alertProbabilityLabel = "Probabilidade alta";
-    } else if (etaMinutes <= 120) {
-      forecastWindowLabel = "Possível alerta nas próximas 2h";
-      alertProbabilityLabel = "Probabilidade moderada";
-    } else if (etaMinutes <= 360) {
-      forecastWindowLabel = "Sem risco imediato nas próximas horas";
-      alertProbabilityLabel = "Probabilidade baixa";
-    } else {
-      forecastWindowLabel = "Sem risco relevante no curto prazo";
-      alertProbabilityLabel = "Probabilidade muito baixa";
-    }
-  } else if (direction === "flat") {
-    forecastWindowLabel = "Sem tendência de alerta no curto prazo";
-    alertProbabilityLabel = "Probabilidade baixa";
-  }
-
-  let reason = "Sem risco relevante detetado.";
-  if (direction === "up" && highLimit !== null) {
-    reason =
-      riskScore >= 75
-        ? "Subida acentuada e consistente perto do limite superior."
-        : riskScore >= 50
-        ? "Tendência de subida consistente com aproximação ao limite superior."
-        : riskScore >= 25
-        ? "Há sinais de subida recente, mas ainda com alguma margem."
-        : "Valor controlado sem aproximação relevante ao limite superior.";
-  } else if (direction === "down" && lowLimit !== null) {
-    reason =
-      riskScore >= 75
-        ? "Descida acentuada e consistente perto do limite inferior."
-        : riskScore >= 50
-        ? "Tendência de descida consistente com aproximação ao limite inferior."
-        : riskScore >= 25
-        ? "Há sinais de descida recente, mas ainda com alguma margem."
-        : "Valor controlado sem aproximação relevante ao limite inferior.";
-  } else if (direction === "flat") {
-    reason = "Sem tendência acentuada nas leituras mais recentes.";
+  if (etaMinutes <= 120 && closeToLimit) {
+    return {
+      active: true,
+      severity: "medium",
+      etaMinutes: Math.max(1, Math.round(etaMinutes)),
+      title: "Atenção",
+      detail: getTrendDirectionLabel(direction, type),
+      source: type,
+      score: 65,
+    };
   }
 
   return {
-    riskScore,
-    riskLabel,
-    riskTone,
-    direction,
-    reason,
-    etaMinutes: etaMinutes !== null ? Math.round(etaMinutes) : null,
-    etaLabel,
-    forecastWindowLabel,
-    alertProbabilityLabel,
-    trendLabel,
-    avgSlopePerMinute: avgSlope,
-    maxAbsSpike,
-    consistency: Math.round(consistency * 100),
-    targetLimit,
-    currentValue: current.value,
-    valueLabel: formatValue(current.value, unitSuffix, unitSuffix === " %" ? 0 : 1),
-    unitSuffix,
+    active: false,
+    severity: "none",
+    etaMinutes: null,
+    title: "Sem risco próximo",
+    detail: "Sem tendência relevante",
+    source: type,
+    score: 0,
   };
 }
 
-function getTempPredictiveRisk(readings, config) {
-  return buildPredictiveRisk({
+function getUnifiedPrediction(readings, config) {
+  const tempSignal = buildSimpleAlertSignal({
     readings,
     valueKey: "temperature",
     lowLimit: parseNumber(config?.temp_low_c),
     highLimit: parseNumber(config?.temp_high_c),
-    spikeScale: 1.2,
-    unitSuffix: " °C",
+    type: "temperature",
   });
-}
 
-function getHumidityPredictiveRisk(readings, config) {
-  return buildPredictiveRisk({
+  const humSignal = buildSimpleAlertSignal({
     readings,
     valueKey: "humidity",
     lowLimit: parseNumber(config?.hum_low),
     highLimit: parseNumber(config?.hum_high),
-    spikeScale: 8,
-    unitSuffix: " %",
+    type: "humidity",
   });
-}
 
-function getGlobalPrediction(riskTemp, riskHum) {
-  const tempScore = riskTemp?.riskScore ?? null;
-  const humScore = riskHum?.riskScore ?? null;
+  const signals = [tempSignal, humSignal].sort((a, b) => b.score - a.score);
+  const best = signals[0];
 
-  const scores = [tempScore, humScore].filter((v) => v !== null);
-
-  if (!scores.length) {
+  if (!best || best.score <= 0) {
     return {
-      score: null,
-      tone: "neutral",
-      label: "Sem previsão suficiente",
-      summary: "Ainda não existem leituras suficientes para calcular um risco global.",
+      status: "safe",
+      title: "Sem risco próximo",
+      detail: "Sem tendência relevante",
+      chip: "Normal",
+      sourceLabel: "Sem variável crítica",
     };
   }
 
-  const score = Math.max(...scores);
-  const tone = getRiskTone(score);
-  const label = getRiskLabel(score);
-
-  let mainSource = "temperatura";
-  if ((humScore ?? -1) > (tempScore ?? -1)) mainSource = "humidade";
-
-  let summary = `Maior risco atual vindo da ${mainSource}.`;
-  if (score >= 75) {
-    summary = `Risco global crítico iminente, com maior peso da ${mainSource}.`;
-  } else if (score >= 50) {
-    summary = `Risco global elevado, com maior peso da ${mainSource}.`;
-  } else if (score >= 25) {
-    summary = `Risco global moderado, com atenção principal à ${mainSource}.`;
-  } else {
-    summary = "Sem risco global relevante no curto prazo.";
+  if (best.severity === "high") {
+    return {
+      status: "high",
+      title: best.title,
+      detail: best.detail,
+      chip: "Alerta próximo",
+      sourceLabel:
+        best.source === "temperature" ? "Variável crítica: Temperatura" : "Variável crítica: Humidade",
+    };
   }
 
-  return { score, tone, label, summary };
+  return {
+    status: "medium",
+    title: "Atenção",
+    detail: best.detail,
+    chip: "Monitorizar",
+    sourceLabel:
+      best.source === "temperature" ? "Variável crítica: Temperatura" : "Variável crítica: Humidade",
+  };
 }
 
 async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
@@ -1195,89 +1097,8 @@ function AlertRow({ item }) {
   );
 }
 
-function PredictionMiniCard({ title, risk }) {
+function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
-    danger: {
-      border: "#4b1f24",
-      bg: "#211013",
-      value: "#fca5a5",
-    },
-    warning: {
-      border: "#4b3a1d",
-      bg: "#21180f",
-      value: "#fcd34d",
-    },
-    neutral: {
-      border: "#253246",
-      bg: "#0f172a",
-      value: "#cbd5e1",
-    },
-    safe: {
-      border: "#1f3b2a",
-      bg: "#0f1d15",
-      value: "#86efac",
-    },
-  };
-
-  const selected = toneMap[risk?.riskTone] || toneMap.neutral;
-
-  return (
-    <div
-      style={{
-        ...styles.predictionMiniCard,
-        borderColor: selected.border,
-        background: selected.bg,
-      }}
-    >
-      <div style={styles.predictionMiniTop}>
-        <div style={styles.predictionMiniTitle}>{title}</div>
-        <div style={{ ...styles.predictionMiniScore, color: selected.value }}>
-          {risk?.riskScore !== null && risk?.riskScore !== undefined
-            ? `${risk.riskScore}%`
-            : "—"}
-        </div>
-      </div>
-
-      <div style={styles.predictionMiniMain}>
-        {risk?.forecastWindowLabel || "Sem previsão"}
-      </div>
-
-      <div style={styles.predictionMiniSub}>
-        {risk?.alertProbabilityLabel || "Sem previsão"}
-      </div>
-
-      <div style={styles.predictionMiniMeta}>
-        <span>{risk?.etaLabel || "-"}</span>
-        <span>•</span>
-        <span>{risk?.valueLabel || "-"}</span>
-      </div>
-    </div>
-  );
-}
-
-function GlobalPredictionCard({ globalPrediction, riskTemp, riskHum, isOffline, isMobile }) {
-  const toneMap = {
-    danger: {
-      border: "#4b1f24",
-      bg: "#211013",
-      value: "#fca5a5",
-      badgeBg: "#2a1316",
-      badgeBorder: "#4b1f24",
-    },
-    warning: {
-      border: "#4b3a1d",
-      bg: "#21180f",
-      value: "#fcd34d",
-      badgeBg: "#2a2112",
-      badgeBorder: "#4b3a1d",
-    },
-    neutral: {
-      border: "#253246",
-      bg: "#0f172a",
-      value: "#cbd5e1",
-      badgeBg: "#162033",
-      badgeBorder: "#243042",
-    },
     safe: {
       border: "#1f3b2a",
       bg: "#0f1d15",
@@ -1285,9 +1106,23 @@ function GlobalPredictionCard({ globalPrediction, riskTemp, riskHum, isOffline, 
       badgeBg: "#132219",
       badgeBorder: "#1f3b2a",
     },
+    medium: {
+      border: "#4b3a1d",
+      bg: "#21180f",
+      value: "#fcd34d",
+      badgeBg: "#2a2112",
+      badgeBorder: "#4b3a1d",
+    },
+    high: {
+      border: "#4b1f24",
+      bg: "#211013",
+      value: "#fca5a5",
+      badgeBg: "#2a1316",
+      badgeBorder: "#4b1f24",
+    },
   };
 
-  const selected = toneMap[globalPrediction?.tone] || toneMap.neutral;
+  const selected = toneMap[prediction?.status] || toneMap.safe;
 
   return (
     <section
@@ -1299,9 +1134,9 @@ function GlobalPredictionCard({ globalPrediction, riskTemp, riskHum, isOffline, 
     >
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Previsão global</div>
+          <div style={styles.cardTitle}>Previsão de alerta</div>
           <div style={styles.cardHint}>
-            Resumo simples do risco de alerta nas próximas leituras
+            Leitura resumida e imediata do comportamento recente
           </div>
         </div>
 
@@ -1313,34 +1148,25 @@ function GlobalPredictionCard({ globalPrediction, riskTemp, riskHum, isOffline, 
             color: selected.value,
           }}
         >
-          {globalPrediction?.label || "Sem previsão"}
+          {prediction?.chip || "Normal"}
         </div>
       </div>
 
-      <div style={styles.globalPredictionTop}>
-        <div style={{ ...styles.globalPredictionScore, color: selected.value }}>
-          {globalPrediction?.score !== null && globalPrediction?.score !== undefined
-            ? `${globalPrediction.score}%`
-            : "—"}
-        </div>
-        <div style={styles.globalPredictionSummary}>
-          {globalPrediction?.summary || "Sem previsão global disponível."}
-        </div>
+      <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
+        {prediction?.title || "Sem risco próximo"}
       </div>
 
-      <div
-        style={{
-          ...styles.globalPredictionGrid,
-          gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-        }}
-      >
-        <PredictionMiniCard title="Temperatura" risk={riskTemp} />
-        <PredictionMiniCard title="Humidade" risk={riskHum} />
+      <div style={styles.predictionMainDetail}>
+        {prediction?.detail || "Sem tendência relevante"}
+      </div>
+
+      <div style={styles.predictionSourceLabel}>
+        {prediction?.sourceLabel || "Sem variável crítica"}
       </div>
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          O dispositivo está offline. A previsão usa as últimas leituras válidas disponíveis.
+          Baseado nas últimas leituras válidas antes de ficar offline.
         </div>
       ) : null}
     </section>
@@ -1493,6 +1319,22 @@ function DataChart({
         </div>
       )}
     </div>
+  );
+}
+
+function BootScreen() {
+  return (
+    <main style={styles.bootPage}>
+      <div style={styles.bootWrap}>
+        <div style={styles.bootRingOuter}>
+          <div style={styles.bootRingInner} />
+          <div style={styles.bootCenter}>
+            <div style={styles.bootLogo}>STS</div>
+            <div style={styles.bootSub}>A sincronizar dados mais recentes...</div>
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }
 
@@ -1842,19 +1684,9 @@ export default function DashboardPage() {
     [readings, sendIntervalS, device?.last_seen, period]
   );
 
-  const predictiveRiskTemp = useMemo(
-    () => getTempPredictiveRisk(readings, config),
+  const unifiedPrediction = useMemo(
+    () => getUnifiedPrediction(readings, config),
     [readings, config]
-  );
-
-  const predictiveRiskHum = useMemo(
-    () => getHumidityPredictiveRisk(readings, config),
-    [readings, config]
-  );
-
-  const globalPrediction = useMemo(
-    () => getGlobalPrediction(predictiveRiskTemp, predictiveRiskHum),
-    [predictiveRiskTemp, predictiveRiskHum]
   );
 
   const currentTempTone =
@@ -2015,6 +1847,10 @@ export default function DashboardPage() {
 
   const hasDevices = devices.length > 0;
   const hasReadings = readings.length > 0;
+
+  if (loading && !initialLoaded) {
+    return <BootScreen />;
+  }
 
   return (
     <main style={styles.page}>
@@ -2225,12 +2061,9 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <GlobalPredictionCard
-          globalPrediction={globalPrediction}
-          riskTemp={predictiveRiskTemp}
-          riskHum={predictiveRiskHum}
+        <UnifiedPredictionCard
+          prediction={unifiedPrediction}
           isOffline={effectiveStatus === "OFFLINE"}
-          isMobile={isMobile}
         />
 
         <section style={styles.card}>
@@ -2666,16 +2499,80 @@ export default function DashboardPage() {
             Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
           </div>
         ) : null}
-
-        {loading && !initialLoaded && (
-          <div style={styles.loading}>A carregar dados...</div>
-        )}
       </div>
     </main>
   );
 }
 
 const styles = {
+  bootPage: {
+    minHeight: "100vh",
+    background:
+      "radial-gradient(circle at top, #162235 0%, #0b1220 45%, #060c16 100%)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    color: "#f8fafc",
+  },
+
+  bootWrap: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  bootRingOuter: {
+    width: "220px",
+    height: "220px",
+    borderRadius: "999px",
+    border: "2px solid rgba(59,130,246,0.18)",
+    borderTop: "2px solid rgba(96,165,250,0.95)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    animation: "spin 1.6s linear infinite",
+    boxShadow: "0 0 40px rgba(37,99,235,0.12)",
+  },
+
+  bootRingInner: {
+    position: "absolute",
+    width: "170px",
+    height: "170px",
+    borderRadius: "999px",
+    border: "1px solid rgba(148,163,184,0.10)",
+  },
+
+  bootCenter: {
+    width: "150px",
+    height: "150px",
+    borderRadius: "999px",
+    background: "rgba(15, 23, 42, 0.92)",
+    border: "1px solid #223149",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+    padding: "18px",
+    boxSizing: "border-box",
+  },
+
+  bootLogo: {
+    fontSize: "34px",
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+    color: "#f8fafc",
+    marginBottom: "8px",
+  },
+
+  bootSub: {
+    fontSize: "12px",
+    lineHeight: 1.45,
+    color: "#9fb0c6",
+    fontWeight: 700,
+  },
+
   page: {
     minHeight: "100vh",
     background: "#0b1220",
@@ -3059,83 +2956,23 @@ const styles = {
     wordBreak: "break-word",
   },
 
-  globalPredictionTop: {
-    display: "flex",
-    alignItems: "flex-end",
-    gap: "14px",
-    flexWrap: "wrap",
-    marginBottom: "14px",
-  },
-
-  globalPredictionScore: {
-    fontSize: "38px",
+  predictionMainTitle: {
+    fontSize: "30px",
+    lineHeight: 1.05,
     fontWeight: 800,
-    lineHeight: 1,
     letterSpacing: "-0.03em",
+    marginBottom: "10px",
   },
 
-  globalPredictionSummary: {
+  predictionMainDetail: {
     fontSize: "15px",
     color: "#e5edf7",
     fontWeight: 700,
-    paddingBottom: "4px",
-  },
-
-  globalPredictionGrid: {
-    display: "grid",
-    gap: "14px",
-  },
-
-  predictionMiniCard: {
-    border: "1px solid #1f2937",
-    borderRadius: "18px",
-    padding: "16px",
-    minWidth: 0,
-  },
-
-  predictionMiniTop: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginBottom: "10px",
-  },
-
-  predictionMiniTitle: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#94a3b8",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-
-  predictionMiniScore: {
-    fontSize: "24px",
-    fontWeight: 800,
-    lineHeight: 1,
-    letterSpacing: "-0.03em",
-  },
-
-  predictionMiniMain: {
-    fontSize: "16px",
-    fontWeight: 800,
-    color: "#f8fafc",
-    lineHeight: 1.35,
     marginBottom: "8px",
   },
 
-  predictionMiniSub: {
+  predictionSourceLabel: {
     fontSize: "13px",
-    color: "#cbd5e1",
-    fontWeight: 700,
-    marginBottom: "10px",
-  },
-
-  predictionMiniMeta: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap",
-    fontSize: "12px",
     color: "#94a3b8",
     fontWeight: 700,
   },
@@ -3516,12 +3353,5 @@ const styles = {
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  },
-
-  loading: {
-    textAlign: "center",
-    color: "#94a3b8",
-    fontWeight: 700,
-    paddingTop: "4px",
   },
 };
