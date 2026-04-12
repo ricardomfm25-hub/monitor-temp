@@ -386,9 +386,10 @@ function buildTimeSeries(readings, periodKey) {
   const buckets = new Map();
 
   for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
+    const d = new Date(t);
     const bucketTime =
       periodKey === "7d"
-        ? new Date(new Date(t).getFullYear(), new Date(t).getMonth(), new Date(t).getDate(), 0, 0, 0, 0).getTime()
+        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
         : t;
 
     if (bucketTime >= start && !buckets.has(bucketTime)) {
@@ -637,6 +638,9 @@ function getTempPredictiveRisk(readings, config) {
       direction: null,
       reason: "São necessárias mais leituras para calcular a tendência preditiva.",
       etaMinutes: null,
+      etaLabel: "-",
+      forecastWindowLabel: "Sem previsão",
+      alertProbabilityLabel: "Sem previsão",
       trendLabel: "Indefinida",
       consistency: null,
       maxAbsSpike: null,
@@ -659,6 +663,9 @@ function getTempPredictiveRisk(readings, config) {
       direction: null,
       reason: "São necessárias mais leituras válidas para calcular tendência.",
       etaMinutes: null,
+      etaLabel: "-",
+      forecastWindowLabel: "Sem previsão",
+      alertProbabilityLabel: "Sem previsão",
       trendLabel: "Indefinida",
       consistency: null,
       maxAbsSpike: null,
@@ -692,6 +699,9 @@ function getTempPredictiveRisk(readings, config) {
       direction: null,
       reason: "Não foi possível calcular a variação temporal com consistência.",
       etaMinutes: null,
+      etaLabel: "-",
+      forecastWindowLabel: "Sem previsão",
+      alertProbabilityLabel: "Sem previsão",
       trendLabel: "Indefinida",
       consistency: null,
       maxAbsSpike: null,
@@ -763,9 +773,10 @@ function getTempPredictiveRisk(readings, config) {
   }
 
   if (etaMinutes !== null) {
-    if (etaMinutes <= 10) baseScore += 18;
-    else if (etaMinutes <= 20) baseScore += 12;
-    else if (etaMinutes <= 45) baseScore += 6;
+    if (etaMinutes <= 15) baseScore += 22;
+    else if (etaMinutes <= 30) baseScore += 16;
+    else if (etaMinutes <= 60) baseScore += 10;
+    else if (etaMinutes <= 120) baseScore += 5;
   }
 
   const currentStepDelta = current.temperature - previous.temperature;
@@ -794,6 +805,44 @@ function getTempPredictiveRisk(readings, config) {
       absAvgSlope >= 0.08 ? "Descida rápida" :
       absAvgSlope >= 0.03 ? "Descida moderada" :
       "Descida lenta";
+  }
+
+  let etaLabel = "-";
+  if (etaMinutes !== null) {
+    if (etaMinutes < 60) {
+      etaLabel = `~${Math.round(etaMinutes)} min`;
+    } else {
+      const hours = etaMinutes / 60;
+      etaLabel = `~${hours.toFixed(hours >= 10 ? 0 : 1)} h`;
+    }
+  }
+
+  let forecastWindowLabel = "Sem alerta provável";
+  let alertProbabilityLabel = "Baixa probabilidade";
+
+  if (etaMinutes !== null) {
+    if (etaMinutes <= 15) {
+      forecastWindowLabel = "Alerta provável nos próximos 15 min";
+      alertProbabilityLabel = "Crítico iminente";
+    } else if (etaMinutes <= 30) {
+      forecastWindowLabel = "Alerta provável nos próximos 30 min";
+      alertProbabilityLabel = "Probabilidade muito alta";
+    } else if (etaMinutes <= 60) {
+      forecastWindowLabel = "Risco elevado na próxima 1h";
+      alertProbabilityLabel = "Probabilidade alta";
+    } else if (etaMinutes <= 120) {
+      forecastWindowLabel = "Possível alerta nas próximas 2h";
+      alertProbabilityLabel = "Probabilidade moderada";
+    } else if (etaMinutes <= 360) {
+      forecastWindowLabel = "Sem risco imediato nas próximas horas";
+      alertProbabilityLabel = "Probabilidade baixa";
+    } else {
+      forecastWindowLabel = "Sem risco relevante no curto prazo";
+      alertProbabilityLabel = "Probabilidade muito baixa";
+    }
+  } else if (direction === "flat") {
+    forecastWindowLabel = "Sem tendência de alerta no curto prazo";
+    alertProbabilityLabel = "Probabilidade baixa";
   }
 
   let reason = "Sem risco relevante detetado.";
@@ -826,6 +875,9 @@ function getTempPredictiveRisk(readings, config) {
     direction,
     reason,
     etaMinutes: etaMinutes !== null ? Math.round(etaMinutes) : null,
+    etaLabel,
+    forecastWindowLabel,
+    alertProbabilityLabel,
     trendLabel,
     avgSlopePerMinute: avgSlope,
     maxAbsSpike,
@@ -1073,7 +1125,7 @@ function AlertRow({ item }) {
   );
 }
 
-function PredictiveRiskCard({ risk, isOffline }) {
+function PredictiveRiskCard({ risk, isOffline, isMobile }) {
   const toneMap = {
     danger: {
       border: "#4b1f24",
@@ -1117,9 +1169,9 @@ function PredictiveRiskCard({ risk, isOffline }) {
     >
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Risco preditivo</div>
+          <div style={styles.cardTitle}>Previsão de alerta</div>
           <div style={styles.cardHint}>
-            Estimativa baseada em pico recente, tendência e proximidade ao limite
+            Estimativa simples com base na tendência recente da temperatura
           </div>
         </div>
 
@@ -1138,11 +1190,17 @@ function PredictiveRiskCard({ risk, isOffline }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
+          gridTemplateColumns: isMobile
+            ? "1fr"
+            : "minmax(0, 1.2fr) minmax(0, 1fr)",
           gap: "16px",
         }}
       >
         <div>
+          <div style={styles.predictiveForecastTitle}>
+            {risk?.forecastWindowLabel || "Sem previsão"}
+          </div>
+
           <div style={styles.predictiveBigValue}>
             <span style={{ color: selected.value }}>
               {risk?.riskScore !== null && risk?.riskScore !== undefined
@@ -1150,12 +1208,12 @@ function PredictiveRiskCard({ risk, isOffline }) {
                 : "—"}
             </span>
             <span style={styles.predictiveLabelText}>
-              {risk?.riskLabel || "Sem dados suficientes"}
+              {risk?.alertProbabilityLabel || "Sem previsão"}
             </span>
           </div>
 
           <div style={styles.predictiveReason}>
-            {risk?.reason || "Sem dados suficientes para calcular o risco preditivo."}
+            {risk?.reason || "Sem dados suficientes para calcular a previsão."}
           </div>
 
           {isOffline ? (
@@ -1167,12 +1225,8 @@ function PredictiveRiskCard({ risk, isOffline }) {
 
         <div style={styles.predictiveMiniGrid}>
           <SmallStat
-            label="ETA alerta"
-            value={
-              risk?.etaMinutes !== null && risk?.etaMinutes !== undefined
-                ? `~${risk.etaMinutes} min`
-                : "-"
-            }
+            label="Tempo estimado"
+            value={risk?.etaLabel || "-"}
           />
           <SmallStat
             label="Consistência"
@@ -1401,7 +1455,6 @@ export default function DashboardPage() {
 
   const isSuperAdmin = profile?.role === "super_admin";
   const isClientAdmin = profile?.role === "client_admin";
-  const isAdmin = isSuperAdmin || isClientAdmin;
 
   const canEditSelectedDevice = useMemo(() => {
     const access = devicePermissions.find(
@@ -1587,21 +1640,21 @@ export default function DashboardPage() {
         setAlerts(alertsRows || []);
 
         if (syncForms) {
-          const config = deviceData?.config || {};
+          const deviceConfig = deviceData?.config || {};
 
           setClientForm({
-            temp_low_c: toInputValue(config?.temp_low_c),
-            temp_high_c: toInputValue(config?.temp_high_c),
-            hum_low: toInputValue(config?.hum_low),
-            hum_high: toInputValue(config?.hum_high),
+            temp_low_c: toInputValue(deviceConfig?.temp_low_c),
+            temp_high_c: toInputValue(deviceConfig?.temp_high_c),
+            hum_low: toInputValue(deviceConfig?.hum_low),
+            hum_high: toInputValue(deviceConfig?.hum_high),
           });
 
           setAdminForm({
             name: deviceData?.name || "",
             location: deviceData?.location || "",
-            hyst_c: toInputValue(config?.hyst_c),
-            send_interval_s: toInputValue(config?.send_interval_s),
-            display_standby_min: toInputValue(config?.display_standby_min),
+            hyst_c: toInputValue(deviceConfig?.hyst_c),
+            send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
         }
 
@@ -2072,6 +2125,7 @@ export default function DashboardPage() {
         <PredictiveRiskCard
           risk={predictiveRisk}
           isOffline={effectiveStatus === "OFFLINE"}
+          isMobile={isMobile}
         />
 
         <section style={styles.card}>
@@ -2941,6 +2995,14 @@ const styles = {
     fontSize: "12px",
     color: "#94a3b8",
     lineHeight: 1.4,
+  },
+
+  predictiveForecastTitle: {
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#f8fafc",
+    marginBottom: "10px",
+    lineHeight: 1.3,
   },
 
   predictiveBigValue: {
