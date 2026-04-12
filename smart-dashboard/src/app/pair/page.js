@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 
-export default function PairPage() {
+function PairPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -159,7 +159,7 @@ export default function PairPage() {
 
       const { data: existingAccess, error: accessCheckError } = await supabase
         .from("device_access")
-        .select("id, can_view, can_edit")
+        .select("id")
         .eq("user_id", user.id)
         .eq("device_id", deviceData.device_id)
         .maybeSingle();
@@ -314,6 +314,25 @@ export default function PairPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function PairPage() {
+  return (
+    <Suspense
+      fallback={
+        <main style={styles.page}>
+          <div style={styles.card}>
+            <div style={styles.statusWrap}>
+              <div style={styles.spinner} />
+              <p style={styles.subtitle}>A carregar...</p>
+            </div>
+          </div>
+        </main>
+      }
+    >
+      <PairPageContent />
+    </Suspense>
   );
 }
 
