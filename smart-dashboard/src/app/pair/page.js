@@ -201,9 +201,11 @@ function PairPageContent() {
       setMessageType("success");
 
       setTimeout(() => {
-        router.replace("/");
+        router.replace(
+          `/onboarding/device?device_id=${encodeURIComponent(deviceData.device_id)}`
+        );
         router.refresh();
-      }, 900);
+      }, 700);
     } catch (error) {
       setMessage(error?.message || "Não foi possível associar o dispositivo.");
       setMessageType("error");
