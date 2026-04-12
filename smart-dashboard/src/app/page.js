@@ -1326,12 +1326,15 @@ function BootScreen() {
   return (
     <main style={styles.bootPage}>
       <div style={styles.bootWrap}>
-        <div style={styles.bootRingOuter}>
-          <div style={styles.bootRingInner} />
+        <div style={styles.bootCircle}>
+          <div style={styles.bootSpinner} />
           <div style={styles.bootCenter}>
             <div style={styles.bootLogo}>STS</div>
-            <div style={styles.bootSub}>A sincronizar dados mais recentes...</div>
           </div>
+        </div>
+
+        <div style={styles.bootText}>
+          A sincronizar dados mais recentes...
         </div>
       </div>
     </main>
@@ -2518,59 +2521,58 @@ const styles = {
 
   bootWrap: {
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  bootRingOuter: {
-    width: "220px",
-    height: "220px",
-    borderRadius: "999px",
-    border: "2px solid rgba(59,130,246,0.18)",
-    borderTop: "2px solid rgba(96,165,250,0.95)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    animation: "spin 1.6s linear infinite",
-    boxShadow: "0 0 40px rgba(37,99,235,0.12)",
-  },
-
-  bootRingInner: {
-    position: "absolute",
-    width: "170px",
-    height: "170px",
-    borderRadius: "999px",
-    border: "1px solid rgba(148,163,184,0.10)",
-  },
-
-  bootCenter: {
-    width: "150px",
-    height: "150px",
-    borderRadius: "999px",
-    background: "rgba(15, 23, 42, 0.92)",
-    border: "1px solid #223149",
-    display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    textAlign: "center",
-    padding: "18px",
-    boxSizing: "border-box",
+    gap: "20px",
+  },
+
+  bootCircle: {
+    position: "relative",
+    width: "220px",
+    height: "220px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  bootSpinner: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "999px",
+    border: "2px solid rgba(59,130,246,0.14)",
+    borderTop: "2px solid rgba(96,165,250,0.95)",
+    borderRight: "2px solid rgba(59,130,246,0.45)",
+    boxShadow: "0 0 36px rgba(37,99,235,0.12)",
+    animation: "spin 1.25s linear infinite",
+  },
+
+  bootCenter: {
+    width: "148px",
+    height: "148px",
+    borderRadius: "999px",
+    background: "rgba(15, 23, 42, 0.96)",
+    border: "1px solid #223149",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 0 30px rgba(37,99,235,0.10)",
   },
 
   bootLogo: {
-    fontSize: "34px",
+    fontSize: "36px",
     fontWeight: 900,
-    letterSpacing: "0.08em",
+    letterSpacing: "0.12em",
     color: "#f8fafc",
-    marginBottom: "8px",
   },
 
-  bootSub: {
-    fontSize: "12px",
-    lineHeight: 1.45,
+  bootText: {
+    fontSize: "13px",
+    lineHeight: 1.4,
     color: "#9fb0c6",
     fontWeight: 700,
+    textAlign: "center",
+    letterSpacing: "0.02em",
   },
 
   page: {
@@ -2580,7 +2582,6 @@ const styles = {
     color: "#e5edf7",
     overflowX: "hidden",
   },
-
   container: {
     width: "100%",
     maxWidth: "1380px",
