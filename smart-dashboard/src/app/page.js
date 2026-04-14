@@ -19,6 +19,7 @@ const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
 const OFFLINE_LIMIT_MS = 120 * 1000;
 const MAX_HISTORY_HOURS = 24 * 7;
+const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const PERIODS = [
   { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
@@ -27,10 +28,6 @@ const PERIODS = [
   { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000 },
   { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 24 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000 },
 ];
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -147,6 +144,8 @@ function getStatusInfo(status) {
       soft: "#1a2230",
       border: "#334155",
       glow: "0 0 0 1px rgba(148,163,184,0.12)",
+      priority: 3,
+      dot: "#94a3b8",
     };
   }
 
@@ -157,6 +156,8 @@ function getStatusInfo(status) {
       soft: "#2a1316",
       border: "#4b1f24",
       glow: "0 0 0 1px rgba(239,68,68,0.15)",
+      priority: 0,
+      dot: "#ef4444",
     };
   }
 
@@ -167,6 +168,8 @@ function getStatusInfo(status) {
       soft: "#2a2112",
       border: "#4b3a1d",
       glow: "0 0 0 1px rgba(245,158,11,0.12)",
+      priority: 1,
+      dot: "#f59e0b",
     };
   }
 
@@ -177,6 +180,8 @@ function getStatusInfo(status) {
       soft: "#132219",
       border: "#1f3b2a",
       glow: "0 0 0 1px rgba(34,197,94,0.12)",
+      priority: 2,
+      dot: "#22c55e",
     };
   }
 
@@ -186,6 +191,8 @@ function getStatusInfo(status) {
     soft: "#161b22",
     border: "#293241",
     glow: "0 0 0 1px rgba(148,163,184,0.10)",
+    priority: 4,
+    dot: "#94a3b8",
   };
 }
 
@@ -728,7 +735,6 @@ function buildSimpleAlertSignal({
   }
 
   const distance = Math.abs(targetLimit - current.value);
-
   const speedThreshold =
     type === "temperature" ? 0.03 : 0.18;
 
@@ -859,197 +865,211 @@ function getUnifiedPrediction(readings, config) {
   };
 }
 
-async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
-  const pageSize = 1000;
-  let from = 0;
-  let allRows = [];
+function getDevicePriority(device) {
+  return getStatusInfo(getEffectiveStatus(device)).priority;
+}
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("readings")
-      .select("device_id, temperature, humidity, created_at")
-      .eq("device_id", deviceId)
-      .gte("created_at", sinceIso)
-      .order("created_at", { ascending: true })
-      .range(from, from + pageSize - 1);
+function sortDevices(devices) {
+  return [...(devices || [])].sort((a, b) => {
+    const priorityDiff = getDevicePriority(a) - getDevicePriority(b);
+    if (priorityDiff !== 0) return priorityDiff;
 
-    if (error) {
-      console.warn("readings:", JSON.stringify(error, null, 2));
-      throw error;
+    const aSeen = a?.last_seen ? new Date(a.last_seen).getTime() : 0;
+    const bSeen = b?.last_seen ? new Date(b.last_seen).getTime() : 0;
+    if (bSeen !== aSeen) return bSeen - aSeen;
+
+    const aName = String(a?.name || a?.device_id || "");
+    const bName = String(b?.name || b?.device_id || "");
+    return aName.localeCompare(bName, "pt");
+  });
+}
+
+function getBestInitialDeviceId(devices, currentSelectedId) {
+  const safeDevices = devices || [];
+  if (!safeDevices.length) return null;
+
+  if (currentSelectedId && safeDevices.some((d) => d.device_id === currentSelectedId)) {
+    return currentSelectedId;
+  }
+
+  if (typeof window !== "undefined") {
+    const storedId = window.localStorage.getItem(DEVICE_STORAGE_KEY);
+    if (storedId && safeDevices.some((d) => d.device_id === storedId)) {
+      return storedId;
+    }
+  }
+
+  const ordered = sortDevices(safeDevices);
+  return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
+}
+
+function DeviceSelector({
+  devices,
+  selectedDeviceId,
+  onSelect,
+  isMobile,
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  const orderedDevices = useMemo(() => sortDevices(devices), [devices]);
+  const selectedDevice =
+    orderedDevices.find((item) => item.device_id === selectedDeviceId) ||
+    orderedDevices[0] ||
+    null;
+
+  const selectedStatusInfo = getStatusInfo(getEffectiveStatus(selectedDevice));
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(event.target)) {
+        setOpen(false);
+      }
     }
 
-    const chunk = data || [];
-    allRows = allRows.concat(chunk);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-    if (chunk.length < pageSize) break;
-    from += pageSize;
+  if (!orderedDevices.length) {
+    return (
+      <section style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={styles.cardTitle}>Dispositivo</div>
+            <div style={styles.cardHint}>Nenhum dispositivo disponível</div>
+          </div>
+        </div>
+
+        <div style={styles.emptyState}>Nenhum dispositivo encontrado.</div>
+      </section>
+    );
   }
 
-  return allRows;
-}
-
-async function fetchRecentAlerts(supabase, deviceId, limit = 20) {
-  const { data, error } = await supabase
-    .from("alerts")
-    .select("*")
-    .eq("device_id", deviceId)
-    .eq("event", "triggered")
-    .order("sent_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.warn("alerts:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-
-  return data || [];
-}
-
-function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
-  if (!active || !payload || !payload.length) return null;
-
-  const point = payload[0]?.payload;
-  const value = payload[0]?.value;
-
   return (
-    <div style={styles.tooltip}>
-      <div style={styles.tooltipTitle}>
-        {formatDateTime(point?.created_at || label)}
+    <section style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Dispositivo</div>
+          <div style={styles.cardHint}>
+            Seleção rápida e inteligente do equipamento ativo
+          </div>
+        </div>
       </div>
-      <div style={styles.tooltipValue}>
-        {value === null || value === undefined
-          ? "Sem leitura neste intervalo"
-          : <>Valor: <strong>{formatValue(value, unit, digits)}</strong></>}
-      </div>
-    </div>
-  );
-}
 
-function MetricBox({ label, value, tone = "neutral", subvalue }) {
-  const toneMap = {
-    neutral: {
-      border: "#1e293b",
-      bg: "#0f172a",
-      value: "#f8fafc",
-    },
-    good: {
-      border: "#1f3b2a",
-      bg: "#0f1d15",
-      value: "#86efac",
-    },
-    warn: {
-      border: "#4b3a1d",
-      bg: "#21180f",
-      value: "#fcd34d",
-    },
-    bad: {
-      border: "#4b1f24",
-      bg: "#211013",
-      value: "#fca5a5",
-    },
-  };
+      <div ref={wrapRef} style={styles.selectorWrap}>
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          style={styles.selectorMainButton}
+        >
+          <div style={styles.selectorMainLeft}>
+            <div
+              style={{
+                ...styles.selectorStatusDot,
+                background: selectedStatusInfo.dot,
+                boxShadow: `0 0 10px ${selectedStatusInfo.dot}`,
+              }}
+            />
+            <div style={styles.selectorMainText}>
+              <div style={styles.selectorMainName}>
+                {selectedDevice?.name || selectedDevice?.device_id || "Selecionar dispositivo"}
+              </div>
+              <div style={styles.selectorMainMeta}>
+                {selectedDevice?.location || "Localização por definir"} ·{" "}
+                {formatValue(selectedDevice?.last_temperature, " °C")} ·{" "}
+                {formatValue(selectedDevice?.last_humidity, " %")}
+              </div>
+            </div>
+          </div>
 
-  const selected = toneMap[tone] || toneMap.neutral;
+          <div style={styles.selectorMainRight}>
+            <div
+              style={{
+                ...styles.selectorMainStatus,
+                color: selectedStatusInfo.color,
+                background: selectedStatusInfo.soft,
+                borderColor: selectedStatusInfo.border,
+              }}
+            >
+              {selectedStatusInfo.label}
+            </div>
 
-  return (
-    <div
-      style={{
-        ...styles.metricCard,
-        borderColor: selected.border,
-        background: selected.bg,
-      }}
-    >
-      <div style={styles.metricLabel}>{label}</div>
-      <div style={{ ...styles.metricValue, color: selected.value }}>{value}</div>
-      {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
-    </div>
-  );
-}
+            <div
+              style={{
+                ...styles.selectorChevron,
+                transform: open ? "rotate(180deg)" : "rotate(0deg)",
+              }}
+            >
+              ▼
+            </div>
+          </div>
+        </button>
 
-function InfoItem({ label, value }) {
-  return (
-    <div style={styles.infoItem}>
-      <span style={styles.infoLabel}>{label}</span>
-      <span style={styles.infoValue}>{value}</span>
-    </div>
-  );
-}
-
-function SmallStat({ label, value }) {
-  return (
-    <div style={styles.smallStat}>
-      <div style={styles.smallStatLabel}>{label}</div>
-      <div style={styles.smallStatValue}>{value}</div>
-    </div>
-  );
-}
-
-function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
-  const toneStyles = getHealthToneStyles(tone);
-
-  return (
-    <div style={styles.healthCard}>
-      <div style={styles.healthTop}>
-        <div style={styles.healthLabel}>{label}</div>
-        {badge ? (
-          <span
+        {open ? (
+          <div
             style={{
-              ...styles.healthBadge,
-              background: toneStyles.badgeBg,
-              borderColor: toneStyles.badgeBorder,
-              color: toneStyles.valueColor,
+              ...styles.selectorDropdown,
+              maxHeight: isMobile ? "420px" : "360px",
             }}
           >
-            {badge}
-          </span>
+            {orderedDevices.map((item) => {
+              const info = getStatusInfo(getEffectiveStatus(item));
+              const active = item.device_id === selectedDeviceId;
+
+              return (
+                <button
+                  key={item.device_id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(item.device_id);
+                    setOpen(false);
+                  }}
+                  style={{
+                    ...styles.selectorOption,
+                    ...(active ? styles.selectorOptionActive : {}),
+                  }}
+                >
+                  <div style={styles.selectorOptionLeft}>
+                    <div
+                      style={{
+                        ...styles.selectorOptionDot,
+                        background: info.dot,
+                      }}
+                    />
+                    <div style={styles.selectorOptionText}>
+                      <div style={styles.selectorOptionName}>
+                        {item?.name || item?.device_id}
+                      </div>
+                      <div style={styles.selectorOptionMeta}>
+                        {item?.location || "Localização por definir"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={styles.selectorOptionRight}>
+                    <div style={styles.selectorOptionTemp}>
+                      {formatValue(item?.last_temperature, " °C")}
+                    </div>
+                    <div
+                      style={{
+                        ...styles.selectorOptionStatus,
+                        color: info.color,
+                        background: info.soft,
+                        borderColor: info.border,
+                      }}
+                    >
+                      {info.label}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         ) : null}
       </div>
-      <div style={{ ...styles.healthValue, color: toneStyles.valueColor }}>
-        {value}
-      </div>
-      <div style={styles.healthHint}>{hint}</div>
-    </div>
-  );
-}
-
-function DeviceSelectorCard({ device, selected, onSelect }) {
-  const effectiveStatus = getEffectiveStatus(device);
-  const statusInfo = getStatusInfo(effectiveStatus);
-
-  return (
-    <button
-      onClick={() => onSelect(device.device_id)}
-      style={{
-        ...styles.deviceSelectorCard,
-        ...(selected ? styles.deviceSelectorCardActive : {}),
-      }}
-    >
-      <div style={styles.deviceSelectorTop}>
-        <div style={styles.deviceSelectorName}>
-          {device?.name || device?.device_id}
-        </div>
-        <div
-          style={{
-            ...styles.deviceSelectorStatus,
-            color: statusInfo.color,
-            background: statusInfo.soft,
-            borderColor: statusInfo.border,
-          }}
-        >
-          {statusInfo.label}
-        </div>
-      </div>
-
-      <div style={styles.deviceSelectorMeta}>{device?.device_id}</div>
-      <div style={styles.deviceSelectorMeta}>
-        {device?.location || "Localização por definir"}
-      </div>
-
-      <div style={styles.deviceSelectorMetrics}>
-        <span>{formatValue(device?.last_temperature, " °C")}</span>
-        <span>{formatValue(device?.last_humidity, " %")}</span>
-      </div>
-    </button>
+    </section>
   );
 }
 
@@ -1421,6 +1441,13 @@ export default function DashboardPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(DEVICE_STORAGE_KEY, selectedDeviceId);
+  }, [selectedDeviceId]);
+
   const loadData = useCallback(
     async ({ silent = false, syncForms = true } = {}) => {
       if (requestInFlightRef.current) return;
@@ -1510,31 +1537,23 @@ export default function DashboardPage() {
           throw new Error("Não foi possível carregar a lista de dispositivos.");
         }
 
-        const allowedSelectedDevice =
-          profileData?.role === "super_admin" ||
-          permissionsData.some(
-            (item) => item.device_id === selectedDeviceId && item.can_view
-          );
-
-        const safeSelectedDeviceId =
-          allowedSelectedDevice && devicesData?.some((d) => d.device_id === selectedDeviceId)
-            ? selectedDeviceId
-            : devicesData?.[0]?.device_id || null;
+        const safeDevices = devicesData || [];
+        const nextSelectedDeviceId = getBestInitialDeviceId(safeDevices, selectedDeviceId);
 
         const [deviceResponse, readingsRows, alertsRows] = await Promise.all([
-          safeSelectedDeviceId
+          nextSelectedDeviceId
             ? supabase
                 .from("devices")
                 .select("*")
-                .eq("device_id", safeSelectedDeviceId)
+                .eq("device_id", nextSelectedDeviceId)
                 .limit(1)
                 .maybeSingle()
             : Promise.resolve({ data: null, error: null }),
-          safeSelectedDeviceId
-            ? fetchAllReadingsForPeriod(supabase, safeSelectedDeviceId, since)
+          nextSelectedDeviceId
+            ? fetchAllReadingsForPeriod(supabase, nextSelectedDeviceId, since)
             : Promise.resolve([]),
-          safeSelectedDeviceId
-            ? fetchRecentAlerts(supabase, safeSelectedDeviceId, 20)
+          nextSelectedDeviceId
+            ? fetchRecentAlerts(supabase, nextSelectedDeviceId, 20)
             : Promise.resolve([]),
         ]);
 
@@ -1560,13 +1579,13 @@ export default function DashboardPage() {
 
         if (!mountedRef.current) return;
 
-        if (safeSelectedDeviceId && safeSelectedDeviceId !== selectedDeviceId) {
-          setSelectedDeviceId(safeSelectedDeviceId);
+        if (nextSelectedDeviceId && nextSelectedDeviceId !== selectedDeviceId) {
+          setSelectedDeviceId(nextSelectedDeviceId);
         }
 
         setProfile(profileData);
         setDevicePermissions(permissionsData);
-        setDevices(devicesData || []);
+        setDevices(safeDevices);
         setDevice(deviceData);
         setReadings(readingsData);
         setAlerts(alertsRows || []);
@@ -1771,6 +1790,12 @@ export default function DashboardPage() {
     }
 
     setDevice(data);
+    setDevices((prev) =>
+      prev.map((item) =>
+        item.device_id === data.device_id ? { ...item, ...data } : item
+      )
+    );
+
     setClientForm({
       temp_low_c: toInputValue(data?.config?.temp_low_c),
       temp_high_c: toInputValue(data?.config?.temp_high_c),
@@ -1836,6 +1861,12 @@ export default function DashboardPage() {
     }
 
     setDevice(data);
+    setDevices((prev) =>
+      prev.map((item) =>
+        item.device_id === data.device_id ? { ...item, ...data } : item
+      )
+    );
+
     setAdminForm({
       name: data?.name || "",
       location: data?.location || "",
@@ -1903,46 +1934,18 @@ export default function DashboardPage() {
 
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
 
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Dispositivos</div>
-              <div style={styles.cardHint}>
-                Seleciona o dispositivo a visualizar
-              </div>
-            </div>
-          </div>
-
-          {!hasDevices && initialLoaded ? (
-            <div style={styles.emptyState}>
-              Nenhum dispositivo encontrado.
-            </div>
-          ) : (
-            <div
-              style={{
-                ...styles.deviceSelectorGrid,
-                gridTemplateColumns: isMobile
-                  ? "1fr"
-                  : "repeat(auto-fit, minmax(260px, 1fr))",
-              }}
-            >
-              {devices.map((item) => (
-                <DeviceSelectorCard
-                  key={item.device_id}
-                  device={item}
-                  selected={item.device_id === selectedDeviceId}
-                  onSelect={(deviceId) => {
-                    setSelectedDeviceId(deviceId);
-                    setClientMessage("");
-                    setAdminMessage("");
-                    setPageError("");
-                    setRefreshing(true);
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+        <DeviceSelector
+          devices={devices}
+          selectedDeviceId={selectedDeviceId}
+          onSelect={(deviceId) => {
+            setSelectedDeviceId(deviceId);
+            setClientMessage("");
+            setAdminMessage("");
+            setPageError("");
+            setRefreshing(true);
+          }}
+          isMobile={isMobile}
+        />
 
         <section
           style={{
@@ -2582,6 +2585,7 @@ const styles = {
     color: "#e5edf7",
     overflowX: "hidden",
   },
+
   container: {
     width: "100%",
     maxWidth: "1380px",
@@ -2637,7 +2641,7 @@ const styles = {
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "20px",
-    overflow: "hidden",
+    overflow: "visible",
   },
 
   cardHeader: {
@@ -2693,43 +2697,65 @@ const styles = {
     borderRadius: "18px",
   },
 
-  deviceSelectorGrid: {
-    display: "grid",
-    gap: "12px",
+  selectorWrap: {
+    position: "relative",
   },
 
-  deviceSelectorCard: {
-    textAlign: "left",
+  selectorMainButton: {
+    width: "100%",
+    border: "1px solid #243042",
     background: "#0f172a",
-    border: "1px solid #1e293b",
+    color: "#f8fafc",
     borderRadius: "18px",
     padding: "16px",
-    cursor: "pointer",
-    color: "#f8fafc",
-    transition: "all 0.15s ease",
-  },
-
-  deviceSelectorCardActive: {
-    border: "1px solid #2563eb",
-    boxShadow: "0 0 0 1px rgba(37,99,235,0.25)",
-    background: "#101c34",
-  },
-
-  deviceSelectorTop: {
     display: "flex",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: "10px",
-    marginBottom: "10px",
+    gap: "14px",
+    cursor: "pointer",
+    textAlign: "left",
   },
 
-  deviceSelectorName: {
-    fontSize: "16px",
+  selectorMainLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    minWidth: 0,
+  },
+
+  selectorStatusDot: {
+    width: "12px",
+    height: "12px",
+    borderRadius: "999px",
+    flexShrink: 0,
+  },
+
+  selectorMainText: {
+    minWidth: 0,
+  },
+
+  selectorMainName: {
+    fontSize: "18px",
     fontWeight: 800,
     color: "#f8fafc",
+    wordBreak: "break-word",
   },
 
-  deviceSelectorStatus: {
+  selectorMainMeta: {
+    marginTop: "4px",
+    fontSize: "13px",
+    color: "#94a3b8",
+    wordBreak: "break-word",
+  },
+
+  selectorMainRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flexShrink: 0,
+  },
+
+  selectorMainStatus: {
     border: "1px solid",
     borderRadius: "999px",
     padding: "6px 10px",
@@ -2738,21 +2764,101 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
-  deviceSelectorMeta: {
-    fontSize: "12px",
-    color: "#94a3b8",
-    marginBottom: "6px",
+  selectorChevron: {
+    fontSize: "14px",
+    color: "#cbd5e1",
+    transition: "transform 0.18s ease",
+  },
+
+  selectorDropdown: {
+    position: "absolute",
+    top: "calc(100% + 10px)",
+    left: 0,
+    right: 0,
+    zIndex: 50,
+    background: "#0b1220",
+    border: "1px solid #243042",
+    borderRadius: "18px",
+    padding: "10px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.35)",
+    overflowY: "auto",
+  },
+
+  selectorOption: {
+    width: "100%",
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "14px",
+    padding: "12px",
+    color: "#f8fafc",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    textAlign: "left",
+    marginBottom: "8px",
+  },
+
+  selectorOptionActive: {
+    border: "1px solid #2563eb",
+    boxShadow: "0 0 0 1px rgba(37,99,235,0.22)",
+    background: "#101c34",
+  },
+
+  selectorOptionLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    minWidth: 0,
+  },
+
+  selectorOptionDot: {
+    width: "10px",
+    height: "10px",
+    borderRadius: "999px",
+    flexShrink: 0,
+  },
+
+  selectorOptionText: {
+    minWidth: 0,
+  },
+
+  selectorOptionName: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#f8fafc",
     wordBreak: "break-word",
   },
 
-  deviceSelectorMetrics: {
-    marginTop: "10px",
+  selectorOptionMeta: {
+    marginTop: "4px",
+    fontSize: "12px",
+    color: "#94a3b8",
+    wordBreak: "break-word",
+  },
+
+  selectorOptionRight: {
     display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: "6px",
+    flexShrink: 0,
+  },
+
+  selectorOptionTemp: {
     fontSize: "13px",
-    fontWeight: 700,
+    fontWeight: 800,
     color: "#e2e8f0",
+  },
+
+  selectorOptionStatus: {
+    border: "1px solid",
+    borderRadius: "999px",
+    padding: "4px 8px",
+    fontSize: "10px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
   },
 
   heroCard: {

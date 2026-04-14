@@ -1,0 +1,78 @@
+[33m57a17b9[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m fixx
+[33m061d1d7[m fix bugs
+[33m22a8e8d[m seletor inicial
+[33m3dea8c3[m versao final?
+[33m718aacf[m qr upgrade!
+[33mf0c2006[m ultimas afinações
+[33m22b3e80[m fix upgrade
+[33m2f06f2d[m fix bugs
+[33m82d3bad[m upgrade admin
+[33md6277c7[m fix bugs
+[33m11284aa[m fix n100
+[33mfbd8f2c[m updates
+[33m967da3b[m[33m ([m[1;31morigin/work[m[33m, [m[1;32mwork[m[33m)[m fix bug
+[33m1c7a150[m upgrade alient configs and UI
+[33mbdf4772[m onboarding
+[33mde921b2[m f5 page commit
+[33mab7049c[m dashboard predict and f5 fix
+[33m5e70d98[m dashboard refresh fix
+[33mac67bb9[m fix pair2
+[33mcacde78[m fix pairing
+[33md8a6ced[m pair auth qr
+[33mcccd66e[m predictive upgrade2
+[33mf5ecc4c[m update page
+[33mefa800d[m predictive upgrade
+[33med06ac8[m admin page fixed
+[33mde1a93c[m fix and update admin page
+[33m5dc6850[m roles update
+[33m3946101[m upgrade1 admin page
+[33meb9d130[m page button admin
+[33m85e69d5[m fix bugs admin page
+[33m26ee1d1[m admin page
+[33mdac5051[m clients update fix bugs
+[33m51b7718[m updates users fix bugs
+[33mcae96fc[m upgrade page
+[33m5fc5281[m page upgrade
+[33ma6f5922[m server upgrade
+[33m09b7166[m dashboard improvement
+[33m1c551ac[m readings atual
+[33md9988a3[m resolver readings e alerts
+[33m160b730[m graficos e segurança
+[33mefa26d0[m melhorar view tabelas
+[33m65a0ff6[m Dashboard multi-dispositivo com realtime e gráficos melhorados
+[33ma743f25[m update dashboard
+[33m25e82f8[m fix offline status and restore chart helpers
+[33md905ea4[m show offline status when device stops reporting
+[33m87816f0[m fix duplicate getChartDomain function
+[33m283cee5[m improve chart rendering
+[33mecefe61[m restore auth middleware and improve dashboard responsiveness
+[33m8cf1630[m fix: clean duplicated DataChart blocks
+[33m5f88251[m fix: remove duplicated DataChart JSX block
+[33m6f7ca72[m fix: correct page.js syntax error
+[33m9962b73[m disable proxy to fix 500
+[33m1b9ce88[m fix: set explicit chart heigh for recharts build
+[33mcfbf568[m fix remove duplicate lockfile
+[33m377e69d[m fix: mobile layout
+[33ma4c3be6[m fix: mobile responsive forms
+[33m138efdf[m fix: add supabase ssr dependency
+[33m96d84c1[m ESP32 integration and resolve bugs
+[33m35c584c[m Align backend device config keys
+[33mf79678d[m Adicionar GET config dispositivo
+[33m89f9ac5[m Adicionar endpoint config dispositivo
+[33m6d9e887[m Adicionar CORS para dashboard
+[33mcd075c2[m Adicionar endpoints da dashboard
+[33m9b7e103[m Adicionar endpoints da dashboard
+[33m4dd5716[m fix server.js merge artifacts
+[33ma433363[m fix merge markers in server.js
+[33m7f64b49[m update devices status endpoint
+[33mcbcf91f[m Update server.js
+[33mc544827[m Update device name and date format
+[33m5763529[m Fix gitignore remove node_modules
+[33m38b8429[m SmartThermoSecure_01 + weekly table per device
+[33m83f1cd8[m Create weekly-report.yml
+[33m5c0041d[m Add weekly report endpoint
+[33mfe21d97[m Add Brevo realtime alerts
+[33mafea545[m Add /api/latest
+[33m41211e3[m Save readings to Supabase
+[33mc73d369[m Fix server for Render
+[33m29aeb0a[m Primeiro commit
