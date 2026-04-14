@@ -932,6 +932,23 @@ async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
   return allRows;
 }
 
+async function fetchRecentAlerts(supabase, deviceId, limit = 20) {
+  const { data, error } = await supabase
+    .from("alerts")
+    .select("*")
+    .eq("device_id", deviceId)
+    .eq("event", "triggered")
+    .order("sent_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn("alerts:", JSON.stringify(error, null, 2));
+    throw error;
+  }
+
+  return data || [];
+}
+
 function MetricBox({ label, value, tone = "neutral", subvalue }) {
   const toneMap = {
     neutral: {
@@ -955,6 +972,15 @@ function MetricBox({ label, value, tone = "neutral", subvalue }) {
       value: "#fca5a5",
     },
   };
+
+function InfoItem({ label, value }) {
+  return (
+    <div style={styles.infoItem}>
+      <span style={styles.infoLabel}>{label}</span>
+      <span style={styles.infoValue}>{value}</span>
+    </div>
+  );
+}
 
   const selected = toneMap[tone] || toneMap.neutral;
 
