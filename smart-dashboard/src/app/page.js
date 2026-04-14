@@ -903,6 +903,76 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
 }
 
+async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("readings")
+      .select("device_id, temperature, humidity, created_at")
+      .eq("device_id", deviceId)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.warn("readings:", JSON.stringify(error, null, 2));
+      throw error;
+    }
+
+    const chunk = data || [];
+    allRows = allRows.concat(chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return allRows;
+}
+
+function MetricBox({ label, value, tone = "neutral", subvalue }) {
+  const toneMap = {
+    neutral: {
+      border: "#1e293b",
+      bg: "#0f172a",
+      value: "#f8fafc",
+    },
+    good: {
+      border: "#1f3b2a",
+      bg: "#0f1d15",
+      value: "#86efac",
+    },
+    warn: {
+      border: "#4b3a1d",
+      bg: "#21180f",
+      value: "#fcd34d",
+    },
+    bad: {
+      border: "#4b1f24",
+      bg: "#211013",
+      value: "#fca5a5",
+    },
+  };
+
+  const selected = toneMap[tone] || toneMap.neutral;
+
+  return (
+    <div
+      style={{
+        ...styles.metricCard,
+        borderColor: selected.border,
+        background: selected.bg,
+      }}
+    >
+      <div style={styles.metricLabel}>{label}</div>
+      <div style={{ ...styles.metricValue, color: selected.value }}>{value}</div>
+      {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
+    </div>
+  );
+}
+
 function DeviceSelector({
   devices,
   selectedDeviceId,
