@@ -949,6 +949,30 @@ async function fetchRecentAlerts(supabase, deviceId, limit = 20) {
   return data || [];
 }
 
+function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
+  if (!active || !payload || !payload.length) return null;
+
+  const point = payload[0]?.payload;
+  const value = payload[0]?.value;
+
+  return (
+    <div style={styles.tooltip}>
+      <div style={styles.tooltipTitle}>
+        {formatDateTime(point?.created_at || label)}
+      </div>
+      <div style={styles.tooltipValue}>
+        {value === null || value === undefined
+          ? "Sem leitura neste intervalo"
+          : (
+            <>
+              Valor: <strong>{formatValue(value, unit, digits)}</strong>
+            </>
+          )}
+      </div>
+    </div>
+  );
+}
+
 function MetricBox({ label, value, tone = "neutral", subvalue }) {
   const toneMap = {
     neutral: {
@@ -973,15 +997,6 @@ function MetricBox({ label, value, tone = "neutral", subvalue }) {
     },
   };
 
-function InfoItem({ label, value }) {
-  return (
-    <div style={styles.infoItem}>
-      <span style={styles.infoLabel}>{label}</span>
-      <span style={styles.infoValue}>{value}</span>
-    </div>
-  );
-}
-
   const selected = toneMap[tone] || toneMap.neutral;
 
   return (
@@ -995,6 +1010,52 @@ function InfoItem({ label, value }) {
       <div style={styles.metricLabel}>{label}</div>
       <div style={{ ...styles.metricValue, color: selected.value }}>{value}</div>
       {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
+    </div>
+  );
+}
+
+function InfoItem({ label, value }) {
+  return (
+    <div style={styles.infoItem}>
+      <span style={styles.infoLabel}>{label}</span>
+      <span style={styles.infoValue}>{value}</span>
+    </div>
+  );
+}
+
+function SmallStat({ label, value }) {
+  return (
+    <div style={styles.smallStat}>
+      <div style={styles.smallStatLabel}>{label}</div>
+      <div style={styles.smallStatValue}>{value}</div>
+    </div>
+  );
+}
+
+function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
+  const toneStyles = getHealthToneStyles(tone);
+
+  return (
+    <div style={styles.healthCard}>
+      <div style={styles.healthTop}>
+        <div style={styles.healthLabel}>{label}</div>
+        {badge ? (
+          <span
+            style={{
+              ...styles.healthBadge,
+              background: toneStyles.badgeBg,
+              borderColor: toneStyles.badgeBorder,
+              color: toneStyles.valueColor,
+            }}
+          >
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <div style={{ ...styles.healthValue, color: toneStyles.valueColor }}>
+        {value}
+      </div>
+      <div style={styles.healthHint}>{hint}</div>
     </div>
   );
 }
