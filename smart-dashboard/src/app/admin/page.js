@@ -50,6 +50,39 @@ function SmallStat({ label, value }) {
   );
 }
 
+function FieldHelp({ children }) {
+  return <div style={styles.fieldHelp}>{children}</div>;
+}
+
+function ConfigField({
+  label,
+  help,
+  children,
+}) {
+  return (
+    <div style={styles.configField}>
+      <div style={styles.configFieldLabel}>{label}</div>
+      {children}
+      <FieldHelp>{help}</FieldHelp>
+    </div>
+  );
+}
+
+function TogglePill({ checked, onClick, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        ...styles.togglePill,
+        ...(checked ? styles.togglePillActive : styles.togglePillInactive),
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -57,6 +90,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState([]);
   const [devices, setDevices] = useState([]);
   const [deviceAccess, setDeviceAccess] = useState([]);
+  const [alertRecipients, setAlertRecipients] = useState([]);
   const [profile, setProfile] = useState(null);
 
   const [selectedUser, setSelectedUser] = useState("");
@@ -66,6 +100,10 @@ export default function AdminPage() {
   const [deviceForm, setDeviceForm] = useState({
     name: "",
     location: "",
+    temp_low_c: "",
+    temp_high_c: "",
+    hum_low: "",
+    hum_high: "",
     hyst_c: "",
     send_interval_s: "",
     display_standby_min: "",
@@ -85,6 +123,7 @@ export default function AdminPage() {
   const [savingAccess, setSavingAccess] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
   const [savingDevice, setSavingDevice] = useState(false);
+  const [savingAlertKey, setSavingAlertKey] = useState("");
 
   const selectedDeviceData = useMemo(
     () => devices.find((d) => d.device_id === selectedDevice) || null,
@@ -100,6 +139,10 @@ export default function AdminPage() {
       setDeviceForm({
         name: "",
         location: "",
+        temp_low_c: "",
+        temp_high_c: "",
+        hum_low: "",
+        hum_high: "",
         hyst_c: "",
         send_interval_s: "",
         display_standby_min: "",
@@ -112,6 +155,10 @@ export default function AdminPage() {
     setDeviceForm({
       name: selectedDeviceData.name || "",
       location: selectedDeviceData.location || "",
+      temp_low_c: toInputValue(config.temp_low_c),
+      temp_high_c: toInputValue(config.temp_high_c),
+      hum_low: toInputValue(config.hum_low),
+      hum_high: toInputValue(config.hum_high),
       hyst_c: toInputValue(config.hyst_c),
       send_interval_s: toInputValue(config.send_interval_s),
       display_standby_min: toInputValue(config.display_standby_min),
@@ -141,17 +188,24 @@ export default function AdminPage() {
         { data: profiles, error: profilesError },
         { data: devicesData, error: devicesError },
         { data: accessData, error: accessError },
+        { data: alertData, error: alertError },
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
         supabase.from("profiles").select("*").order("email"),
         supabase.from("devices").select("*").order("device_id"),
         supabase.from("device_access").select("*"),
+        supabase
+          .from("device_alert_recipients")
+          .select("*")
+          .order("device_id")
+          .order("email"),
       ]);
 
       if (profileError) throw profileError;
       if (profilesError) throw profilesError;
       if (devicesError) throw devicesError;
       if (accessError) throw accessError;
+      if (alertError) throw alertError;
 
       if (!profileData || profileData.role !== "super_admin") {
         router.replace("/");
@@ -164,6 +218,7 @@ export default function AdminPage() {
       setUsers(profiles || []);
       setDevices(safeDevices);
       setDeviceAccess(accessData || []);
+      setAlertRecipients(alertData || []);
 
       if (!selectedDevice && safeDevices.length > 0) {
         setSelectedDevice(safeDevices[0].device_id);
@@ -227,8 +282,8 @@ export default function AdminPage() {
       setMessage("Acesso atribuído com sucesso.");
       setMessageType("success");
       await loadData();
-    } catch {
-      setMessage("Erro ao atribuir ou atualizar acesso.");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atribuir ou atualizar acesso.");
       setMessageType("error");
     } finally {
       setSavingAccess(false);
@@ -250,8 +305,8 @@ export default function AdminPage() {
       setMessage("Acesso removido.");
       setMessageType("success");
       await loadData();
-    } catch {
-      setMessage("Erro ao remover acesso.");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao remover acesso.");
       setMessageType("error");
     }
   }
@@ -319,24 +374,52 @@ export default function AdminPage() {
       return;
     }
 
-    const newHyst = parseNumber(deviceForm.hyst_c);
-    const newSendInterval = parseNumber(deviceForm.send_interval_s);
-    const newDisplayStandby = parseNumber(deviceForm.display_standby_min);
+    const values = {
+      temp_low_c: parseNumber(deviceForm.temp_low_c),
+      temp_high_c: parseNumber(deviceForm.temp_high_c),
+      hum_low: parseNumber(deviceForm.hum_low),
+      hum_high: parseNumber(deviceForm.hum_high),
+      hyst_c: parseNumber(deviceForm.hyst_c),
+      send_interval_s: parseNumber(deviceForm.send_interval_s),
+      display_standby_min: parseNumber(deviceForm.display_standby_min),
+    };
 
     if (
       !deviceForm.name.trim() ||
       !deviceForm.location.trim() ||
-      newHyst === null ||
-      newSendInterval === null ||
-      newDisplayStandby === null
+      Object.values(values).some((v) => v === null)
     ) {
       setMessage("Preenche todos os campos do dispositivo com valores válidos.");
       setMessageType("error");
       return;
     }
 
-    if (newSendInterval < 5) {
+    if (values.temp_low_c >= values.temp_high_c) {
+      setMessage("A temperatura mínima deve ser inferior à máxima.");
+      setMessageType("error");
+      return;
+    }
+
+    if (values.hum_low >= values.hum_high) {
+      setMessage("A humidade mínima deve ser inferior à máxima.");
+      setMessageType("error");
+      return;
+    }
+
+    if (values.hyst_c < 0) {
+      setMessage("A histerese não pode ser negativa.");
+      setMessageType("error");
+      return;
+    }
+
+    if (values.send_interval_s < 5) {
       setMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+      setMessageType("error");
+      return;
+    }
+
+    if (values.display_standby_min < 0) {
+      setMessage("O standby do display não pode ser negativo.");
       setMessageType("error");
       return;
     }
@@ -349,9 +432,13 @@ export default function AdminPage() {
 
       const newConfig = {
         ...currentConfig,
-        hyst_c: newHyst,
-        send_interval_s: newSendInterval,
-        display_standby_min: newDisplayStandby,
+        temp_low_c: values.temp_low_c,
+        temp_high_c: values.temp_high_c,
+        hum_low: values.hum_low,
+        hum_high: values.hum_high,
+        hyst_c: values.hyst_c,
+        send_interval_s: values.send_interval_s,
+        display_standby_min: values.display_standby_min,
       };
 
       const { data, error } = await supabase
@@ -379,13 +466,77 @@ export default function AdminPage() {
 
       setMessage("Configuração do dispositivo guardada com sucesso.");
       setMessageType("success");
-    } catch {
-      setMessage("Erro ao guardar configuração do dispositivo.");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao guardar configuração do dispositivo.");
       setMessageType("error");
     } finally {
       setSavingDevice(false);
     }
   }
+
+  function getUserAlertRow(userId, deviceId) {
+    return (
+      alertRecipients.find(
+        (row) => row.user_id === userId && row.device_id === deviceId
+      ) || null
+    );
+  }
+
+  async function toggleAlertSetting(user, deviceId, field, nextValue) {
+    if (!user?.id || !deviceId) return;
+
+    const key = `${user.id}_${deviceId}_${field}`;
+    setSavingAlertKey(key);
+    setMessage("");
+
+    try {
+      const existing = getUserAlertRow(user.id, deviceId);
+
+      if (existing) {
+        const { error } = await supabase
+          .from("device_alert_recipients")
+          .update({
+            [field]: nextValue,
+            email: user.email,
+            name: user.full_name,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+
+        if (error) throw error;
+      } else {
+        const insertPayload = {
+          user_id: user.id,
+          device_id: deviceId,
+          email: user.email,
+          name: user.full_name,
+          is_active: field === "is_active" ? nextValue : true,
+          temp_alerts: field === "temp_alerts" ? nextValue : true,
+          humidity_alerts: field === "humidity_alerts" ? nextValue : true,
+          offline_alerts: field === "offline_alerts" ? nextValue : true,
+          predictive_alerts: field === "predictive_alerts" ? nextValue : false,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error } = await supabase
+          .from("device_alert_recipients")
+          .insert(insertPayload);
+
+        if (error) throw error;
+      }
+
+      await loadData();
+      setMessage("Preferência de alertas atualizada.");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar alertas.");
+      setMessageType("error");
+    } finally {
+      setSavingAlertKey("");
+    }
+  }
+
+  const nonAdminUsers = users.filter((u) => u.role !== "super_admin");
 
   if (loading) {
     return (
@@ -410,7 +561,7 @@ export default function AdminPage() {
           <div style={styles.header}>
             <h1 style={styles.title}>Admin Panel</h1>
             <p style={styles.subtitle}>
-              Gestão de utilizadores, acessos e configuração técnica dos dispositivos
+              Gestão de utilizadores, acessos, alertas e configuração técnica dos dispositivos
             </p>
           </div>
 
@@ -455,132 +606,141 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        <section style={styles.card}>
-          <div style={styles.cardTitle}>Criar utilizador</div>
+        <div style={styles.sectionGrid}>
+          <section style={styles.card}>
+            <div style={styles.cardTitle}>Criar utilizador</div>
+            <div style={styles.cardDescription}>
+              Cria um novo utilizador cliente com acesso posterior aos dispositivos.
+            </div>
 
-          <div style={styles.formGrid}>
-            <input
-              type="text"
-              placeholder="Nome completo"
-              value={newUser.full_name}
-              onChange={(e) =>
-                setNewUser((prev) => ({
-                  ...prev,
-                  full_name: e.target.value,
-                }))
-              }
-              style={styles.input}
-            />
+            <div style={styles.formGrid}>
+              <input
+                type="text"
+                placeholder="Nome completo"
+                value={newUser.full_name}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    full_name: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
 
-            <input
-              type="email"
-              placeholder="Email"
-              value={newUser.email}
-              onChange={(e) =>
-                setNewUser((prev) => ({
-                  ...prev,
-                  email: e.target.value,
-                }))
-              }
-              style={styles.input}
-            />
+              <input
+                type="email"
+                placeholder="Email"
+                value={newUser.email}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    email: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
 
-            <input
-              type="text"
-              placeholder="Password inicial"
-              value={newUser.password}
-              onChange={(e) =>
-                setNewUser((prev) => ({
-                  ...prev,
-                  password: e.target.value,
-                }))
-              }
-              style={styles.input}
-            />
+              <input
+                type="text"
+                placeholder="Password inicial"
+                value={newUser.password}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
 
-            <select
-              value={newUser.role}
-              onChange={(e) =>
-                setNewUser((prev) => ({
-                  ...prev,
-                  role: e.target.value,
-                }))
-              }
-              style={styles.input}
-            >
-              <option value="viewer">Viewer</option>
-              <option value="client_admin">Client Admin</option>
-            </select>
-          </div>
+              <select
+                value={newUser.role}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    role: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              >
+                <option value="viewer">Viewer</option>
+                <option value="client_admin">Client Admin</option>
+              </select>
+            </div>
 
-          <div style={styles.actionsRow}>
-            <button
-              onClick={createUser}
-              style={styles.primaryButton}
-              disabled={creatingUser}
-            >
-              {creatingUser ? "A criar..." : "Criar utilizador"}
-            </button>
-          </div>
-        </section>
+            <div style={styles.actionsRow}>
+              <button
+                onClick={createUser}
+                style={styles.primaryButton}
+                disabled={creatingUser}
+              >
+                {creatingUser ? "A criar..." : "Criar utilizador"}
+              </button>
+            </div>
+          </section>
 
-        <section style={styles.card}>
-          <div style={styles.cardTitle}>Atribuir dispositivo</div>
+          <section style={styles.card}>
+            <div style={styles.cardTitle}>Atribuir dispositivo</div>
+            <div style={styles.cardDescription}>
+              Liga um utilizador a um dispositivo e define se pode editar ou apenas visualizar.
+            </div>
 
-          <div style={styles.formGrid}>
-            <select
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              style={styles.input}
-            >
-              <option value="">Selecionar utilizador</option>
-              {users
-                .filter((u) => u.role !== "super_admin")
-                .map((u) => (
+            <div style={styles.formGrid}>
+              <select
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Selecionar utilizador</option>
+                {nonAdminUsers.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.full_name} ({u.email})
                   </option>
                 ))}
-            </select>
+              </select>
 
-            <select
-              value={selectedDevice}
-              onChange={(e) => setSelectedDevice(e.target.value)}
-              style={styles.input}
-            >
-              <option value="">Selecionar dispositivo</option>
-              {devices.map((d) => (
-                <option key={d.device_id} value={d.device_id}>
-                  {d.name ? `${d.name} (${d.device_id})` : d.device_id}
-                </option>
-              ))}
-            </select>
-          </div>
+              <select
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Selecionar dispositivo</option>
+                {devices.map((d) => (
+                  <option key={d.device_id} value={d.device_id}>
+                    {d.name ? `${d.name} (${d.device_id})` : d.device_id}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <label style={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={canEdit}
-              onChange={() => setCanEdit((prev) => !prev)}
-            />
-            <span>Permitir edição</span>
-          </label>
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={canEdit}
+                onChange={() => setCanEdit((prev) => !prev)}
+              />
+              <span>Permitir edição de configurações</span>
+            </label>
 
-          <div style={styles.actionsRow}>
-            <button
-              onClick={assignDevice}
-              style={styles.primaryButton}
-              disabled={savingAccess}
-            >
-              {savingAccess ? "A guardar..." : "Atribuir acesso"}
-            </button>
-          </div>
-        </section>
+            <div style={styles.actionsRow}>
+              <button
+                onClick={assignDevice}
+                style={styles.primaryButton}
+                disabled={savingAccess}
+              >
+                {savingAccess ? "A guardar..." : "Atribuir acesso"}
+              </button>
+            </div>
+          </section>
+        </div>
 
         <section style={styles.card}>
           <div style={styles.cardTitle}>Configuração do dispositivo</div>
+          <div style={styles.cardDescription}>
+            Ajusta os limites operacionais e parâmetros técnicos do dispositivo selecionado.
+          </div>
 
-          <div style={styles.formGrid}>
+          <div style={styles.configTopRow}>
             <select
               value={selectedDevice}
               onChange={(e) => setSelectedDevice(e.target.value)}
@@ -593,79 +753,196 @@ export default function AdminPage() {
                 </option>
               ))}
             </select>
+          </div>
 
-            <input
-              type="text"
-              placeholder="Nome do dispositivo"
-              value={deviceForm.name}
-              onChange={(e) =>
-                setDeviceForm((prev) => ({
-                  ...prev,
-                  name: e.target.value,
-                }))
-              }
-              style={styles.input}
-              disabled={!selectedDevice}
-            />
+          <div style={styles.configSectionTitle}>Identificação</div>
+          <div style={styles.configGrid}>
+            <ConfigField
+              label="Nome do dispositivo"
+              help="Nome apresentado na dashboard, emails e área administrativa."
+            >
+              <input
+                type="text"
+                placeholder="Nome do dispositivo"
+                value={deviceForm.name}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
 
-            <input
-              type="text"
-              placeholder="Localização"
-              value={deviceForm.location}
-              onChange={(e) =>
-                setDeviceForm((prev) => ({
-                  ...prev,
-                  location: e.target.value,
-                }))
-              }
-              style={styles.input}
-              disabled={!selectedDevice}
-            />
+            <ConfigField
+              label="Localização"
+              help="Descrição do local físico onde o dispositivo está instalado."
+            >
+              <input
+                type="text"
+                placeholder="Localização"
+                value={deviceForm.location}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    location: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
+          </div>
 
-            <input
-              type="number"
-              step="0.1"
-              placeholder="Histerese (°C)"
-              value={deviceForm.hyst_c}
-              onChange={(e) =>
-                setDeviceForm((prev) => ({
-                  ...prev,
-                  hyst_c: e.target.value,
-                }))
-              }
-              style={styles.input}
-              disabled={!selectedDevice}
-            />
+          <div style={styles.configSectionTitle}>Limites de temperatura</div>
+          <div style={styles.configGrid}>
+            <ConfigField
+              label="Temperatura mínima (°C)"
+              help="Abaixo deste valor, o sistema entra em alerta de temperatura baixa."
+            >
+              <input
+                type="number"
+                step="0.1"
+                placeholder="Temp. mínima"
+                value={deviceForm.temp_low_c}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    temp_low_c: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
 
-            <input
-              type="number"
-              step="1"
-              placeholder="Intervalo de envio (s)"
-              value={deviceForm.send_interval_s}
-              onChange={(e) =>
-                setDeviceForm((prev) => ({
-                  ...prev,
-                  send_interval_s: e.target.value,
-                }))
-              }
-              style={styles.input}
-              disabled={!selectedDevice}
-            />
+            <ConfigField
+              label="Temperatura máxima (°C)"
+              help="Acima deste valor, o sistema entra em alerta de temperatura alta."
+            >
+              <input
+                type="number"
+                step="0.1"
+                placeholder="Temp. máxima"
+                value={deviceForm.temp_high_c}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    temp_high_c: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
+          </div>
 
-            <input
-              type="number"
-              step="1"
-              placeholder="Standby display (min)"
-              value={deviceForm.display_standby_min}
-              onChange={(e) =>
-                setDeviceForm((prev) => ({
-                  ...prev,
-                  display_standby_min: e.target.value,
-                }))
-              }
-              style={styles.input}
-              disabled={!selectedDevice}
-            />
+          <div style={styles.configSectionTitle}>Limites de humidade</div>
+          <div style={styles.configGrid}>
+            <ConfigField
+              label="Humidade mínima (%)"
+              help="Abaixo deste valor, o sistema entra em alerta de humidade baixa."
+            >
+              <input
+                type="number"
+                step="1"
+                placeholder="Humidade mínima"
+                value={deviceForm.hum_low}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    hum_low: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
+
+            <ConfigField
+              label="Humidade máxima (%)"
+              help="Acima deste valor, o sistema entra em alerta de humidade alta."
+            >
+              <input
+                type="number"
+                step="1"
+                placeholder="Humidade máxima"
+                value={deviceForm.hum_high}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    hum_high: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
+          </div>
+
+          <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
+          <div style={styles.configGrid}>
+            <ConfigField
+              label="Histerese (°C)"
+              help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
+            >
+              <input
+                type="number"
+                step="0.1"
+                placeholder="Histerese"
+                value={deviceForm.hyst_c}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    hyst_c: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
+
+            <ConfigField
+              label="Intervalo de envio (s)"
+              help="Tempo entre cada envio de leitura do dispositivo para o backend."
+            >
+              <input
+                type="number"
+                step="1"
+                placeholder="Intervalo de envio"
+                value={deviceForm.send_interval_s}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    send_interval_s: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
+
+            <ConfigField
+              label="Standby do display (min)"
+              help="Minutos até o ecrã entrar em standby para poupança de energia."
+            >
+              <input
+                type="number"
+                step="1"
+                placeholder="Standby display"
+                value={deviceForm.display_standby_min}
+                onChange={(e) =>
+                  setDeviceForm((prev) => ({
+                    ...prev,
+                    display_standby_min: e.target.value,
+                  }))
+                }
+                style={styles.input}
+                disabled={!selectedDevice}
+              />
+            </ConfigField>
           </div>
 
           <div style={styles.actionsRow}>
@@ -682,36 +959,18 @@ export default function AdminPage() {
         {selectedDeviceData ? (
           <section style={styles.card}>
             <div style={styles.cardTitle}>Informação técnica do dispositivo</div>
+            <div style={styles.cardDescription}>
+              Estado atual e dados principais do dispositivo selecionado.
+            </div>
 
             <div style={styles.statsGrid}>
-              <SmallStat
-                label="Device ID"
-                value={selectedDeviceData.device_id || "-"}
-              />
-              <SmallStat
-                label="Nome"
-                value={selectedDeviceData.name || "-"}
-              />
-              <SmallStat
-                label="Localização"
-                value={selectedDeviceData.location || "-"}
-              />
-              <SmallStat
-                label="Config version"
-                value={selectedDeviceData.config_version ?? "-"}
-              />
-              <SmallStat
-                label="Atualizada em"
-                value={formatDateTime(selectedDeviceData.updated_at)}
-              />
-              <SmallStat
-                label="Last seen"
-                value={formatDateTime(selectedDeviceData.last_seen)}
-              />
-              <SmallStat
-                label="Status raw"
-                value={selectedDeviceData.status || "-"}
-              />
+              <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
+              <SmallStat label="Nome" value={selectedDeviceData.name || "-"} />
+              <SmallStat label="Localização" value={selectedDeviceData.location || "-"} />
+              <SmallStat label="Config version" value={selectedDeviceData.config_version ?? "-"} />
+              <SmallStat label="Atualizada em" value={formatDateTime(selectedDeviceData.updated_at)} />
+              <SmallStat label="Last seen" value={formatDateTime(selectedDeviceData.last_seen)} />
+              <SmallStat label="Status raw" value={selectedDeviceData.status || "-"} />
               <SmallStat
                 label="Última temp."
                 value={formatValue(selectedDeviceData.last_temperature, " °C")}
@@ -732,13 +991,14 @@ export default function AdminPage() {
         ) : null}
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Utilizadores</div>
+          <div style={styles.cardTitle}>Utilizadores, acessos e alertas</div>
+          <div style={styles.cardDescription}>
+            Controla quem vê cada dispositivo, quem pode editar e que tipos de alertas recebe.
+          </div>
 
           <div style={styles.userList}>
-            {users.map((user) => {
-              const accesses = deviceAccess.filter(
-                (row) => row.user_id === user.id
-              );
+            {nonAdminUsers.map((user) => {
+              const accesses = deviceAccess.filter((row) => row.user_id === user.id);
 
               return (
                 <div key={user.id} style={styles.userCard}>
@@ -755,28 +1015,121 @@ export default function AdminPage() {
                     {accesses.length === 0 ? (
                       <div style={styles.noDevice}>Sem dispositivos atribuídos</div>
                     ) : (
-                      accesses.map((access) => (
-                        <div
-                          key={`${access.user_id}-${access.device_id}`}
-                          style={styles.deviceRow}
-                        >
-                          <div>
-                            <div style={styles.deviceName}>{access.device_id}</div>
-                            <div style={styles.meta}>
-                              {access.can_edit ? "Com edição" : "Só leitura"}
+                      accesses.map((access) => {
+                        const device = devices.find(
+                          (d) => d.device_id === access.device_id
+                        );
+                        const alertRow = getUserAlertRow(user.id, access.device_id);
+                        const savingPrefix = `${user.id}_${access.device_id}_`;
+
+                        return (
+                          <div
+                            key={`${access.user_id}-${access.device_id}`}
+                            style={styles.deviceAccessCard}
+                          >
+                            <div style={styles.deviceAccessTop}>
+                              <div>
+                                <div style={styles.deviceName}>
+                                  {device?.name || access.device_id}
+                                </div>
+                                <div style={styles.meta}>
+                                  {access.device_id} ·{" "}
+                                  {access.can_edit ? "Com edição" : "Só leitura"}
+                                </div>
+                              </div>
+
+                              <button
+                                style={styles.removeBtn}
+                                onClick={() =>
+                                  removeAccess(access.user_id, access.device_id)
+                                }
+                              >
+                                Remover acesso
+                              </button>
+                            </div>
+
+                            <div style={styles.alertsBox}>
+                              <div style={styles.alertsTitle}>Alertas por email</div>
+                              <div style={styles.alertsSubtitle}>
+                                Escolhe que notificações este utilizador pode receber para este dispositivo.
+                              </div>
+
+                              <div style={styles.toggleWrap}>
+                                <TogglePill
+                                  checked={Boolean(alertRow?.is_active)}
+                                  onClick={() =>
+                                    toggleAlertSetting(
+                                      user,
+                                      access.device_id,
+                                      "is_active",
+                                      !Boolean(alertRow?.is_active)
+                                    )
+                                  }
+                                  label={`Receber alertas: ${
+                                    alertRow?.is_active ? "Sim" : "Não"
+                                  }`}
+                                />
+
+                                <TogglePill
+                                  checked={Boolean(alertRow?.temp_alerts)}
+                                  onClick={() =>
+                                    toggleAlertSetting(
+                                      user,
+                                      access.device_id,
+                                      "temp_alerts",
+                                      !Boolean(alertRow?.temp_alerts)
+                                    )
+                                  }
+                                  label="Temperatura"
+                                />
+
+                                <TogglePill
+                                  checked={Boolean(alertRow?.humidity_alerts)}
+                                  onClick={() =>
+                                    toggleAlertSetting(
+                                      user,
+                                      access.device_id,
+                                      "humidity_alerts",
+                                      !Boolean(alertRow?.humidity_alerts)
+                                    )
+                                  }
+                                  label="Humidade"
+                                />
+
+                                <TogglePill
+                                  checked={Boolean(alertRow?.offline_alerts)}
+                                  onClick={() =>
+                                    toggleAlertSetting(
+                                      user,
+                                      access.device_id,
+                                      "offline_alerts",
+                                      !Boolean(alertRow?.offline_alerts)
+                                    )
+                                  }
+                                  label="Offline"
+                                />
+
+                                <TogglePill
+                                  checked={Boolean(alertRow?.predictive_alerts)}
+                                  onClick={() =>
+                                    toggleAlertSetting(
+                                      user,
+                                      access.device_id,
+                                      "predictive_alerts",
+                                      !Boolean(alertRow?.predictive_alerts)
+                                    )
+                                  }
+                                  label="Preditivo"
+                                />
+                              </div>
+
+                              {savingAlertKey.startsWith(savingPrefix) ? (
+                                <div style={styles.savingHint}>A guardar preferências de alertas...</div>
+                              ) : null}
                             </div>
                           </div>
-
-                          <button
-                            style={styles.removeBtn}
-                            onClick={() =>
-                              removeAccess(access.user_id, access.device_id)
-                            }
-                          >
-                            Remover
-                          </button>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -798,7 +1151,7 @@ const styles = {
   },
 
   container: {
-    maxWidth: "1200px",
+    maxWidth: "1280px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -821,7 +1174,7 @@ const styles = {
 
   title: {
     margin: 0,
-    fontSize: "28px",
+    fontSize: "30px",
     fontWeight: 800,
     color: "#f8fafc",
   },
@@ -845,6 +1198,12 @@ const styles = {
     fontWeight: 700,
   },
 
+  sectionGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+    gap: "20px",
+  },
+
   secondaryButton: {
     border: "1px solid #334155",
     background: "#111c2e",
@@ -856,24 +1215,83 @@ const styles = {
     fontSize: "14px",
   },
 
+  primaryButton: {
+    border: "1px solid #2563eb",
+    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+    color: "#ffffff",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+
   card: {
     background: "#111827",
     border: "1px solid #1f2937",
-    borderRadius: "20px",
-    padding: "20px",
+    borderRadius: "22px",
+    padding: "22px",
   },
 
   cardTitle: {
-    fontSize: "18px",
+    fontSize: "19px",
     fontWeight: 800,
-    marginBottom: "16px",
+    marginBottom: "8px",
     color: "#f8fafc",
+  },
+
+  cardDescription: {
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.5,
+    marginBottom: "16px",
   },
 
   formGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "12px",
+  },
+
+  configTopRow: {
+    marginBottom: "18px",
+    maxWidth: "420px",
+  },
+
+  configSectionTitle: {
+    marginTop: "18px",
+    marginBottom: "12px",
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#cbd5e1",
+    letterSpacing: "0.02em",
+  },
+
+  configGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: "14px",
+  },
+
+  configField: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "14px",
+  },
+
+  configFieldLabel: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#e2e8f0",
+    marginBottom: "10px",
+  },
+
+  fieldHelp: {
+    fontSize: "12px",
+    color: "#8fa1b9",
+    lineHeight: 1.5,
+    marginTop: "8px",
   },
 
   input: {
@@ -903,17 +1321,6 @@ const styles = {
     display: "flex",
     gap: "12px",
     flexWrap: "wrap",
-  },
-
-  primaryButton: {
-    border: "1px solid #2563eb",
-    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
-    color: "#ffffff",
-    borderRadius: "12px",
-    padding: "12px 16px",
-    cursor: "pointer",
-    fontWeight: 800,
-    fontSize: "14px",
   },
 
   messageSuccess: {
@@ -998,14 +1405,14 @@ const styles = {
   userList: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "14px",
   },
 
   userCard: {
     background: "#0f172a",
     border: "1px solid #1e293b",
-    borderRadius: "16px",
-    padding: "16px",
+    borderRadius: "18px",
+    padding: "18px",
   },
 
   userHeader: {
@@ -1013,7 +1420,7 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "flex-start",
     gap: "12px",
-    marginBottom: "12px",
+    marginBottom: "14px",
     flexWrap: "wrap",
   },
 
@@ -1043,7 +1450,7 @@ const styles = {
   deviceList: {
     display: "flex",
     flexDirection: "column",
-    gap: "8px",
+    gap: "10px",
   },
 
   noDevice: {
@@ -1052,21 +1459,28 @@ const styles = {
     fontWeight: 700,
   },
 
-  deviceRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "12px",
+  deviceAccessCard: {
     background: "#020617",
     border: "1px solid #172033",
-    padding: "10px 12px",
-    borderRadius: "12px",
+    padding: "14px",
+    borderRadius: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+  },
+
+  deviceAccessTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
     flexWrap: "wrap",
   },
 
   deviceName: {
-    fontWeight: 700,
+    fontWeight: 800,
     color: "#f8fafc",
+    fontSize: "15px",
   },
 
   removeBtn: {
@@ -1077,6 +1491,61 @@ const styles = {
     color: "#fff",
     cursor: "pointer",
     fontSize: "12px",
+    fontWeight: 700,
+  },
+
+  alertsBox: {
+    background: "#0b1220",
+    border: "1px solid #1e293b",
+    borderRadius: "14px",
+    padding: "14px",
+  },
+
+  alertsTitle: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  alertsSubtitle: {
+    fontSize: "12px",
+    color: "#8fa1b9",
+    marginTop: "6px",
+    marginBottom: "12px",
+    lineHeight: 1.45,
+  },
+
+  toggleWrap: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+
+  togglePill: {
+    borderRadius: "999px",
+    padding: "10px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  },
+
+  togglePillActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
+  },
+
+  togglePillInactive: {
+    background: "#1f2937",
+    border: "1px solid #334155",
+    color: "#cbd5e1",
+  },
+
+  savingHint: {
+    marginTop: "10px",
+    fontSize: "12px",
+    color: "#93c5fd",
     fontWeight: 700,
   },
 };
