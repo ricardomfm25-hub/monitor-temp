@@ -309,12 +309,24 @@ function getHumidityAlertDirection(humidity, cfg) {
   };
 }
 
-async function getDeviceAlertRecipients(deviceId) {
-  const { data, error } = await supabase
+async function getDeviceAlertRecipients(deviceId, alertType = "general") {
+  let query = supabase
     .from("device_alert_recipients")
     .select("email, name")
     .eq("device_id", deviceId)
     .eq("is_active", true);
+
+  if (alertType === "temperature") {
+    query = query.eq("temp_alerts", true);
+  } else if (alertType === "humidity") {
+    query = query.eq("humidity_alerts", true);
+  } else if (alertType === "offline") {
+    query = query.eq("offline_alerts", true);
+  } else if (alertType === "predictive") {
+    query = query.eq("predictive_alerts", true);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error("Erro ao obter recipients do dispositivo:", error);
@@ -480,7 +492,10 @@ async function sendTemperatureTriggeredEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura fora do limite — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id);
+  const recipients = await getDeviceAlertRecipients(
+    device.device_id,
+    "temperature"
+  );
 
   await sendEmail({
     to: recipients,
@@ -526,7 +541,10 @@ async function sendTemperatureResolvedEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura normalizada — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id);
+  const recipients = await getDeviceAlertRecipients(
+    device.device_id,
+    "temperature"
+  );
 
   await sendEmail({
     to: recipients,
@@ -569,7 +587,10 @@ async function sendHumidityTriggeredEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade fora do limite — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id);
+  const recipients = await getDeviceAlertRecipients(
+    device.device_id,
+    "humidity"
+  );
 
   await sendEmail({
     to: recipients,
@@ -615,7 +636,10 @@ async function sendHumidityResolvedEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade normalizada — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id);
+  const recipients = await getDeviceAlertRecipients(
+    device.device_id,
+    "humidity"
+  );
 
   await sendEmail({
     to: recipients,
@@ -653,7 +677,7 @@ async function sendOfflineTriggeredEmail({ device, cfg }) {
   const location = device?.location || "Localização por definir";
   const thresholdMs = getOfflineThresholdMs(cfg.send_interval_s);
   const subject = `[STS] Dispositivo offline — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id);
+  const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
 
   await sendEmail({
     to: recipients,
@@ -700,7 +724,7 @@ async function sendOnlineRecoveredEmail({ device }) {
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Dispositivo novamente online — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id);
+  const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
 
   await sendEmail({
     to: recipients,
