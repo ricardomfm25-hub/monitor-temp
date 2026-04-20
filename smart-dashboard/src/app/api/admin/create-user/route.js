@@ -34,7 +34,7 @@ export async function POST(req) {
 
     const { data: profile, error: profileError } = await supabaseUserClient
       .from("profiles")
-      .select("role, is_active")
+      .select("id, role, is_active")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -54,27 +54,24 @@ export async function POST(req) {
 
     if (profile.role !== "super_admin" || !profile.is_active) {
       return NextResponse.json(
-        { error: "Sem permissão para criar utilizadores." },
+        { error: "Sem permissão para remover utilizadores." },
         { status: 403 }
       );
     }
 
     const body = await req.json();
-    const email = String(body.email || "").trim().toLowerCase();
-    const password = String(body.password || "");
-    const full_name = String(body.full_name || "").trim();
-    const role = String(body.role || "viewer").trim();
+    const targetUserId = String(body.user_id || "").trim();
 
-    if (!email || !password || !full_name) {
+    if (!targetUserId) {
       return NextResponse.json(
-        { error: "Nome, email e password são obrigatórios." },
+        { error: "user_id é obrigatório." },
         { status: 400 }
       );
     }
 
-    if (!["viewer", "client_admin"].includes(role)) {
+    if (targetUserId === user.id) {
       return NextResponse.json(
-        { error: "Role inválido." },
+        { error: "Não podes remover o teu próprio utilizador." },
         { status: 400 }
       );
     }
@@ -91,63 +88,89 @@ export async function POST(req) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    const { data: existingProfile } = await supabaseAdmin
+    const { data: targetProfile, error: targetProfileError } = await supabaseAdmin
       .from("profiles")
-      .select("id, email")
-      .eq("email", email)
+      .select("id, email, full_name, role")
+      .eq("id", targetUserId)
       .maybeSingle();
 
-    if (existingProfile) {
+    if (targetProfileError) {
       return NextResponse.json(
-        { error: "Já existe um utilizador com esse email." },
+        { error: `Erro ao ler utilizador alvo: ${targetProfileError.message}` },
         { status: 400 }
       );
     }
 
-    const { data: authData, error: authError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      });
-
-    if (authError || !authData?.user) {
+    if (!targetProfile) {
       return NextResponse.json(
-        { error: authError?.message || "Erro ao criar utilizador no Auth." },
+        { error: "Utilizador não encontrado." },
+        { status: 404 }
+      );
+    }
+
+    if (targetProfile.role === "super_admin") {
+      return NextResponse.json(
+        { error: "Não é permitido remover outro super admin por esta ação." },
         { status: 400 }
       );
     }
 
-    const { error: profileInsertError } = await supabaseAdmin
+    const { error: accessDeleteError } = await supabaseAdmin
+      .from("device_access")
+      .delete()
+      .eq("user_id", targetUserId);
+
+    if (accessDeleteError) {
+      return NextResponse.json(
+        { error: `Erro ao remover acessos: ${accessDeleteError.message}` },
+        { status: 400 }
+      );
+    }
+
+    const { error: alertsDeleteError } = await supabaseAdmin
+      .from("device_alert_recipients")
+      .delete()
+      .eq("user_id", targetUserId);
+
+    if (alertsDeleteError) {
+      return NextResponse.json(
+        { error: `Erro ao remover alertas: ${alertsDeleteError.message}` },
+        { status: 400 }
+      );
+    }
+
+    const { error: profileDeleteError } = await supabaseAdmin
       .from("profiles")
-      .insert({
-        id: authData.user.id,
-        email,
-        full_name,
-        role,
-        is_active: true,
-        client_id: null,
-      });
+      .delete()
+      .eq("id", targetUserId);
 
-    if (profileInsertError) {
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
-
+    if (profileDeleteError) {
       return NextResponse.json(
-        { error: `Erro ao criar perfil: ${profileInsertError.message}` },
+        { error: `Erro ao remover perfil: ${profileDeleteError.message}` },
+        { status: 400 }
+      );
+    }
+
+    const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(
+      targetUserId
+    );
+
+    if (authDeleteError) {
+      return NextResponse.json(
+        { error: `Perfil removido, mas houve erro ao remover login: ${authDeleteError.message}` },
         { status: 400 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      user_id: authData.user.id,
-      email,
-      full_name,
-      role,
+      removed_user_id: targetUserId,
+      email: targetProfile.email,
+      full_name: targetProfile.full_name,
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error?.message || "Erro interno ao criar utilizador." },
+      { error: error?.message || "Erro interno ao remover utilizador." },
       { status: 500 }
     );
   }

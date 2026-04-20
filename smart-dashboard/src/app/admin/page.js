@@ -54,11 +54,7 @@ function FieldHelp({ children }) {
   return <div style={styles.fieldHelp}>{children}</div>;
 }
 
-function ConfigField({
-  label,
-  help,
-  children,
-}) {
+function ConfigField({ label, help, children }) {
   return (
     <div style={styles.configField}>
       <div style={styles.configFieldLabel}>{label}</div>
@@ -68,14 +64,16 @@ function ConfigField({
   );
 }
 
-function TogglePill({ checked, onClick, label }) {
+function TogglePill({ checked, onClick, label, disabled = false }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         ...styles.togglePill,
         ...(checked ? styles.togglePillActive : styles.togglePillInactive),
+        ...(disabled ? styles.disabledButton : {}),
       }}
     >
       {label}
@@ -93,8 +91,11 @@ export default function AdminPage() {
   const [alertRecipients, setAlertRecipients] = useState([]);
   const [profile, setProfile] = useState(null);
 
-  const [selectedUser, setSelectedUser] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedUserRole, setSelectedUserRole] = useState("viewer");
+
   const [selectedDevice, setSelectedDevice] = useState("");
+  const [accessUserId, setAccessUserId] = useState("");
   const [canEdit, setCanEdit] = useState(false);
 
   const [deviceForm, setDeviceForm] = useState({
@@ -120,15 +121,34 @@ export default function AdminPage() {
   const [messageType, setMessageType] = useState("success");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [savingAccess, setSavingAccess] = useState(false);
+
   const [creatingUser, setCreatingUser] = useState(false);
+  const [savingAccess, setSavingAccess] = useState(false);
   const [savingDevice, setSavingDevice] = useState(false);
   const [savingAlertKey, setSavingAlertKey] = useState("");
+  const [savingUserRole, setSavingUserRole] = useState(false);
+  const [savingUserActive, setSavingUserActive] = useState(false);
+  const [deletingUser, setDeletingUser] = useState(false);
+
+  const nonAdminUsers = useMemo(
+    () => users.filter((u) => u.role !== "super_admin"),
+    [users]
+  );
 
   const selectedDeviceData = useMemo(
     () => devices.find((d) => d.device_id === selectedDevice) || null,
     [devices, selectedDevice]
   );
+
+  const selectedUser = useMemo(
+    () => users.find((u) => u.id === selectedUserId) || null,
+    [users, selectedUserId]
+  );
+
+  const selectedUserAccesses = useMemo(() => {
+    if (!selectedUserId) return [];
+    return deviceAccess.filter((row) => row.user_id === selectedUserId);
+  }, [deviceAccess, selectedUserId]);
 
   useEffect(() => {
     loadData({ showLoader: true });
@@ -165,6 +185,16 @@ export default function AdminPage() {
     });
   }, [selectedDeviceData]);
 
+  useEffect(() => {
+    if (selectedUser) {
+      setSelectedUserRole(selectedUser.role || "viewer");
+      setAccessUserId(selectedUser.id);
+    } else {
+      setSelectedUserRole("viewer");
+      if (!selectedUserId) setAccessUserId("");
+    }
+  }, [selectedUser, selectedUserId]);
+
   async function loadData({ showLoader = false } = {}) {
     if (showLoader) setLoading(true);
     else setRefreshing(true);
@@ -191,7 +221,7 @@ export default function AdminPage() {
         { data: alertData, error: alertError },
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-        supabase.from("profiles").select("*").order("email"),
+        supabase.from("profiles").select("*").order("full_name"),
         supabase.from("devices").select("*").order("device_id"),
         supabase.from("device_access").select("*"),
         supabase
@@ -213,9 +243,10 @@ export default function AdminPage() {
       }
 
       const safeDevices = devicesData || [];
+      const safeUsers = profiles || [];
 
       setProfile(profileData);
-      setUsers(profiles || []);
+      setUsers(safeUsers);
       setDevices(safeDevices);
       setDeviceAccess(accessData || []);
       setAlertRecipients(alertData || []);
@@ -228,6 +259,17 @@ export default function AdminPage() {
       ) {
         setSelectedDevice(safeDevices[0]?.device_id || "");
       }
+
+      if (!selectedUserId && safeUsers.some((u) => u.role !== "super_admin")) {
+        const firstUser = safeUsers.find((u) => u.role !== "super_admin");
+        setSelectedUserId(firstUser?.id || "");
+      } else if (
+        selectedUserId &&
+        !safeUsers.some((u) => u.id === selectedUserId)
+      ) {
+        const firstUser = safeUsers.find((u) => u.role !== "super_admin");
+        setSelectedUserId(firstUser?.id || "");
+      }
     } catch (error) {
       setMessage(error?.message || "Erro ao carregar dados de administração.");
       setMessageType("error");
@@ -237,78 +279,12 @@ export default function AdminPage() {
     }
   }
 
-  async function assignDevice() {
-    if (!selectedUser || !selectedDevice) {
-      setMessage("Seleciona utilizador e dispositivo.");
-      setMessageType("error");
-      return;
-    }
-
-    setSavingAccess(true);
-    setMessage("");
-
-    try {
-      const existing = deviceAccess.find(
-        (row) => row.user_id === selectedUser && row.device_id === selectedDevice
-      );
-
-      if (existing) {
-        const { error } = await supabase
-          .from("device_access")
-          .update({
-            can_view: true,
-            can_edit: canEdit,
-          })
-          .eq("user_id", selectedUser)
-          .eq("device_id", selectedDevice);
-
-        if (error) throw error;
-
-        setMessage("Acesso atualizado com sucesso.");
-        setMessageType("success");
-        await loadData();
-        return;
-      }
-
-      const { error } = await supabase.from("device_access").insert({
-        user_id: selectedUser,
-        device_id: selectedDevice,
-        can_view: true,
-        can_edit: canEdit,
-      });
-
-      if (error) throw error;
-
-      setMessage("Acesso atribuído com sucesso.");
-      setMessageType("success");
-      await loadData();
-    } catch (error) {
-      setMessage(error?.message || "Erro ao atribuir ou atualizar acesso.");
-      setMessageType("error");
-    } finally {
-      setSavingAccess(false);
-    }
-  }
-
-  async function removeAccess(userId, deviceId) {
-    setMessage("");
-
-    try {
-      const { error } = await supabase
-        .from("device_access")
-        .delete()
-        .eq("user_id", userId)
-        .eq("device_id", deviceId);
-
-      if (error) throw error;
-
-      setMessage("Acesso removido.");
-      setMessageType("success");
-      await loadData();
-    } catch (error) {
-      setMessage(error?.message || "Erro ao remover acesso.");
-      setMessageType("error");
-    }
+  function getUserAlertRow(userId, deviceId) {
+    return (
+      alertRecipients.find(
+        (row) => row.user_id === userId && row.device_id === deviceId
+      ) || null
+    );
   }
 
   async function createUser() {
@@ -364,6 +340,253 @@ export default function AdminPage() {
       setMessageType("error");
     } finally {
       setCreatingUser(false);
+    }
+  }
+
+  async function updateSelectedUserRole() {
+    if (!selectedUser) {
+      setMessage("Seleciona um utilizador.");
+      setMessageType("error");
+      return;
+    }
+
+    if (!["viewer", "client_admin"].includes(selectedUserRole)) {
+      setMessage("Role inválido.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingUserRole(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          role: selectedUserRole,
+        })
+        .eq("id", selectedUser.id);
+
+      if (error) throw error;
+
+      setMessage("Role atualizada com sucesso.");
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar role.");
+      setMessageType("error");
+    } finally {
+      setSavingUserRole(false);
+    }
+  }
+
+  async function toggleSelectedUserActive() {
+    if (!selectedUser) {
+      setMessage("Seleciona um utilizador.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingUserActive(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          is_active: !selectedUser.is_active,
+        })
+        .eq("id", selectedUser.id);
+
+      if (error) throw error;
+
+      setMessage(
+        !selectedUser.is_active
+          ? "Utilizador reativado com sucesso."
+          : "Utilizador desativado com sucesso."
+      );
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar estado do utilizador.");
+      setMessageType("error");
+    } finally {
+      setSavingUserActive(false);
+    }
+  }
+
+  async function deleteSelectedUser() {
+    if (!selectedUser) {
+      setMessage("Seleciona um utilizador.");
+      setMessageType("error");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remover totalmente o utilizador "${selectedUser.full_name}"?\n\nEsta ação vai apagar:\n- login\n- perfil\n- acessos a dispositivos\n- preferências de alertas\n\nNão pode ser revertida.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingUser(true);
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: selectedUser.id,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(data?.error || "Erro ao remover utilizador.");
+        setMessageType("error");
+        return;
+      }
+
+      setMessage("Utilizador removido totalmente com sucesso.");
+      setMessageType("success");
+      setSelectedUserId("");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao remover utilizador.");
+      setMessageType("error");
+    } finally {
+      setDeletingUser(false);
+    }
+  }
+
+  async function assignDevice() {
+    if (!accessUserId || !selectedDevice) {
+      setMessage("Seleciona utilizador e dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingAccess(true);
+    setMessage("");
+
+    try {
+      const existing = deviceAccess.find(
+        (row) => row.user_id === accessUserId && row.device_id === selectedDevice
+      );
+
+      if (existing) {
+        const { error } = await supabase
+          .from("device_access")
+          .update({
+            can_view: true,
+            can_edit: canEdit,
+          })
+          .eq("user_id", accessUserId)
+          .eq("device_id", selectedDevice);
+
+        if (error) throw error;
+
+        setMessage("Acesso atualizado com sucesso.");
+        setMessageType("success");
+        await loadData();
+        return;
+      }
+
+      const { error } = await supabase.from("device_access").insert({
+        user_id: accessUserId,
+        device_id: selectedDevice,
+        can_view: true,
+        can_edit: canEdit,
+      });
+
+      if (error) throw error;
+
+      setMessage("Acesso atribuído com sucesso.");
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atribuir ou atualizar acesso.");
+      setMessageType("error");
+    } finally {
+      setSavingAccess(false);
+    }
+  }
+
+  async function removeAccess(userId, deviceId) {
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("device_access")
+        .delete()
+        .eq("user_id", userId)
+        .eq("device_id", deviceId);
+
+      if (error) throw error;
+
+      setMessage("Acesso removido.");
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao remover acesso.");
+      setMessageType("error");
+    }
+  }
+
+  async function toggleAlertSetting(user, deviceId, field, nextValue) {
+    if (!user?.id || !deviceId) return;
+
+    const key = `${user.id}_${deviceId}_${field}`;
+    setSavingAlertKey(key);
+    setMessage("");
+
+    try {
+      const existing = getUserAlertRow(user.id, deviceId);
+
+      if (existing) {
+        const { error } = await supabase
+          .from("device_alert_recipients")
+          .update({
+            [field]: nextValue,
+            email: user.email,
+            name: user.full_name,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+
+        if (error) throw error;
+      } else {
+        const insertPayload = {
+          user_id: user.id,
+          device_id: deviceId,
+          email: user.email,
+          name: user.full_name,
+          is_active: field === "is_active" ? nextValue : true,
+          temp_alerts: field === "temp_alerts" ? nextValue : true,
+          humidity_alerts: field === "humidity_alerts" ? nextValue : true,
+          offline_alerts: field === "offline_alerts" ? nextValue : true,
+          predictive_alerts: field === "predictive_alerts" ? nextValue : false,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error } = await supabase
+          .from("device_alert_recipients")
+          .insert(insertPayload);
+
+        if (error) throw error;
+      }
+
+      await loadData();
+      setMessage("Preferência de alertas atualizada.");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar alertas.");
+      setMessageType("error");
+    } finally {
+      setSavingAlertKey("");
     }
   }
 
@@ -474,70 +697,6 @@ export default function AdminPage() {
     }
   }
 
-  function getUserAlertRow(userId, deviceId) {
-    return (
-      alertRecipients.find(
-        (row) => row.user_id === userId && row.device_id === deviceId
-      ) || null
-    );
-  }
-
-  async function toggleAlertSetting(user, deviceId, field, nextValue) {
-    if (!user?.id || !deviceId) return;
-
-    const key = `${user.id}_${deviceId}_${field}`;
-    setSavingAlertKey(key);
-    setMessage("");
-
-    try {
-      const existing = getUserAlertRow(user.id, deviceId);
-
-      if (existing) {
-        const { error } = await supabase
-          .from("device_alert_recipients")
-          .update({
-            [field]: nextValue,
-            email: user.email,
-            name: user.full_name,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existing.id);
-
-        if (error) throw error;
-      } else {
-        const insertPayload = {
-          user_id: user.id,
-          device_id: deviceId,
-          email: user.email,
-          name: user.full_name,
-          is_active: field === "is_active" ? nextValue : true,
-          temp_alerts: field === "temp_alerts" ? nextValue : true,
-          humidity_alerts: field === "humidity_alerts" ? nextValue : true,
-          offline_alerts: field === "offline_alerts" ? nextValue : true,
-          predictive_alerts: field === "predictive_alerts" ? nextValue : false,
-          updated_at: new Date().toISOString(),
-        };
-
-        const { error } = await supabase
-          .from("device_alert_recipients")
-          .insert(insertPayload);
-
-        if (error) throw error;
-      }
-
-      await loadData();
-      setMessage("Preferência de alertas atualizada.");
-      setMessageType("success");
-    } catch (error) {
-      setMessage(error?.message || "Erro ao atualizar alertas.");
-      setMessageType("error");
-    } finally {
-      setSavingAlertKey("");
-    }
-  }
-
-  const nonAdminUsers = users.filter((u) => u.role !== "super_admin");
-
   if (loading) {
     return (
       <main style={styles.page}>
@@ -568,17 +727,11 @@ export default function AdminPage() {
           <div style={styles.topActions}>
             {refreshing ? <div style={styles.refreshingText}>A atualizar...</div> : null}
 
-            <button
-              onClick={() => router.push("/")}
-              style={styles.secondaryButton}
-            >
+            <button onClick={() => router.push("/")} style={styles.secondaryButton}>
               Dashboard
             </button>
 
-            <button
-              onClick={() => loadData()}
-              style={styles.secondaryButton}
-            >
+            <button onClick={() => loadData()} style={styles.secondaryButton}>
               Atualizar
             </button>
 
@@ -606,11 +759,161 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        <div style={styles.sectionGrid}>
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>Gestão de utilizador</div>
+          <div style={styles.cardDescription}>
+            Seleciona um utilizador para gerir role, estado e remoção total da conta.
+          </div>
+
+          <div style={styles.userManagerGrid}>
+            <div style={styles.userManagerLeft}>
+              <div style={styles.sectionLabel}>Selecionar utilizador</div>
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Selecionar utilizador</option>
+                {nonAdminUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
+              </select>
+
+              <div style={styles.userQuickList}>
+                {nonAdminUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setSelectedUserId(u.id)}
+                    style={{
+                      ...styles.userQuickItem,
+                      ...(selectedUserId === u.id
+                        ? styles.userQuickItemActive
+                        : {}),
+                    }}
+                  >
+                    <div style={styles.userQuickName}>{u.full_name}</div>
+                    <div style={styles.userQuickMeta}>
+                      {u.email} · {u.role} · {u.is_active ? "ativo" : "inativo"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.userManagerRight}>
+              {!selectedUser ? (
+                <div style={styles.emptyState}>
+                  Seleciona um utilizador para veres e editares os detalhes.
+                </div>
+              ) : (
+                <>
+                  <div style={styles.selectedUserCard}>
+                    <div style={styles.selectedUserTop}>
+                      <div>
+                        <div style={styles.selectedUserName}>
+                          {selectedUser.full_name}
+                        </div>
+                        <div style={styles.meta}>{selectedUser.email}</div>
+                      </div>
+
+                      <div
+                        style={{
+                          ...styles.statusBadge,
+                          ...(selectedUser.is_active
+                            ? styles.statusBadgeActive
+                            : styles.statusBadgeInactive),
+                        }}
+                      >
+                        {selectedUser.is_active ? "Ativo" : "Inativo"}
+                      </div>
+                    </div>
+
+                    <div style={styles.selectedUserDetails}>
+                      <SmallStat label="Role atual" value={selectedUser.role} />
+                      <SmallStat
+                        label="Criado em"
+                        value={formatDateTime(selectedUser.created_at)}
+                      />
+                      <SmallStat
+                        label="User ID"
+                        value={selectedUser.id}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.inlinePanel}>
+                    <div style={styles.sectionLabel}>Alterar role</div>
+                    <div style={styles.inlineControls}>
+                      <select
+                        value={selectedUserRole}
+                        onChange={(e) => setSelectedUserRole(e.target.value)}
+                        style={styles.input}
+                      >
+                        <option value="viewer">Viewer</option>
+                        <option value="client_admin">Client Admin</option>
+                      </select>
+
+                      <button
+                        onClick={updateSelectedUserRole}
+                        style={styles.primaryButton}
+                        disabled={savingUserRole}
+                      >
+                        {savingUserRole ? "A guardar..." : "Guardar role"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.inlinePanel}>
+                    <div style={styles.sectionLabel}>Estado do utilizador</div>
+                    <div style={styles.inlineControls}>
+                      <button
+                        onClick={toggleSelectedUserActive}
+                        style={
+                          selectedUser.is_active
+                            ? styles.warningButton
+                            : styles.successButton
+                        }
+                        disabled={savingUserActive}
+                      >
+                        {savingUserActive
+                          ? "A atualizar..."
+                          : selectedUser.is_active
+                          ? "Desativar utilizador"
+                          : "Reativar utilizador"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.inlinePanelDanger}>
+                    <div style={styles.sectionLabelDanger}>Zona de remoção</div>
+                    <div style={styles.dangerText}>
+                      Remove totalmente o utilizador, incluindo login, perfil,
+                      acessos e preferências de alertas.
+                    </div>
+                    <div style={styles.inlineControls}>
+                      <button
+                        onClick={deleteSelectedUser}
+                        style={styles.dangerButton}
+                        disabled={deletingUser}
+                      >
+                        {deletingUser ? "A remover..." : "Remover Utilizador"}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <div style={styles.twoColGrid}>
           <section style={styles.card}>
             <div style={styles.cardTitle}>Criar utilizador</div>
             <div style={styles.cardDescription}>
-              Cria um novo utilizador cliente com acesso posterior aos dispositivos.
+              Cria um novo utilizador cliente para futura associação a dispositivos.
             </div>
 
             <div style={styles.formGrid}>
@@ -682,13 +985,13 @@ export default function AdminPage() {
           <section style={styles.card}>
             <div style={styles.cardTitle}>Atribuir dispositivo</div>
             <div style={styles.cardDescription}>
-              Liga um utilizador a um dispositivo e define se pode editar ou apenas visualizar.
+              Liga um utilizador a um dispositivo e define se pode editar configurações.
             </div>
 
             <div style={styles.formGrid}>
               <select
-                value={selectedUser}
-                onChange={(e) => setSelectedUser(e.target.value)}
+                value={accessUserId}
+                onChange={(e) => setAccessUserId(e.target.value)}
                 style={styles.input}
               >
                 <option value="">Selecionar utilizador</option>
@@ -733,6 +1036,145 @@ export default function AdminPage() {
             </div>
           </section>
         </div>
+
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>Acessos e alertas do utilizador selecionado</div>
+          <div style={styles.cardDescription}>
+            Para o utilizador escolhido no topo, gere os dispositivos atribuídos e os tipos de alerta por email.
+          </div>
+
+          {!selectedUser ? (
+            <div style={styles.emptyState}>
+              Seleciona um utilizador no topo para veres os acessos e os alertas.
+            </div>
+          ) : selectedUserAccesses.length === 0 ? (
+            <div style={styles.emptyState}>
+              Este utilizador ainda não tem dispositivos atribuídos.
+            </div>
+          ) : (
+            <div style={styles.deviceList}>
+              {selectedUserAccesses.map((access) => {
+                const device = devices.find((d) => d.device_id === access.device_id);
+                const alertRow = getUserAlertRow(selectedUser.id, access.device_id);
+                const savingPrefix = `${selectedUser.id}_${access.device_id}_`;
+
+                return (
+                  <div
+                    key={`${access.user_id}-${access.device_id}`}
+                    style={styles.deviceAccessCard}
+                  >
+                    <div style={styles.deviceAccessTop}>
+                      <div>
+                        <div style={styles.deviceName}>
+                          {device?.name || access.device_id}
+                        </div>
+                        <div style={styles.meta}>
+                          {access.device_id} ·{" "}
+                          {access.can_edit ? "Com edição" : "Só leitura"}
+                        </div>
+                      </div>
+
+                      <button
+                        style={styles.removeBtn}
+                        onClick={() =>
+                          removeAccess(access.user_id, access.device_id)
+                        }
+                      >
+                        Remover acesso
+                      </button>
+                    </div>
+
+                    <div style={styles.alertsBox}>
+                      <div style={styles.alertsTitle}>Alertas por email</div>
+                      <div style={styles.alertsSubtitle}>
+                        Define exatamente que notificações este utilizador recebe para este dispositivo.
+                      </div>
+
+                      <div style={styles.toggleWrap}>
+                        <TogglePill
+                          checked={Boolean(alertRow?.is_active)}
+                          onClick={() =>
+                            toggleAlertSetting(
+                              selectedUser,
+                              access.device_id,
+                              "is_active",
+                              !Boolean(alertRow?.is_active)
+                            )
+                          }
+                          label={`Receber alertas: ${
+                            alertRow?.is_active ? "Sim" : "Não"
+                          }`}
+                        />
+
+                        <TogglePill
+                          checked={Boolean(alertRow?.temp_alerts)}
+                          onClick={() =>
+                            toggleAlertSetting(
+                              selectedUser,
+                              access.device_id,
+                              "temp_alerts",
+                              !Boolean(alertRow?.temp_alerts)
+                            )
+                          }
+                          label="Temperatura"
+                          disabled={!alertRow?.is_active}
+                        />
+
+                        <TogglePill
+                          checked={Boolean(alertRow?.humidity_alerts)}
+                          onClick={() =>
+                            toggleAlertSetting(
+                              selectedUser,
+                              access.device_id,
+                              "humidity_alerts",
+                              !Boolean(alertRow?.humidity_alerts)
+                            )
+                          }
+                          label="Humidade"
+                          disabled={!alertRow?.is_active}
+                        />
+
+                        <TogglePill
+                          checked={Boolean(alertRow?.offline_alerts)}
+                          onClick={() =>
+                            toggleAlertSetting(
+                              selectedUser,
+                              access.device_id,
+                              "offline_alerts",
+                              !Boolean(alertRow?.offline_alerts)
+                            )
+                          }
+                          label="Offline"
+                          disabled={!alertRow?.is_active}
+                        />
+
+                        <TogglePill
+                          checked={Boolean(alertRow?.predictive_alerts)}
+                          onClick={() =>
+                            toggleAlertSetting(
+                              selectedUser,
+                              access.device_id,
+                              "predictive_alerts",
+                              !Boolean(alertRow?.predictive_alerts)
+                            )
+                          }
+                          label="Preditivo"
+                          disabled={!alertRow?.is_active}
+                        />
+                      </div>
+
+                      {savingAlertKey.startsWith(savingPrefix) ? (
+                        <div style={styles.savingHint}>
+                          A guardar preferências de alertas...
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         <section style={styles.card}>
           <div style={styles.cardTitle}>Configuração do dispositivo</div>
@@ -980,163 +1422,23 @@ export default function AdminPage() {
                 value={formatValue(selectedDeviceData.last_humidity, " %")}
               />
             </div>
+          </section>
+        ) : null}
+
+        {selectedDeviceData ? (
+          <section style={styles.card}>
+            <div style={styles.cardTitle}>Configuração raw</div>
+            <div style={styles.cardDescription}>
+              Vista técnica completa do objeto de configuração atual do dispositivo.
+            </div>
 
             <div style={styles.rawConfigWrap}>
-              <div style={styles.rawConfigTitle}>Configuração raw</div>
               <pre style={styles.rawConfig}>
                 {JSON.stringify(selectedDeviceData.config || {}, null, 2)}
               </pre>
             </div>
           </section>
         ) : null}
-
-        <section style={styles.card}>
-          <div style={styles.cardTitle}>Utilizadores, acessos e alertas</div>
-          <div style={styles.cardDescription}>
-            Controla quem vê cada dispositivo, quem pode editar e que tipos de alertas recebe.
-          </div>
-
-          <div style={styles.userList}>
-            {nonAdminUsers.map((user) => {
-              const accesses = deviceAccess.filter((row) => row.user_id === user.id);
-
-              return (
-                <div key={user.id} style={styles.userCard}>
-                  <div style={styles.userHeader}>
-                    <div>
-                      <div style={styles.userName}>{user.full_name}</div>
-                      <div style={styles.meta}>{user.email}</div>
-                    </div>
-
-                    <div style={styles.roleBadge}>{user.role}</div>
-                  </div>
-
-                  <div style={styles.deviceList}>
-                    {accesses.length === 0 ? (
-                      <div style={styles.noDevice}>Sem dispositivos atribuídos</div>
-                    ) : (
-                      accesses.map((access) => {
-                        const device = devices.find(
-                          (d) => d.device_id === access.device_id
-                        );
-                        const alertRow = getUserAlertRow(user.id, access.device_id);
-                        const savingPrefix = `${user.id}_${access.device_id}_`;
-
-                        return (
-                          <div
-                            key={`${access.user_id}-${access.device_id}`}
-                            style={styles.deviceAccessCard}
-                          >
-                            <div style={styles.deviceAccessTop}>
-                              <div>
-                                <div style={styles.deviceName}>
-                                  {device?.name || access.device_id}
-                                </div>
-                                <div style={styles.meta}>
-                                  {access.device_id} ·{" "}
-                                  {access.can_edit ? "Com edição" : "Só leitura"}
-                                </div>
-                              </div>
-
-                              <button
-                                style={styles.removeBtn}
-                                onClick={() =>
-                                  removeAccess(access.user_id, access.device_id)
-                                }
-                              >
-                                Remover acesso
-                              </button>
-                            </div>
-
-                            <div style={styles.alertsBox}>
-                              <div style={styles.alertsTitle}>Alertas por email</div>
-                              <div style={styles.alertsSubtitle}>
-                                Escolhe que notificações este utilizador pode receber para este dispositivo.
-                              </div>
-
-                              <div style={styles.toggleWrap}>
-                                <TogglePill
-                                  checked={Boolean(alertRow?.is_active)}
-                                  onClick={() =>
-                                    toggleAlertSetting(
-                                      user,
-                                      access.device_id,
-                                      "is_active",
-                                      !Boolean(alertRow?.is_active)
-                                    )
-                                  }
-                                  label={`Receber alertas: ${
-                                    alertRow?.is_active ? "Sim" : "Não"
-                                  }`}
-                                />
-
-                                <TogglePill
-                                  checked={Boolean(alertRow?.temp_alerts)}
-                                  onClick={() =>
-                                    toggleAlertSetting(
-                                      user,
-                                      access.device_id,
-                                      "temp_alerts",
-                                      !Boolean(alertRow?.temp_alerts)
-                                    )
-                                  }
-                                  label="Temperatura"
-                                />
-
-                                <TogglePill
-                                  checked={Boolean(alertRow?.humidity_alerts)}
-                                  onClick={() =>
-                                    toggleAlertSetting(
-                                      user,
-                                      access.device_id,
-                                      "humidity_alerts",
-                                      !Boolean(alertRow?.humidity_alerts)
-                                    )
-                                  }
-                                  label="Humidade"
-                                />
-
-                                <TogglePill
-                                  checked={Boolean(alertRow?.offline_alerts)}
-                                  onClick={() =>
-                                    toggleAlertSetting(
-                                      user,
-                                      access.device_id,
-                                      "offline_alerts",
-                                      !Boolean(alertRow?.offline_alerts)
-                                    )
-                                  }
-                                  label="Offline"
-                                />
-
-                                <TogglePill
-                                  checked={Boolean(alertRow?.predictive_alerts)}
-                                  onClick={() =>
-                                    toggleAlertSetting(
-                                      user,
-                                      access.device_id,
-                                      "predictive_alerts",
-                                      !Boolean(alertRow?.predictive_alerts)
-                                    )
-                                  }
-                                  label="Preditivo"
-                                />
-                              </div>
-
-                              {savingAlertKey.startsWith(savingPrefix) ? (
-                                <div style={styles.savingHint}>A guardar preferências de alertas...</div>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
       </div>
     </main>
   );
@@ -1151,7 +1453,7 @@ const styles = {
   },
 
   container: {
-    maxWidth: "1280px",
+    maxWidth: "1320px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -1198,10 +1500,40 @@ const styles = {
     fontWeight: 700,
   },
 
-  sectionGrid: {
+  twoColGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
     gap: "20px",
+  },
+
+  userManagerGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(320px, 420px) minmax(0, 1fr)",
+    gap: "20px",
+  },
+
+  userManagerLeft: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+  },
+
+  userManagerRight: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+  },
+
+  sectionLabel: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#cbd5e1",
+  },
+
+  sectionLabelDanger: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#fecaca",
   },
 
   secondaryButton: {
@@ -1224,6 +1556,44 @@ const styles = {
     cursor: "pointer",
     fontWeight: 800,
     fontSize: "14px",
+  },
+
+  successButton: {
+    border: "1px solid #15803d",
+    background: "#14532d",
+    color: "#dcfce7",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+
+  warningButton: {
+    border: "1px solid #b45309",
+    background: "#78350f",
+    color: "#fde68a",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+
+  dangerButton: {
+    border: "1px solid #dc2626",
+    background: "#7f1d1d",
+    color: "#ffffff",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+
+  disabledButton: {
+    opacity: 0.55,
+    cursor: "not-allowed",
   },
 
   card: {
@@ -1251,47 +1621,6 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "12px",
-  },
-
-  configTopRow: {
-    marginBottom: "18px",
-    maxWidth: "420px",
-  },
-
-  configSectionTitle: {
-    marginTop: "18px",
-    marginBottom: "12px",
-    fontSize: "14px",
-    fontWeight: 800,
-    color: "#cbd5e1",
-    letterSpacing: "0.02em",
-  },
-
-  configGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: "14px",
-  },
-
-  configField: {
-    background: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "16px",
-    padding: "14px",
-  },
-
-  configFieldLabel: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#e2e8f0",
-    marginBottom: "10px",
-  },
-
-  fieldHelp: {
-    fontSize: "12px",
-    color: "#8fa1b9",
-    lineHeight: 1.5,
-    marginTop: "8px",
   },
 
   input: {
@@ -1347,6 +1676,133 @@ const styles = {
     fontWeight: 700,
   },
 
+  emptyState: {
+    background: "#0f172a",
+    border: "1px dashed #334155",
+    color: "#94a3b8",
+    borderRadius: "16px",
+    padding: "18px",
+    fontSize: "14px",
+  },
+
+  userQuickList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    maxHeight: "420px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  },
+
+  userQuickItem: {
+    textAlign: "left",
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    cursor: "pointer",
+    color: "#e5edf7",
+  },
+
+  userQuickItemActive: {
+    border: "1px solid #3b82f6",
+    background: "#132033",
+    boxShadow: "0 0 0 1px rgba(59,130,246,0.25) inset",
+  },
+
+  userQuickName: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  userQuickMeta: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginTop: "5px",
+  },
+
+  selectedUserCard: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "18px",
+    padding: "18px",
+  },
+
+  selectedUserTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "14px",
+  },
+
+  selectedUserName: {
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  selectedUserDetails: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+  },
+
+  statusBadge: {
+    borderRadius: "999px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  statusBadgeActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
+  },
+
+  statusBadgeInactive: {
+    background: "#3f1d1d",
+    border: "1px solid #ef4444",
+    color: "#fecaca",
+  },
+
+  inlinePanel: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  inlinePanelDanger: {
+    background: "#2a1316",
+    border: "1px solid #4b1f24",
+    borderRadius: "16px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  dangerText: {
+    fontSize: "13px",
+    lineHeight: 1.5,
+    color: "#fecaca",
+  },
+
+  inlineControls: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+
   statsGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -1376,20 +1832,53 @@ const styles = {
     overflowWrap: "anywhere",
   },
 
+  configTopRow: {
+    marginBottom: "18px",
+    maxWidth: "420px",
+  },
+
+  configSectionTitle: {
+    marginTop: "18px",
+    marginBottom: "12px",
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#cbd5e1",
+    letterSpacing: "0.02em",
+  },
+
+  configGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: "14px",
+  },
+
+  configField: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "14px",
+  },
+
+  configFieldLabel: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#e2e8f0",
+    marginBottom: "10px",
+  },
+
+  fieldHelp: {
+    fontSize: "12px",
+    color: "#8fa1b9",
+    lineHeight: 1.5,
+    marginTop: "8px",
+  },
+
   rawConfigWrap: {
-    marginTop: "16px",
     background: "#0b1220",
     border: "1px solid #1f2937",
     borderRadius: "16px",
     padding: "16px",
     overflow: "hidden",
-  },
-
-  rawConfigTitle: {
-    color: "#94a3b8",
-    fontSize: "13px",
-    fontWeight: 700,
-    marginBottom: "10px",
   },
 
   rawConfig: {
@@ -1402,61 +1891,10 @@ const styles = {
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   },
 
-  userList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  },
-
-  userCard: {
-    background: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "18px",
-    padding: "18px",
-  },
-
-  userHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "12px",
-    marginBottom: "14px",
-    flexWrap: "wrap",
-  },
-
-  userName: {
-    fontSize: "16px",
-    fontWeight: 800,
-    color: "#f8fafc",
-  },
-
-  meta: {
-    fontSize: "12px",
-    color: "#94a3b8",
-    marginTop: "4px",
-  },
-
-  roleBadge: {
-    border: "1px solid #334155",
-    background: "#111c2e",
-    color: "#cbd5e1",
-    borderRadius: "999px",
-    padding: "6px 10px",
-    fontSize: "12px",
-    fontWeight: 700,
-    whiteSpace: "nowrap",
-  },
-
   deviceList: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
-  },
-
-  noDevice: {
-    color: "#64748b",
-    fontSize: "13px",
-    fontWeight: 700,
   },
 
   deviceAccessCard: {
@@ -1547,5 +1985,11 @@ const styles = {
     fontSize: "12px",
     color: "#93c5fd",
     fontWeight: 700,
+  },
+
+  meta: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginTop: "4px",
   },
 };
