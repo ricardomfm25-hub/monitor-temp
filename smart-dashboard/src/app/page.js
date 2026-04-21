@@ -1785,6 +1785,7 @@ export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [period, setPeriod] = useState("24h");
+const [reportPeriod, setReportPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
@@ -2407,6 +2408,39 @@ const communicationHealth = useMemo(
     setSavingAdmin(false);
   }
 
+async function downloadPdfReport() {
+  if (!selectedDeviceId) return;
+
+  try {
+    const response = await fetch(
+      `/api/sts/device/${selectedDeviceId}/report?period=${reportPeriod}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "Não foi possível gerar o PDF.");
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selectedDeviceId}_relatorio_${reportPeriod}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    setPageError(error?.message || "Erro ao descarregar relatório PDF.");
+  }
+}
+
   const hasDevices = devices.length > 0;
   const hasReadings = readings.length > 0;
 
@@ -2683,6 +2717,50 @@ const communicationHealth = useMemo(
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Período de visualização</div>
+<section style={styles.card}>
+  <div style={styles.cardHeader}>
+    <div>
+      <div style={styles.cardTitle}>Relatório PDF</div>
+      <div style={styles.cardHint}>
+        Exportação do resumo profissional de leituras do dispositivo
+      </div>
+    </div>
+  </div>
+
+  <div
+    style={{
+      ...styles.reportRow,
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : "minmax(220px, 320px) auto",
+    }}
+  >
+    <div style={styles.field}>
+      <label style={styles.label}>Período do relatório</label>
+      <select
+        value={reportPeriod}
+        onChange={(e) => setReportPeriod(e.target.value)}
+        style={styles.configInput}
+      >
+        <option value="1h">1H</option>
+        <option value="6h">6H</option>
+        <option value="12h">12H</option>
+        <option value="24h">24H</option>
+        <option value="7d">7D</option>
+      </select>
+    </div>
+
+    <div style={styles.reportActionWrap}>
+      <button
+        style={styles.primaryButton}
+        onClick={downloadPdfReport}
+        disabled={!selectedDeviceId}
+      >
+        Descarregar PDF
+      </button>
+    </div>
+  </div>
+</section>
               <div style={styles.cardHint}>
                 Ajusta o intervalo temporal apresentado nos gráficos
               </div>
@@ -3947,6 +4025,17 @@ collapseButton: {
     alignItems: "center",
     flexWrap: "wrap",
   },
+
+reportRow: {
+  display: "grid",
+  gap: "14px",
+  alignItems: "end",
+},
+
+reportActionWrap: {
+  display: "flex",
+  alignItems: "end",
+},
 
   primaryButton: {
     border: "1px solid #2563eb",
