@@ -17,7 +17,6 @@ import {
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
-const OFFLINE_LIMIT_MS = 120 * 1000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
@@ -123,11 +122,25 @@ function parseNumber(value) {
   return Number.isNaN(numeric) ? null : numeric;
 }
 
-function getEffectiveStatus(device) {
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getOfflineLimitMs(sendIntervalS) {
+  const expectedMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000
+      : 30 * 1000;
+
+  return Math.max(expectedMs * 6, 180 * 1000);
+}
+
+function getEffectiveStatus(device, sendIntervalS) {
   const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
   const now = Date.now();
+  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
 
-  if (!lastSeen || now - lastSeen > OFFLINE_LIMIT_MS) {
+  if (!lastSeen || now - lastSeen > offlineLimitMs) {
     return "OFFLINE";
   }
 
@@ -146,6 +159,7 @@ function getStatusInfo(status) {
       glow: "0 0 0 1px rgba(148,163,184,0.12)",
       priority: 3,
       dot: "#94a3b8",
+      panel: "#111827",
     };
   }
 
@@ -158,6 +172,7 @@ function getStatusInfo(status) {
       glow: "0 0 0 1px rgba(239,68,68,0.15)",
       priority: 0,
       dot: "#ef4444",
+      panel: "#1b1013",
     };
   }
 
@@ -170,6 +185,7 @@ function getStatusInfo(status) {
       glow: "0 0 0 1px rgba(245,158,11,0.12)",
       priority: 1,
       dot: "#f59e0b",
+      panel: "#1a1610",
     };
   }
 
@@ -182,6 +198,7 @@ function getStatusInfo(status) {
       glow: "0 0 0 1px rgba(34,197,94,0.12)",
       priority: 2,
       dot: "#22c55e",
+      panel: "#0f1712",
     };
   }
 
@@ -193,6 +210,7 @@ function getStatusInfo(status) {
     glow: "0 0 0 1px rgba(148,163,184,0.10)",
     priority: 4,
     dot: "#94a3b8",
+    panel: "#111827",
   };
 }
 
@@ -492,13 +510,17 @@ function getXAxisTicks(periodKey) {
   return Array.from(new Set(ticks)).sort((a, b) => a - b);
 }
 
-function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen, periodKey) {
+function getCommunicationHealth({
+  rawReadings,
+  sendIntervalS,
+  deviceLastSeen,
+  periodKey,
+}) {
+  const { start, end } = getPeriodWindow(periodKey);
+
   const sorted = [...(rawReadings || [])]
     .filter((item) => Number.isFinite(item?.timestamp))
-    .filter((item) => {
-      const { start, end } = getPeriodWindow(periodKey);
-      return item.timestamp >= start && item.timestamp <= end;
-    })
+    .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
 
   const expectedMs =
@@ -506,111 +528,120 @@ function getCommunicationStats(rawReadings, sendIntervalS, deviceLastSeen, perio
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  const { start, end } = getPeriodWindow(periodKey);
+  const offlineThresholdMs = getOfflineLimitMs(sendIntervalS);
   const periodMs = Math.max(end - start, expectedMs);
   const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
   const receivedReadings = sorted.length;
-  const deliveryPct = Math.max(
+
+  const deliveryPct = clamp(
+    Math.round((receivedReadings / expectedReadings) * 100),
     0,
-    Math.min(100, Math.round((receivedReadings / expectedReadings) * 100))
+    100
   );
 
-  const gapThresholdMs = Math.max(expectedMs * 2.2, 90 * 1000);
+  const lastDelayMs = deviceLastSeen
+    ? Date.now() - new Date(deviceLastSeen).getTime()
+    : null;
 
   if (!sorted.length) {
     return {
-      lastDelayMs: deviceLastSeen
-        ? Date.now() - new Date(deviceLastSeen).getTime()
-        : null,
-      expectedMs,
-      maxGapMs: null,
-      gapCount: 0,
-      regularityPct: 0,
-      deliveryPct,
-      expectedReadings,
-      receivedReadings,
-      stabilityLabel: "Sem dados",
-      stabilityTone: "neutral",
+      score: 0,
+      label: "Sem dados",
+      tone: "neutral",
+      summary: "Sem leituras suficientes para avaliar.",
+      delivery_pct: deliveryPct,
+      regularity_pct: 0,
+      expected_readings: expectedReadings,
+      received_readings: receivedReadings,
+      expected_interval_ms: expectedMs,
+      offline_threshold_ms: offlineThresholdMs,
+      last_delay_ms: lastDelayMs,
+      max_gap_ms: null,
+      relevant_gap_count: 0,
+      severe_gap_count: 0,
     };
   }
 
-  const intervals = [];
+  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
+  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
+
   let maxGapMs = 0;
-  let gapCount = 0;
+  let relevantGapCount = 0;
+  let severeGapCount = 0;
 
   for (let i = 1; i < sorted.length; i += 1) {
     const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
-    intervals.push(delta);
+    if (!Number.isFinite(delta) || delta <= 0) continue;
 
     if (delta > maxGapMs) maxGapMs = delta;
-    if (delta > gapThresholdMs) gapCount += 1;
+    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
+    if (delta >= severeGapThresholdMs) severeGapCount += 1;
   }
 
-  const intervalScore =
-    intervals.length > 0
-      ? Math.max(0, Math.round(((intervals.length - gapCount) / intervals.length) * 100))
-      : receivedReadings >= expectedReadings
-      ? 100
-      : deliveryPct;
+  let penalty = 0;
+  penalty += relevantGapCount * 2;
+  penalty += severeGapCount * 8;
 
-  const regularityPct = Math.round((deliveryPct * 0.6) + (intervalScore * 0.4));
-
-  let stabilityLabel = "Estável";
-  let stabilityTone = "good";
-
-  if (regularityPct < 70 || gapCount >= 3) {
-    stabilityLabel = "Instável";
-    stabilityTone = "bad";
-  } else if (regularityPct < 92 || gapCount >= 1) {
-    stabilityLabel = "Com falhas";
-    stabilityTone = "warn";
+  if (lastDelayMs !== null) {
+    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
+    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
+      penalty += 10;
+    }
   }
 
-  const lastTimestamp = sorted[sorted.length - 1]?.timestamp || null;
+  const regularityPct = clamp(Math.round(deliveryPct - penalty), 0, 100);
 
-  return {
-    lastDelayMs: lastTimestamp ? Date.now() - lastTimestamp : null,
-    expectedMs,
-    maxGapMs: maxGapMs || null,
-    gapCount,
-    regularityPct,
-    deliveryPct,
-    expectedReadings,
-    receivedReadings,
-    stabilityLabel,
-    stabilityTone,
-  };
-}
+  let label = "Estável";
+  let tone = "good";
+  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
 
-function getHealthToneStyles(tone) {
-  if (tone === "good") {
-    return {
-      valueColor: "#22c55e",
-      badgeBg: "#132219",
-      badgeBorder: "#1f3b2a",
-    };
-  }
+  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
 
-  if (tone === "warn") {
-    return {
-      valueColor: "#f59e0b",
-      badgeBg: "#2a2112",
-      badgeBorder: "#4b3a1d",
-    };
-  }
-
-  if (tone === "bad") {
-    return {
-      valueColor: "#ef4444",
-      badgeBg: "#2a1316",
-      badgeBorder: "#4b1f24",
-    };
+  if (isOffline) {
+    label = "Offline";
+    tone = "bad";
+    summary = "Sem comunicação recente do dispositivo.";
+  } else if (
+    deliveryPct >= 98 &&
+    relevantGapCount <= 1 &&
+    severeGapCount === 0
+  ) {
+    label = "Excelente";
+    tone = "good";
+    summary = "Cobertura muito alta e comunicação muito consistente.";
+  } else if (
+    deliveryPct >= 94 &&
+    relevantGapCount <= 5 &&
+    severeGapCount <= 1
+  ) {
+    label = "Estável";
+    tone = "good";
+    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
+    label = "Com falhas";
+    tone = "warn";
+    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
+  } else {
+    label = "Instável";
+    tone = "bad";
+    summary = "Perdas ou gaps relevantes na comunicação.";
   }
 
   return {
-    valueColor: "#cbd5e1",
-    badgeBg: "#162033",
-    badgeBorder: "#243042",
+    score: regularityPct,
+    label,
+    tone,
+    summary,
+    delivery_pct: deliveryPct,
+    regularity_pct: regularityPct,
+    expected_readings: expectedReadings,
+    received_readings: receivedReadings,
+    expected_interval_ms: expectedMs,
+    offline_threshold_ms: offlineThresholdMs,
+    last_delay_ms: lastDelayMs,
+    max_gap_ms: maxGapMs || null,
+    relevant_gap_count: relevantGapCount,
+    severe_gap_count: severeGapCount,
   };
 }
 
@@ -622,20 +653,20 @@ function getMinutesDiff(a, b) {
 function getTrendDirectionLabel(direction, type) {
   if (direction === "up") {
     return type === "temperature"
-      ? "Temperatura a subir rapidamente"
-      : "Humidade a subir rapidamente";
+      ? "Temperatura a subir de forma consistente"
+      : "Humidade a subir de forma consistente";
   }
 
   if (direction === "down") {
     return type === "temperature"
-      ? "Temperatura a descer rapidamente"
-      : "Humidade a descer rapidamente";
+      ? "Temperatura a descer de forma consistente"
+      : "Humidade a descer de forma consistente";
   }
 
   return "Sem tendência relevante";
 }
 
-function buildSimpleAlertSignal({
+function buildPredictiveSignal({
   readings,
   valueKey,
   lowLimit,
@@ -654,8 +685,8 @@ function buildSimpleAlertSignal({
     return {
       active: false,
       severity: "none",
-      etaMinutes: null,
-      title: "Sem risco próximo",
+      eta_minutes: null,
+      title: "Risco baixo",
       detail: "Sem tendência relevante",
       source: type,
       score: 0,
@@ -685,8 +716,8 @@ function buildSimpleAlertSignal({
     return {
       active: false,
       severity: "none",
-      etaMinutes: null,
-      title: "Sem risco próximo",
+      eta_minutes: null,
+      title: "Risco baixo",
       detail: "Sem tendência relevante",
       source: type,
       score: 0,
@@ -696,19 +727,16 @@ function buildSimpleAlertSignal({
   const upCount = deltas.filter((d) => d > 0).length;
   const downCount = deltas.filter((d) => d < 0).length;
 
-  const strongUp = upCount >= 5;
-  const strongDown = downCount >= 5;
-
   let direction = "flat";
-  if (strongUp) direction = "up";
-  if (strongDown) direction = "down";
+  if (upCount >= 5) direction = "up";
+  if (downCount >= 5) direction = "down";
 
   if (direction === "flat") {
     return {
       active: false,
       severity: "none",
-      etaMinutes: null,
-      title: "Sem risco próximo",
+      eta_minutes: null,
+      title: "Risco baixo",
       detail: "Sem tendência relevante",
       source: type,
       score: 0,
@@ -726,8 +754,8 @@ function buildSimpleAlertSignal({
     return {
       active: false,
       severity: "none",
-      etaMinutes: null,
-      title: "Sem risco próximo",
+      eta_minutes: null,
+      title: "Risco baixo",
       detail: "Sem tendência relevante",
       source: type,
       score: 0,
@@ -735,15 +763,14 @@ function buildSimpleAlertSignal({
   }
 
   const distance = Math.abs(targetLimit - current.value);
-  const speedThreshold =
-    type === "temperature" ? 0.03 : 0.18;
+  const speedThreshold = type === "temperature" ? 0.03 : 0.18;
 
   if (absAvgSlope < speedThreshold) {
     return {
       active: false,
       severity: "none",
-      etaMinutes: null,
-      title: "Sem risco próximo",
+      eta_minutes: null,
+      title: "Risco baixo",
       detail: "Sem tendência relevante",
       source: type,
       score: 0,
@@ -754,8 +781,8 @@ function buildSimpleAlertSignal({
     return {
       active: true,
       severity: "high",
-      etaMinutes: 0,
-      title: "Alerta provável agora",
+      eta_minutes: 0,
+      title: "Risco elevado",
       detail: getTrendDirectionLabel(direction, type),
       source: type,
       score: 100,
@@ -768,8 +795,8 @@ function buildSimpleAlertSignal({
     return {
       active: false,
       severity: "none",
-      etaMinutes: null,
-      title: "Sem risco próximo",
+      eta_minutes: null,
+      title: "Risco baixo",
       detail: "Sem tendência relevante",
       source: type,
       score: 0,
@@ -783,9 +810,12 @@ function buildSimpleAlertSignal({
     return {
       active: true,
       severity: "high",
-      etaMinutes: Math.max(1, Math.round(etaMinutes)),
-      title: `Alerta provável em ~${Math.max(1, Math.round(etaMinutes))} min`,
-      detail: getTrendDirectionLabel(direction, type),
+      eta_minutes: Math.max(1, Math.round(etaMinutes)),
+      title: "Risco elevado",
+      detail: `${getTrendDirectionLabel(direction, type)} · possível alerta em ~${Math.max(
+        1,
+        Math.round(etaMinutes)
+      )} min`,
       source: type,
       score: 90,
     };
@@ -795,9 +825,9 @@ function buildSimpleAlertSignal({
     return {
       active: true,
       severity: "medium",
-      etaMinutes: Math.max(1, Math.round(etaMinutes)),
-      title: "Atenção",
-      detail: getTrendDirectionLabel(direction, type),
+      eta_minutes: Math.max(1, Math.round(etaMinutes)),
+      title: "Risco moderado",
+      detail: `${getTrendDirectionLabel(direction, type)} · aproximação ao limite`,
       source: type,
       score: 65,
     };
@@ -806,16 +836,16 @@ function buildSimpleAlertSignal({
   return {
     active: false,
     severity: "none",
-    etaMinutes: null,
-    title: "Sem risco próximo",
+    eta_minutes: null,
+    title: "Risco baixo",
     detail: "Sem tendência relevante",
     source: type,
     score: 0,
   };
 }
 
-function getUnifiedPrediction(readings, config) {
-  const tempSignal = buildSimpleAlertSignal({
+function getPredictiveStatus(readings, config) {
+  const tempSignal = buildPredictiveSignal({
     readings,
     valueKey: "temperature",
     lowLimit: parseNumber(config?.temp_low_c),
@@ -823,7 +853,7 @@ function getUnifiedPrediction(readings, config) {
     type: "temperature",
   });
 
-  const humSignal = buildSimpleAlertSignal({
+  const humSignal = buildPredictiveSignal({
     readings,
     valueKey: "humidity",
     lowLimit: parseNumber(config?.hum_low),
@@ -831,42 +861,160 @@ function getUnifiedPrediction(readings, config) {
     type: "humidity",
   });
 
-  const signals = [tempSignal, humSignal].sort((a, b) => b.score - a.score);
-  const best = signals[0];
+  const best = [tempSignal, humSignal].sort((a, b) => b.score - a.score)[0];
 
   if (!best || best.score <= 0) {
     return {
-      status: "safe",
-      title: "Sem risco próximo",
-      detail: "Sem tendência relevante",
-      chip: "Normal",
-      sourceLabel: "Sem variável crítica",
+      level: "low",
+      title: "Risco baixo",
+      detail: "Sem tendência relevante nas últimas leituras",
+      chip: "Baixo",
+      source: "none",
+      source_label: "Sem variável crítica",
+      eta_minutes: null,
+      score: 0,
     };
   }
 
+  const isTemperature = best.source === "temperature";
+
   if (best.severity === "high") {
     return {
-      status: "high",
+      level: "high",
       title: best.title,
       detail: best.detail,
-      chip: "Alerta próximo",
-      sourceLabel:
-        best.source === "temperature" ? "Variável crítica: Temperatura" : "Variável crítica: Humidade",
+      chip: "Elevado",
+      source: best.source,
+      source_label: isTemperature
+        ? "Variável crítica: Temperatura"
+        : "Variável crítica: Humidade",
+      eta_minutes: best.eta_minutes,
+      score: best.score,
     };
   }
 
   return {
-    status: "medium",
-    title: "Atenção",
+    level: "medium",
+    title: best.title,
     detail: best.detail,
-    chip: "Monitorizar",
-    sourceLabel:
-      best.source === "temperature" ? "Variável crítica: Temperatura" : "Variável crítica: Humidade",
+    chip: "Moderado",
+    source: best.source,
+    source_label: isTemperature
+      ? "Variável crítica: Temperatura"
+      : "Variável crítica: Humidade",
+    eta_minutes: best.eta_minutes,
+    score: best.score,
   };
 }
 
+function getOperationalInsights({
+  device,
+  config,
+  communicationHealth,
+  predictiveStatus,
+}) {
+  const insights = [];
+
+  const temp = parseNumber(device?.last_temperature);
+  const hum = parseNumber(device?.last_humidity);
+  const tempLow = parseNumber(config?.temp_low_c);
+  const tempHigh = parseNumber(config?.temp_high_c);
+  const humLow = parseNumber(config?.hum_low);
+  const humHigh = parseNumber(config?.hum_high);
+
+  if (
+    Number.isFinite(temp) &&
+    Number.isFinite(tempHigh) &&
+    temp > tempHigh
+  ) {
+    insights.push({
+      title: "Temperatura acima do limite",
+      detail: `Valor atual ${formatValue(temp, " °C")} face ao máximo configurado de ${formatValue(tempHigh, " °C")}.`,
+      tone: "bad",
+    });
+  } else if (
+    Number.isFinite(temp) &&
+    Number.isFinite(tempLow) &&
+    temp < tempLow
+  ) {
+    insights.push({
+      title: "Temperatura abaixo do limite",
+      detail: `Valor atual ${formatValue(temp, " °C")} face ao mínimo configurado de ${formatValue(tempLow, " °C")}.`,
+      tone: "warn",
+    });
+  }
+
+  if (
+    Number.isFinite(hum) &&
+    Number.isFinite(humHigh) &&
+    hum > humHigh
+  ) {
+    insights.push({
+      title: "Humidade acima do limite",
+      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao máximo configurado de ${formatValue(humHigh, " %", 0)}.`,
+      tone: "bad",
+    });
+  } else if (
+    Number.isFinite(hum) &&
+    Number.isFinite(humLow) &&
+    hum < humLow
+  ) {
+    insights.push({
+      title: "Humidade abaixo do limite",
+      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao mínimo configurado de ${formatValue(humLow, " %", 0)}.`,
+      tone: "warn",
+    });
+  }
+
+  if (communicationHealth?.label === "Offline") {
+    insights.push({
+      title: "Comunicação interrompida",
+      detail: "O dispositivo deixou de comunicar dentro da janela esperada.",
+      tone: "bad",
+    });
+  } else if (communicationHealth?.label === "Instável") {
+    insights.push({
+      title: "Comunicação instável",
+      detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
+      tone: "warn",
+    });
+  } else if (communicationHealth?.label === "Com falhas") {
+    insights.push({
+      title: "Pequenas falhas de comunicação",
+      detail: communicationHealth?.summary || "A comunicação continua aceitável.",
+      tone: "warn",
+    });
+  }
+
+  if (predictiveStatus?.level === "high") {
+    insights.push({
+      title: "Risco preditivo elevado",
+      detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
+      tone: "bad",
+    });
+  } else if (predictiveStatus?.level === "medium") {
+    insights.push({
+      title: "Risco preditivo moderado",
+      detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
+      tone: "warn",
+    });
+  }
+
+  if (!insights.length) {
+    insights.push({
+      title: "Operação dentro do esperado",
+      detail: "Sem desvios críticos detetados neste momento.",
+      tone: "good",
+    });
+  }
+
+  return insights.slice(0, 3);
+}
+
 function getDevicePriority(device) {
-  return getStatusInfo(getEffectiveStatus(device)).priority;
+  return getStatusInfo(
+    getEffectiveStatus(device, parseNumber(device?.config?.send_interval_s))
+  ).priority;
 }
 
 function sortDevices(devices) {
@@ -973,27 +1121,31 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   );
 }
 
-function MetricBox({ label, value, tone = "neutral", subvalue }) {
+function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
   const toneMap = {
     neutral: {
       border: "#1e293b",
       bg: "#0f172a",
       value: "#f8fafc",
+      accent: "#94a3b8",
     },
     good: {
       border: "#1f3b2a",
       bg: "#0f1d15",
       value: "#86efac",
+      accent: "#22c55e",
     },
     warn: {
       border: "#4b3a1d",
       bg: "#21180f",
       value: "#fcd34d",
+      accent: "#f59e0b",
     },
     bad: {
       border: "#4b1f24",
       bg: "#211013",
       value: "#fca5a5",
+      accent: "#ef4444",
     },
   };
 
@@ -1007,7 +1159,22 @@ function MetricBox({ label, value, tone = "neutral", subvalue }) {
         background: selected.bg,
       }}
     >
-      <div style={styles.metricLabel}>{label}</div>
+      <div style={styles.metricTopRow}>
+        <div style={styles.metricLabel}>{label}</div>
+        {accentLabel ? (
+          <span
+            style={{
+              ...styles.miniChip,
+              color: selected.accent,
+              borderColor: selected.border,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            {accentLabel}
+          </span>
+        ) : null}
+      </div>
+
       <div style={{ ...styles.metricValue, color: selected.value }}>{value}</div>
       {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
     </div>
@@ -1060,6 +1227,38 @@ function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
   );
 }
 
+function getHealthToneStyles(tone) {
+  if (tone === "good") {
+    return {
+      valueColor: "#22c55e",
+      badgeBg: "#132219",
+      badgeBorder: "#1f3b2a",
+    };
+  }
+
+  if (tone === "warn") {
+    return {
+      valueColor: "#f59e0b",
+      badgeBg: "#2a2112",
+      badgeBorder: "#4b3a1d",
+    };
+  }
+
+  if (tone === "bad") {
+    return {
+      valueColor: "#ef4444",
+      badgeBg: "#2a1316",
+      badgeBorder: "#4b1f24",
+    };
+  }
+
+  return {
+    valueColor: "#cbd5e1",
+    badgeBg: "#162033",
+    badgeBorder: "#243042",
+  };
+}
+
 function DeviceSelector({
   devices,
   selectedDeviceId,
@@ -1075,7 +1274,29 @@ function DeviceSelector({
     orderedDevices[0] ||
     null;
 
-  const selectedStatusInfo = getStatusInfo(getEffectiveStatus(selectedDevice));
+  const selectedStatusInfo = getStatusInfo(
+    getEffectiveStatus(selectedDevice, parseNumber(selectedDevice?.config?.send_interval_s))
+  );
+
+  const stats = useMemo(() => {
+    const all = orderedDevices.length;
+    const offline = orderedDevices.filter(
+      (item) =>
+        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) === "OFFLINE"
+    ).length;
+
+    const alerts = orderedDevices.filter((item) => {
+      const status = String(
+        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) || ""
+      ).toLowerCase();
+
+      return status.includes("alert") || status.includes("alarm") || status.includes("critical");
+    }).length;
+
+    const normal = Math.max(0, all - offline - alerts);
+
+    return { all, offline, alerts, normal };
+  }, [orderedDevices]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -1108,10 +1329,17 @@ function DeviceSelector({
     <section style={styles.card}>
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Dispositivo</div>
+          <div style={styles.cardTitle}>Parque de dispositivos</div>
           <div style={styles.cardHint}>
-            Seleção rápida e inteligente do equipamento ativo
+            Seleção inteligente do equipamento ativo
           </div>
+        </div>
+
+        <div style={styles.selectorSummaryPills}>
+          <span style={styles.selectorSummaryPill}>{stats.all} total</span>
+          <span style={styles.selectorSummaryPill}>{stats.normal} normal</span>
+          <span style={styles.selectorSummaryPill}>{stats.alerts} alerta</span>
+          <span style={styles.selectorSummaryPill}>{stats.offline} offline</span>
         </div>
       </div>
 
@@ -1172,7 +1400,9 @@ function DeviceSelector({
             }}
           >
             {orderedDevices.map((item) => {
-              const info = getStatusInfo(getEffectiveStatus(item));
+              const info = getStatusInfo(
+                getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s))
+              );
               const active = item.device_id === selectedDeviceId;
 
               return (
@@ -1276,7 +1506,7 @@ function AlertRow({ item }) {
 
 function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
-    safe: {
+    low: {
       border: "#1f3b2a",
       bg: "#0f1d15",
       value: "#86efac",
@@ -1299,7 +1529,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
     },
   };
 
-  const selected = toneMap[prediction?.status] || toneMap.safe;
+  const selected = toneMap[prediction?.level] || toneMap.low;
 
   return (
     <section
@@ -1311,9 +1541,9 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
     >
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Previsão de alerta</div>
+          <div style={styles.cardTitle}>Tendência de risco</div>
           <div style={styles.cardHint}>
-            Leitura resumida e imediata do comportamento recente
+            Leitura preditiva resumida do comportamento recente
           </div>
         </div>
 
@@ -1325,12 +1555,12 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
             color: selected.value,
           }}
         >
-          {prediction?.chip || "Normal"}
+          {prediction?.chip || "Baixo"}
         </div>
       </div>
 
       <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
-        {prediction?.title || "Sem risco próximo"}
+        {prediction?.title || "Risco baixo"}
       </div>
 
       <div style={styles.predictionMainDetail}>
@@ -1338,7 +1568,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
       </div>
 
       <div style={styles.predictionSourceLabel}>
-        {prediction?.sourceLabel || "Sem variável crítica"}
+        {prediction?.source_label || "Sem variável crítica"}
       </div>
 
       {isOffline ? (
@@ -1346,6 +1576,60 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
           Baseado nas últimas leituras válidas antes de ficar offline.
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function OperationalInsightCard({ items }) {
+  return (
+    <section style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Leitura operacional</div>
+          <div style={styles.cardHint}>
+            Interpretação rápida para o cliente perceber o estado atual
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.insightGrid}>
+        {items.map((item, index) => {
+          const toneStyles =
+            item.tone === "bad"
+              ? {
+                  border: "#4b1f24",
+                  bg: "#211013",
+                  title: "#fca5a5",
+                }
+              : item.tone === "warn"
+              ? {
+                  border: "#4b3a1d",
+                  bg: "#21180f",
+                  title: "#fcd34d",
+                }
+              : {
+                  border: "#1f3b2a",
+                  bg: "#0f1d15",
+                  title: "#86efac",
+                };
+
+          return (
+            <div
+              key={`${item.title}-${index}`}
+              style={{
+                ...styles.insightCard,
+                borderColor: toneStyles.border,
+                background: toneStyles.bg,
+              }}
+            >
+              <div style={{ ...styles.insightTitle, color: toneStyles.title }}>
+                {item.title}
+              </div>
+              <div style={styles.insightDetail}>{item.detail}</div>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -1853,19 +2137,36 @@ export default function DashboardPage() {
   const sendIntervalS = parseNumber(config?.send_interval_s);
   const displayStandbyMin = parseNumber(config?.display_standby_min);
 
-  const effectiveStatus = getEffectiveStatus(device);
+  const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
   const statusInfo = getStatusInfo(effectiveStatus);
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
-  const communicationStats = useMemo(
-    () => getCommunicationStats(readings, sendIntervalS, device?.last_seen, period),
+  const communicationHealth = useMemo(
+    () =>
+      getCommunicationHealth({
+        rawReadings: readings,
+        sendIntervalS,
+        deviceLastSeen: device?.last_seen,
+        periodKey: period,
+      }),
     [readings, sendIntervalS, device?.last_seen, period]
   );
 
-  const unifiedPrediction = useMemo(
-    () => getUnifiedPrediction(readings, config),
+  const predictiveStatus = useMemo(
+    () => getPredictiveStatus(readings, config),
     [readings, config]
+  );
+
+  const operationalInsights = useMemo(
+    () =>
+      getOperationalInsights({
+        device,
+        config,
+        communicationHealth,
+        predictiveStatus,
+      }),
+    [device, config, communicationHealth, predictiveStatus]
   );
 
   const currentTempTone =
@@ -1885,6 +2186,37 @@ export default function DashboardPage() {
       : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
       ? "warn"
       : "good";
+
+  const summary24h = useMemo(() => {
+    const { start, end } = getPeriodWindow("24h");
+
+    const scoped = readings
+      .filter((item) => Number.isFinite(item?.timestamp))
+      .filter((item) => item.timestamp >= start && item.timestamp <= end);
+
+    const temps = scoped
+      .map((item) => parseNumber(item.temperature))
+      .filter((v) => v !== null);
+
+    const hums = scoped
+      .map((item) => parseNumber(item.humidity))
+      .filter((v) => v !== null);
+
+    const avg = (arr, digits = 1) =>
+      arr.length
+        ? Number((arr.reduce((sum, v) => sum + v, 0) / arr.length).toFixed(digits))
+        : null;
+
+    return {
+      tempMin: temps.length ? Math.min(...temps) : null,
+      tempMax: temps.length ? Math.max(...temps) : null,
+      tempAvg: avg(temps, 1),
+      humMin: hums.length ? Math.min(...hums) : null,
+      humMax: hums.length ? Math.max(...hums) : null,
+      humAvg: avg(hums, 0),
+      totalReadings: scoped.length,
+    };
+  }, [readings]);
 
   async function saveClientConfig() {
     if (!device || !selectedDeviceId || !canEditSelectedDevice) return;
@@ -2050,7 +2382,7 @@ export default function DashboardPage() {
           <div>
             <h1 style={styles.title}>SmartTempSystems</h1>
             <p style={styles.subtitle}>
-              Monitorização em tempo real dos dispositivos
+              Plataforma de monitorização inteligente para operação crítica
             </p>
           </div>
 
@@ -2068,14 +2400,14 @@ export default function DashboardPage() {
               Atualizar
             </button>
 
-            {isSuperAdmin && (
+            {isSuperAdmin ? (
               <button
                 onClick={() => router.push("/admin")}
                 style={styles.refreshButton}
               >
                 Admin
               </button>
-            )}
+            ) : null}
 
             <button
               onClick={async () => {
@@ -2107,15 +2439,17 @@ export default function DashboardPage() {
         <section
           style={{
             ...styles.heroCard,
+            background: `linear-gradient(180deg, ${statusInfo.panel} 0%, #0f172a 100%)`,
+            borderColor: statusInfo.border,
             gridTemplateColumns: isMobile
               ? "1fr"
-              : "minmax(0, 1.7fr) minmax(320px, 1fr)",
+              : "minmax(0, 1.8fr) minmax(340px, 1fr)",
           }}
         >
           <div style={styles.heroLeft}>
             <div style={styles.heroHeaderTop}>
               <div>
-                <div style={styles.sectionEyebrow}>Dispositivo</div>
+                <div style={styles.sectionEyebrow}>Dispositivo ativo</div>
                 <div style={styles.deviceName}>{deviceDisplayName}</div>
 
                 <div style={styles.deviceMetaLine}>
@@ -2152,9 +2486,10 @@ export default function DashboardPage() {
                 label="Temperatura atual"
                 value={formatValue(device?.last_temperature, " °C")}
                 tone={currentTempTone}
+                accentLabel="Tempo real"
                 subvalue={
                   tempLow !== null && tempHigh !== null
-                    ? `Limite: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
+                    ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
                     : "Sem limites definidos"
                 }
               />
@@ -2162,9 +2497,10 @@ export default function DashboardPage() {
                 label="Humidade atual"
                 value={formatValue(device?.last_humidity, " %")}
                 tone={currentHumTone}
+                accentLabel="Tempo real"
                 subvalue={
                   humLow !== null && humHigh !== null
-                    ? `Limite: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
+                    ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
                     : "Sem limites definidos"
                 }
               />
@@ -2183,7 +2519,7 @@ export default function DashboardPage() {
                 value={`${formatDateTime(device?.last_seen)} (${formatRelativeTime(device?.last_seen)})`}
               />
               <InfoItem
-                label="Estado do dispositivo"
+                label="Estado operacional"
                 value={statusInfo.label}
               />
             </div>
@@ -2198,34 +2534,97 @@ export default function DashboardPage() {
               paddingTop: isMobile ? "16px" : "0",
             }}
           >
-            <div style={styles.sideTitle}>Configurações do dispositivo</div>
+            <div style={styles.sideTitle}>Resumo executivo 24h</div>
 
             <div style={styles.sideSummary}>
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Temp. mínima</span>
-                <span style={styles.summaryValue}>{tempLow ?? "-"} °C</span>
+                <span style={styles.summaryLabel}>Média temp.</span>
+                <span style={styles.summaryValue}>{formatValue(summary24h.tempAvg, " °C")}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Temp. máxima</span>
-                <span style={styles.summaryValue}>{tempHigh ?? "-"} °C</span>
+                <span style={styles.summaryLabel}>Média hum.</span>
+                <span style={styles.summaryValue}>{formatValue(summary24h.humAvg, " %", 0)}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Hum. mínima</span>
-                <span style={styles.summaryValue}>{humLow ?? "-"} %</span>
+                <span style={styles.summaryLabel}>Leituras 24h</span>
+                <span style={styles.summaryValue}>{summary24h.totalReadings ?? 0}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Hum. máxima</span>
-                <span style={styles.summaryValue}>{humHigh ?? "-"} %</span>
+                <span style={styles.summaryLabel}>Comunicação</span>
+                <span style={styles.summaryValue}>{communicationHealth.label}</span>
               </div>
             </div>
           </div>
         </section>
 
+        <section
+          style={{
+            ...styles.kpiStrip,
+            gridTemplateColumns: isMobile
+              ? "1fr"
+              : "repeat(4, minmax(0, 1fr))",
+          }}
+        >
+          <MetricBox
+            label="Saúde da comunicação"
+            value={`${communicationHealth.score}%`}
+            tone={communicationHealth.tone}
+            accentLabel={communicationHealth.label}
+            subvalue={communicationHealth.summary}
+          />
+
+          <MetricBox
+            label="Cobertura de leituras"
+            value={`${communicationHealth.delivery_pct}%`}
+            tone={
+              communicationHealth.delivery_pct >= 94
+                ? "good"
+                : communicationHealth.delivery_pct >= 88
+                ? "warn"
+                : "bad"
+            }
+            accentLabel="Entrega"
+            subvalue={`${communicationHealth.received_readings}/${communicationHealth.expected_readings} leituras esperadas`}
+          />
+
+          <MetricBox
+            label="Tendência preditiva"
+            value={predictiveStatus.title}
+            tone={
+              predictiveStatus.level === "high"
+                ? "bad"
+                : predictiveStatus.level === "medium"
+                ? "warn"
+                : "good"
+            }
+            accentLabel={predictiveStatus.chip}
+            subvalue={predictiveStatus.source_label}
+          />
+
+          <MetricBox
+            label="Última comunicação"
+            value={formatDurationCompact(communicationHealth.last_delay_ms)}
+            tone={
+              communicationHealth.label === "Offline"
+                ? "bad"
+                : communicationHealth.last_delay_ms !== null &&
+                  communicationHealth.last_delay_ms >
+                    Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
+                ? "warn"
+                : "good"
+            }
+            accentLabel="Atraso"
+            subvalue={`Intervalo esperado: ${formatDurationCompact(communicationHealth.expected_interval_ms)}`}
+          />
+        </section>
+
+        <OperationalInsightCard items={operationalInsights} />
+
         <UnifiedPredictionCard
-          prediction={unifiedPrediction}
+          prediction={predictiveStatus}
           isOffline={effectiveStatus === "OFFLINE"}
         />
 
@@ -2234,9 +2633,13 @@ export default function DashboardPage() {
             <div>
               <div style={styles.cardTitle}>Saúde da comunicação</div>
               <div style={styles.cardHint}>
-                Estado de envio e regularidade das leituras do dispositivo
+                Estado real da regularidade e entrega das leituras do dispositivo
               </div>
             </div>
+          </div>
+
+          <div style={styles.healthSummaryBanner}>
+            {communicationHealth.summary}
           </div>
 
           <div
@@ -2249,32 +2652,34 @@ export default function DashboardPage() {
           >
             <HealthStatCard
               label="Atraso da última leitura"
-              value={formatDurationCompact(communicationStats.lastDelayMs)}
+              value={formatDurationCompact(communicationHealth.last_delay_ms)}
               hint="Tempo desde a última leitura recebida"
               tone={
-                communicationStats.lastDelayMs !== null &&
-                communicationStats.lastDelayMs >
-                  Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
+                communicationHealth.label === "Offline"
                   ? "bad"
+                  : communicationHealth.last_delay_ms !== null &&
+                    communicationHealth.last_delay_ms >
+                      Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
+                  ? "warn"
                   : "good"
               }
             />
 
             <HealthStatCard
               label="Intervalo esperado"
-              value={formatDurationCompact(communicationStats.expectedMs)}
+              value={formatDurationCompact(communicationHealth.expected_interval_ms)}
               hint="Com base na configuração atual do dispositivo"
               tone="neutral"
             />
 
             <HealthStatCard
               label="Cobertura de leituras"
-              value={`${communicationStats.deliveryPct ?? 0}%`}
-              hint={`${communicationStats.receivedReadings}/${communicationStats.expectedReadings} leituras esperadas`}
+              value={`${communicationHealth.delivery_pct ?? 0}%`}
+              hint={`${communicationHealth.received_readings}/${communicationHealth.expected_readings} leituras esperadas`}
               tone={
-                (communicationStats.deliveryPct ?? 0) < 70
+                (communicationHealth.delivery_pct ?? 0) < 88
                   ? "bad"
-                  : (communicationStats.deliveryPct ?? 0) < 92
+                  : (communicationHealth.delivery_pct ?? 0) < 94
                   ? "warn"
                   : "good"
               }
@@ -2283,13 +2688,13 @@ export default function DashboardPage() {
             <HealthStatCard
               label="Estabilidade"
               value={
-                communicationStats.regularityPct !== null
-                  ? `${communicationStats.regularityPct}%`
+                communicationHealth.regularity_pct !== null
+                  ? `${communicationHealth.regularity_pct}%`
                   : "-"
               }
-              hint={`Falhas detetadas: ${communicationStats.gapCount} · Maior gap: ${formatDurationCompact(communicationStats.maxGapMs)}`}
-              tone={communicationStats.stabilityTone}
-              badge={communicationStats.stabilityLabel}
+              hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
+              tone={communicationHealth.tone}
+              badge={communicationHealth.label}
             />
           </div>
         </section>
@@ -2380,7 +2785,7 @@ export default function DashboardPage() {
         <section style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Configurações do cliente</div>
+              <div style={styles.cardTitle}>Configurações operacionais</div>
               <div style={styles.cardHint}>
                 Limites operacionais por dispositivo
               </div>
@@ -2499,7 +2904,7 @@ export default function DashboardPage() {
               <div>
                 <div style={styles.cardTitle}>Modo admin</div>
                 <div style={styles.cardHint}>
-                  Área reservada para informação técnica e gestão por dispositivo
+                  Área reservada para gestão técnica por dispositivo
                 </div>
               </div>
             </div>
@@ -2535,7 +2940,7 @@ export default function DashboardPage() {
               </div>
 
               <div style={styles.subsection}>
-                <div style={styles.subsectionTitle}>Configurações admin</div>
+                <div style={styles.subsectionTitle}>Configurações técnicas</div>
 
                 <div
                   style={{
@@ -2737,7 +3142,8 @@ const styles = {
 
   page: {
     minHeight: "100vh",
-    background: "#0b1220",
+    background:
+      "radial-gradient(circle at top, #101a2d 0%, #0b1220 35%, #07101b 100%)",
     padding: "24px 16px 40px",
     color: "#e5edf7",
     overflowX: "hidden",
@@ -2745,7 +3151,7 @@ const styles = {
 
   container: {
     width: "100%",
-    maxWidth: "1380px",
+    maxWidth: "1420px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -2763,10 +3169,10 @@ const styles = {
 
   title: {
     margin: 0,
-    fontSize: "28px",
+    fontSize: "30px",
     lineHeight: 1.1,
-    fontWeight: 800,
-    letterSpacing: "-0.02em",
+    fontWeight: 900,
+    letterSpacing: "-0.03em",
     color: "#f8fafc",
   },
 
@@ -2794,11 +3200,12 @@ const styles = {
   },
 
   card: {
-    background: "#111827",
+    background: "rgba(17, 24, 39, 0.92)",
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "20px",
     overflow: "visible",
+    backdropFilter: "blur(10px)",
   },
 
   cardHeader: {
@@ -2856,6 +3263,22 @@ const styles = {
 
   selectorWrap: {
     position: "relative",
+  },
+
+  selectorSummaryPills: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+
+  selectorSummaryPill: {
+    border: "1px solid #243042",
+    background: "#0f172a",
+    color: "#cbd5e1",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 800,
   },
 
   selectorMainButton: {
@@ -3020,9 +3443,8 @@ const styles = {
 
   heroCard: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1.7fr) minmax(320px, 1fr)",
+    gridTemplateColumns: "minmax(0, 1.8fr) minmax(340px, 1fr)",
     gap: "18px",
-    background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
     border: "1px solid #1f2937",
     borderRadius: "24px",
     padding: "22px",
@@ -3065,7 +3487,7 @@ const styles = {
 
   deviceName: {
     fontSize: "24px",
-    fontWeight: 800,
+    fontWeight: 900,
     letterSpacing: "-0.03em",
     color: "#f8fafc",
     wordBreak: "break-word",
@@ -3113,6 +3535,11 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
+  kpiStrip: {
+    display: "grid",
+    gap: "14px",
+  },
+
   metricsRow: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -3127,17 +3554,34 @@ const styles = {
     minWidth: 0,
   },
 
+  metricTopRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "8px",
+    flexWrap: "wrap",
+  },
+
   metricLabel: {
     fontSize: "13px",
     color: "#8fa1b9",
     fontWeight: 700,
-    marginBottom: "8px",
+  },
+
+  miniChip: {
+    border: "1px solid",
+    borderRadius: "999px",
+    padding: "4px 8px",
+    fontSize: "10px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
   },
 
   metricValue: {
     fontSize: "30px",
     lineHeight: 1,
-    fontWeight: 800,
+    fontWeight: 900,
     letterSpacing: "-0.03em",
     color: "#f8fafc",
     wordBreak: "break-word",
@@ -3149,11 +3593,12 @@ const styles = {
     color: "#94a3b8",
     fontSize: "12px",
     fontWeight: 700,
+    lineHeight: 1.4,
   },
 
   heroMetaRow: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "12px",
   },
 
@@ -3220,10 +3665,35 @@ const styles = {
     wordBreak: "break-word",
   },
 
+  insightGrid: {
+    display: "grid",
+    gap: "12px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  },
+
+  insightCard: {
+    border: "1px solid",
+    borderRadius: "18px",
+    padding: "16px",
+  },
+
+  insightTitle: {
+    fontSize: "15px",
+    fontWeight: 800,
+    marginBottom: "8px",
+  },
+
+  insightDetail: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    fontWeight: 600,
+  },
+
   predictionMainTitle: {
     fontSize: "30px",
     lineHeight: 1.05,
-    fontWeight: 800,
+    fontWeight: 900,
     letterSpacing: "-0.03em",
     marginBottom: "10px",
   },
@@ -3245,6 +3715,17 @@ const styles = {
     marginTop: "14px",
     fontSize: "12px",
     color: "#94a3b8",
+  },
+
+  healthSummaryBanner: {
+    background: "#0f172a",
+    border: "1px solid #243042",
+    borderRadius: "16px",
+    padding: "14px 16px",
+    color: "#cbd5e1",
+    fontSize: "13px",
+    fontWeight: 700,
+    marginBottom: "14px",
   },
 
   healthGrid: {
@@ -3287,7 +3768,7 @@ const styles = {
 
   healthValue: {
     fontSize: "26px",
-    fontWeight: 800,
+    fontWeight: 900,
     letterSpacing: "-0.03em",
     marginBottom: "8px",
   },

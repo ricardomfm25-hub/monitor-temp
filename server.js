@@ -106,6 +106,10 @@ function sanitizeLocation(value) {
   return v || "Localização por definir";
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function validateConfigNumbers(payload) {
   const errors = [];
 
@@ -309,6 +313,450 @@ function getHumidityAlertDirection(humidity, cfg) {
   };
 }
 
+function statusToDbLabel(status) {
+  const map = {
+    normal: "NORMAL",
+    alert: "ALERT",
+    critical: "ALARM",
+    offline: "OFFLINE",
+  };
+  return map[status] || "NORMAL";
+}
+
+function statusToApiLabel(status) {
+  const map = {
+    normal: "normal",
+    alert: "alert",
+    critical: "alarm",
+    offline: "offline",
+  };
+  return map[status] || "normal";
+}
+
+function canSendByCooldown(lastSentAt) {
+  if (!lastSentAt) return true;
+  const diffMs = Date.now() - new Date(lastSentAt).getTime();
+  return diffMs >= COOLDOWN_MIN * 60 * 1000;
+}
+
+// -------------------- HEALTH / PREDICTIVE ENGINE --------------------
+function getMinutesDiff(a, b) {
+  const diffMs = new Date(b).getTime() - new Date(a).getTime();
+  return diffMs / 60000;
+}
+
+function getTrendDirectionLabel(direction, type) {
+  if (direction === "up") {
+    return type === "temperature"
+      ? "Temperatura a subir de forma consistente"
+      : "Humidade a subir de forma consistente";
+  }
+
+  if (direction === "down") {
+    return type === "temperature"
+      ? "Temperatura a descer de forma consistente"
+      : "Humidade a descer de forma consistente";
+  }
+
+  return "Sem tendência relevante";
+}
+
+function buildPredictiveSignal({
+  readings,
+  valueKey,
+  lowLimit,
+  highLimit,
+  type,
+}) {
+  const clean = (readings || [])
+    .map((r) => ({
+      created_at: r.created_at,
+      value: Number(r?.[valueKey]),
+    }))
+    .filter((r) => r.created_at && Number.isFinite(r.value))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (clean.length < 6) {
+    return {
+      active: false,
+      severity: "none",
+      eta_minutes: null,
+      title: "Risco baixo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
+  }
+
+  const recent = clean.slice(-6);
+  const current = recent[recent.length - 1];
+  const deltas = [];
+  const slopes = [];
+
+  for (let i = 1; i < recent.length; i += 1) {
+    const prev = recent[i - 1];
+    const curr = recent[i];
+    const delta = curr.value - prev.value;
+    const minutes = getMinutesDiff(prev.created_at, curr.created_at);
+
+    if (!Number.isFinite(delta) || !Number.isFinite(minutes) || minutes <= 0) {
+      continue;
+    }
+
+    deltas.push(delta);
+    slopes.push(delta / minutes);
+  }
+
+  if (deltas.length < 5 || slopes.length < 5) {
+    return {
+      active: false,
+      severity: "none",
+      eta_minutes: null,
+      title: "Risco baixo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
+  }
+
+  const upCount = deltas.filter((d) => d > 0).length;
+  const downCount = deltas.filter((d) => d < 0).length;
+
+  let direction = "flat";
+  if (upCount >= 5) direction = "up";
+  if (downCount >= 5) direction = "down";
+
+  if (direction === "flat") {
+    return {
+      active: false,
+      severity: "none",
+      eta_minutes: null,
+      title: "Risco baixo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
+  }
+
+  const avgSlope =
+    slopes.reduce((sum, value) => sum + value, 0) / slopes.length;
+  const absAvgSlope = Math.abs(avgSlope);
+
+  const targetLimit =
+    direction === "up" ? highLimit : direction === "down" ? lowLimit : null;
+
+  if (!Number.isFinite(targetLimit)) {
+    return {
+      active: false,
+      severity: "none",
+      eta_minutes: null,
+      title: "Risco baixo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
+  }
+
+  const distance = Math.abs(targetLimit - current.value);
+  const speedThreshold = type === "temperature" ? 0.03 : 0.18;
+
+  if (absAvgSlope < speedThreshold) {
+    return {
+      active: false,
+      severity: "none",
+      eta_minutes: null,
+      title: "Risco baixo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
+  }
+
+  if (distance <= 0) {
+    return {
+      active: true,
+      severity: "high",
+      eta_minutes: 0,
+      title: "Risco elevado",
+      detail: getTrendDirectionLabel(direction, type),
+      source: type,
+      score: 100,
+    };
+  }
+
+  const etaMinutes = distance / absAvgSlope;
+  if (!Number.isFinite(etaMinutes)) {
+    return {
+      active: false,
+      severity: "none",
+      eta_minutes: null,
+      title: "Risco baixo",
+      detail: "Sem tendência relevante",
+      source: type,
+      score: 0,
+    };
+  }
+
+  const closeMargin = type === "temperature" ? 1.2 : 8;
+  const closeToLimit = distance <= closeMargin;
+
+  if (etaMinutes <= 45 && closeToLimit) {
+    return {
+      active: true,
+      severity: "high",
+      eta_minutes: Math.max(1, Math.round(etaMinutes)),
+      title: "Risco elevado",
+      detail: `${getTrendDirectionLabel(direction, type)} · possível alerta em ~${Math.max(
+        1,
+        Math.round(etaMinutes)
+      )} min`,
+      source: type,
+      score: 90,
+    };
+  }
+
+  if (etaMinutes <= 120 && closeToLimit) {
+    return {
+      active: true,
+      severity: "medium",
+      eta_minutes: Math.max(1, Math.round(etaMinutes)),
+      title: "Risco moderado",
+      detail: `${getTrendDirectionLabel(direction, type)} · aproximação ao limite`,
+      source: type,
+      score: 65,
+    };
+  }
+
+  return {
+    active: false,
+    severity: "none",
+    eta_minutes: null,
+    title: "Risco baixo",
+    detail: "Sem tendência relevante",
+    source: type,
+    score: 0,
+  };
+}
+
+function getPredictiveStatus(readings, cfg) {
+  const tempSignal = buildPredictiveSignal({
+    readings,
+    valueKey: "temperature",
+    lowLimit: Number(cfg.temp_low_c),
+    highLimit: Number(cfg.temp_high_c),
+    type: "temperature",
+  });
+
+  const humSignal = buildPredictiveSignal({
+    readings,
+    valueKey: "humidity",
+    lowLimit: Number(cfg.hum_low),
+    highLimit: Number(cfg.hum_high),
+    type: "humidity",
+  });
+
+  const best = [tempSignal, humSignal].sort((a, b) => b.score - a.score)[0];
+
+  if (!best || best.score <= 0) {
+    return {
+      level: "low",
+      title: "Risco baixo",
+      detail: "Sem tendência relevante nas últimas leituras",
+      chip: "Baixo",
+      source: "none",
+      source_label: "Sem variável crítica",
+      eta_minutes: null,
+      score: 0,
+    };
+  }
+
+  const isTemperature = best.source === "temperature";
+
+  if (best.severity === "high") {
+    return {
+      level: "high",
+      title: best.title,
+      detail: best.detail,
+      chip: "Elevado",
+      source: best.source,
+      source_label: isTemperature
+        ? "Variável crítica: Temperatura"
+        : "Variável crítica: Humidade",
+      eta_minutes: best.eta_minutes,
+      score: best.score,
+    };
+  }
+
+  return {
+    level: "medium",
+    title: best.title,
+    detail: best.detail,
+    chip: "Moderado",
+    source: best.source,
+    source_label: isTemperature
+      ? "Variável crítica: Temperatura"
+      : "Variável crítica: Humidade",
+    eta_minutes: best.eta_minutes,
+    score: best.score,
+  };
+}
+
+function getCommunicationHealth({
+  readings,
+  sendIntervalS,
+  lastSeenIso,
+  rangeHours = 24,
+}) {
+  const expectedMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000
+      : 30 * 1000;
+
+  const offlineThresholdMs = getOfflineThresholdMs(sendIntervalS);
+  const rangeMs = Math.max(Number(rangeHours) * 60 * 60 * 1000, expectedMs);
+  const endTs = Date.now();
+  const startTs = endTs - rangeMs;
+
+  const sorted = [...(readings || [])]
+    .map((row) => ({
+      ...row,
+      timestamp: new Date(row.created_at).getTime(),
+    }))
+    .filter((row) => Number.isFinite(row.timestamp))
+    .filter((row) => row.timestamp >= startTs && row.timestamp <= endTs)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const expectedReadings = Math.max(1, Math.round(rangeMs / expectedMs));
+  const receivedReadings = sorted.length;
+  const deliveryPct = clamp(
+    Math.round((receivedReadings / expectedReadings) * 100),
+    0,
+    100
+  );
+
+  const lastDelayMs = lastSeenIso
+    ? Date.now() - new Date(lastSeenIso).getTime()
+    : null;
+
+  if (!sorted.length) {
+    return {
+      score: 0,
+      label: "Sem dados",
+      tone: "neutral",
+      summary: "Sem leituras suficientes para avaliar.",
+      delivery_pct: deliveryPct,
+      regularity_pct: 0,
+      expected_readings: expectedReadings,
+      received_readings: receivedReadings,
+      expected_interval_ms: expectedMs,
+      offline_threshold_ms: offlineThresholdMs,
+      last_delay_ms: lastDelayMs,
+      max_gap_ms: null,
+      relevant_gap_count: 0,
+      severe_gap_count: 0,
+    };
+  }
+
+  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
+  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
+
+  let maxGapMs = 0;
+  let relevantGapCount = 0;
+  let severeGapCount = 0;
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
+    if (!Number.isFinite(delta) || delta <= 0) continue;
+
+    if (delta > maxGapMs) maxGapMs = delta;
+    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
+    if (delta >= severeGapThresholdMs) severeGapCount += 1;
+  }
+
+  let penalty = 0;
+  penalty += relevantGapCount * 2;
+  penalty += severeGapCount * 8;
+
+  if (lastDelayMs !== null) {
+    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
+    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7))
+      penalty += 10;
+  }
+
+  const regularityPct = clamp(Math.round(deliveryPct - penalty), 0, 100);
+
+  let label = "Estável";
+  let tone = "good";
+  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+
+  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
+
+  if (isOffline) {
+    label = "Offline";
+    tone = "bad";
+    summary = "Sem comunicação recente do dispositivo.";
+  } else if (
+    deliveryPct >= 98 &&
+    relevantGapCount <= 1 &&
+    severeGapCount === 0
+  ) {
+    label = "Excelente";
+    tone = "good";
+    summary = "Cobertura muito alta e comunicação muito consistente.";
+  } else if (
+    deliveryPct >= 94 &&
+    relevantGapCount <= 5 &&
+    severeGapCount <= 1
+  ) {
+    label = "Estável";
+    tone = "good";
+    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
+    label = "Com falhas";
+    tone = "warn";
+    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
+  } else {
+    label = "Instável";
+    tone = "bad";
+    summary = "Perdas ou gaps relevantes na comunicação.";
+  }
+
+  return {
+    score: regularityPct,
+    label,
+    tone,
+    summary,
+    delivery_pct: deliveryPct,
+    regularity_pct: regularityPct,
+    expected_readings: expectedReadings,
+    received_readings: receivedReadings,
+    expected_interval_ms: expectedMs,
+    offline_threshold_ms: offlineThresholdMs,
+    last_delay_ms: lastDelayMs,
+    max_gap_ms: maxGapMs || null,
+    relevant_gap_count: relevantGapCount,
+    severe_gap_count: severeGapCount,
+  };
+}
+
+async function getRecentReadingsForAnalysis(deviceId, hours = 24) {
+  const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("readings")
+    .select("temperature, humidity, created_at")
+    .eq("device_id", deviceId)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
+// -------------------- RECIPIENTS / EMAIL --------------------
 async function getDeviceAlertRecipients(deviceId, alertType = "general") {
   let query = supabase
     .from("device_alert_recipients")
@@ -482,6 +930,7 @@ function buildEmailShell({ heading, intro, blocks, footer }) {
   `;
 }
 
+// -------------------- ALERT EMAILS --------------------
 async function sendTemperatureTriggeredEmail({
   device,
   temperature,
@@ -757,12 +1206,7 @@ async function sendOnlineRecoveredEmail({ device }) {
   });
 }
 
-function canSendByCooldown(lastSentAt) {
-  if (!lastSentAt) return true;
-  const diffMs = Date.now() - new Date(lastSentAt).getTime();
-  return diffMs >= COOLDOWN_MIN * 60 * 1000;
-}
-
+// -------------------- DEVICE UPDATE --------------------
 async function updateDeviceConfigAndStatus(
   deviceRow,
   {
@@ -791,26 +1235,6 @@ async function updateDeviceConfigAndStatus(
   if (error) {
     console.error("Erro ao atualizar devices:", error);
   }
-}
-
-function statusToDbLabel(status) {
-  const map = {
-    normal: "NORMAL",
-    alert: "ALERT",
-    critical: "ALARM",
-    offline: "OFFLINE",
-  };
-  return map[status] || "NORMAL";
-}
-
-function statusToApiLabel(status) {
-  const map = {
-    normal: "normal",
-    alert: "alert",
-    critical: "alarm",
-    offline: "offline",
-  };
-  return map[status] || "normal";
 }
 
 async function processTriggeredAndResolvedAlerts({
@@ -1020,7 +1444,7 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
   return { processed, offlineTriggered };
 }
 
-// -------------------- RESUMO SEMANAL --------------------
+// -------------------- WEEKLY REPORT --------------------
 async function sendWeeklyReport() {
   const sinceIso = new Date(
     Date.now() - 7 * 24 * 60 * 60 * 1000
@@ -1472,10 +1896,22 @@ app.post("/api/temperature", async (req, res) => {
       last_humidity: numericHumidity,
     });
 
+    const last24hReadings = await getRecentReadingsForAnalysis(device_id, 24);
+    const communicationHealth = getCommunicationHealth({
+      readings: last24hReadings,
+      sendIntervalS: refreshedCfg.send_interval_s,
+      lastSeenIso: currentNowIso,
+      rangeHours: 24,
+    });
+
+    const predictiveStatus = getPredictiveStatus(last24hReadings, refreshedCfg);
+
     res.json({
       message: "OK",
       applied_config: getDeviceConfig({ config: finalConfig }),
       status: statusToApiLabel(computedStatus),
+      communication_health: communicationHealth,
+      predictive_status: predictiveStatus,
     });
   } catch (error) {
     console.error("Erro em /api/temperature:", error);
@@ -1555,27 +1991,44 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       Date.now() - 24 * 60 * 60 * 1000
     ).toISOString();
 
-    const { count: alerts24hCount, error: alertsCountError } = await supabase
-      .from("alerts")
-      .select("*", { count: "exact", head: true })
-      .eq("device_id", deviceId)
-      .gte("sent_at", since24hIso);
+    const [
+      { count: alerts24hCount, error: alertsCountError },
+      { count: readings24hCount, error: readingsCountError },
+      recentReadings,
+    ] = await Promise.all([
+      supabase
+        .from("alerts")
+        .select("*", { count: "exact", head: true })
+        .eq("device_id", deviceId)
+        .gte("sent_at", since24hIso),
+
+      supabase
+        .from("readings")
+        .select("*", { count: "exact", head: true })
+        .eq("device_id", deviceId)
+        .gte("created_at", since24hIso),
+
+      getRecentReadingsForAnalysis(deviceId, 24),
+    ]);
 
     if (alertsCountError) {
       console.error("Erro ao contar alertas:", alertsCountError);
       return res.status(500).json({ error: "Erro ao contar alertas" });
     }
 
-    const { count: readings24hCount, error: readingsCountError } = await supabase
-      .from("readings")
-      .select("*", { count: "exact", head: true })
-      .eq("device_id", deviceId)
-      .gte("created_at", since24hIso);
-
     if (readingsCountError) {
       console.error("Erro ao contar leituras:", readingsCountError);
       return res.status(500).json({ error: "Erro ao contar leituras" });
     }
+
+    const communicationHealth = getCommunicationHealth({
+      readings: recentReadings,
+      sendIntervalS: cfg.send_interval_s,
+      lastSeenIso,
+      rangeHours: 24,
+    });
+
+    const predictiveStatus = getPredictiveStatus(recentReadings, cfg);
 
     res.json({
       device_id: deviceId,
@@ -1595,9 +2048,60 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       backend_status: "connected",
       updated_at: deviceRow?.updated_at || latestReading?.created_at || null,
       alert_state,
+      communication_health: communicationHealth,
+      predictive_status: predictiveStatus,
     });
   } catch (error) {
     console.error("Erro em /api/dashboard/device/:id:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
+  }
+});
+
+// -------------------- DASHBOARD: DEVICE HEALTH --------------------
+app.get("/api/dashboard/device/:id/health", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+    const hours = Math.min(Math.max(Number(req.query.hours) || 24, 1), 24 * 7);
+
+    const { data: deviceRow, error: deviceError } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (deviceError) {
+      console.error("Erro ao obter device em /health:", deviceError);
+      return res.status(500).json({ error: "Erro ao obter dispositivo" });
+    }
+
+    if (!deviceRow) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const cfg = getDeviceConfig(deviceRow);
+    const readings = await getRecentReadingsForAnalysis(deviceId, hours);
+
+    const communicationHealth = getCommunicationHealth({
+      readings,
+      sendIntervalS: cfg.send_interval_s,
+      lastSeenIso: deviceRow.last_seen,
+      rangeHours: hours,
+    });
+
+    const predictiveStatus = getPredictiveStatus(readings, cfg);
+
+    return res.json({
+      device_id: deviceId,
+      hours,
+      communication_health: communicationHealth,
+      predictive_status: predictiveStatus,
+    });
+  } catch (error) {
+    console.error("Erro em /api/dashboard/device/:id/health:", error);
     res.status(500).json({ error: "Erro interno no servidor" });
   }
 });
@@ -1680,6 +2184,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
         title: row.title || "Evento registado",
         message: row.message || "Sem detalhe adicional.",
         created_at: formatDateTimePt(row.sent_at, true),
+        sent_at: row.sent_at,
         temperature:
           row.temperature !== null && row.temperature !== undefined
             ? Number(row.temperature)
@@ -1701,6 +2206,7 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
           title: "Sistema estável",
           message: "Sem alertas registados para este dispositivo.",
           created_at: formatDateTimePt(new Date(), true),
+          sent_at: new Date().toISOString(),
         },
       ]);
     }
