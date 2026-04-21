@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { stsBackendFetch } from "@/lib/sts-backend";
 
-export async function GET(_, { params }) {
+export async function GET(_request, context) {
   try {
-    const data = await stsBackendFetch(`/api/device/${params.id}/config`);
+    const { id } = await context.params;
+    const data = await stsBackendFetch(`/api/device/${encodeURIComponent(id)}/config`);
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json(
@@ -13,11 +14,12 @@ export async function GET(_, { params }) {
   }
 }
 
-export async function POST(request, { params }) {
+export async function POST(request, context) {
   try {
+    const { id } = await context.params;
     const body = await request.json();
 
-    const data = await stsBackendFetch(`/api/device/${params.id}/config`, {
+    const data = await stsBackendFetch(`/api/device/${encodeURIComponent(id)}/config`, {
       method: "POST",
       body: JSON.stringify(body),
     });

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { stsBackendFetch } from "@/lib/sts-backend";
 
-export async function GET(_, { params }) {
+export async function GET(_request, context) {
   try {
-    const data = await stsBackendFetch(`/api/dashboard/device/${params.id}/alerts`);
+    const { id } = await context.params;
+    const data = await stsBackendFetch(`/api/dashboard/device/${encodeURIComponent(id)}/alerts`);
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json(
