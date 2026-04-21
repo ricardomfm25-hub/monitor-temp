@@ -2,6 +2,7 @@ const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const axios = require("axios");
 const cors = require("cors");
+const PDFDocument = require("pdfkit");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -108,6 +109,40 @@ function sanitizeLocation(value) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function average(values, digits = 1) {
+  if (!Array.isArray(values) || !values.length) return null;
+  const avgValue = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return Number(avgValue.toFixed(digits));
+}
+
+function getReportPeriodRange(period = "24h") {
+  const normalized = String(period || "24h").toLowerCase();
+
+  const map = {
+    "1h": { hours: 1, label: "1 hora" },
+    "6h": { hours: 6, label: "6 horas" },
+    "12h": { hours: 12, label: "12 horas" },
+    "24h": { hours: 24, label: "24 horas" },
+    "7d": { hours: 24 * 7, label: "7 dias" },
+  };
+
+  const selected = map[normalized] || map["24h"];
+  const sinceIso = new Date(
+    Date.now() - selected.hours * 60 * 60 * 1000
+  ).toISOString();
+
+  return {
+    key: normalized in map ? normalized : "24h",
+    label: selected.label,
+    hours: selected.hours,
+    sinceIso,
+  };
+}
+
+function formatPeriodLabelForFilename(periodKey = "24h") {
+  return String(periodKey || "24h").replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
 function validateConfigNumbers(payload) {
@@ -350,7 +385,7 @@ function getCommunicationHealth({
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  const offlineThresholdMs = Math.max(expectedMs * 6, 180 * 1000);
+  const offlineThresholdMs = getOfflineThresholdMs(sendIntervalS);
   const periodMs = periodHours * 60 * 60 * 1000;
   const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
 
@@ -735,144 +770,6 @@ function getPredictiveStatus(readings, cfg) {
   };
 }
 
-function getCommunicationHealth({
-  readings,
-  sendIntervalS,
-  lastSeenIso,
-  rangeHours = 24,
-}) {
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
-
-  const offlineThresholdMs = getOfflineThresholdMs(sendIntervalS);
-  const rangeMs = Math.max(Number(rangeHours) * 60 * 60 * 1000, expectedMs);
-  const endTs = Date.now();
-  const startTs = endTs - rangeMs;
-
-  const sorted = [...(readings || [])]
-    .map((row) => ({
-      ...row,
-      timestamp: new Date(row.created_at).getTime(),
-    }))
-    .filter((row) => Number.isFinite(row.timestamp))
-    .filter((row) => row.timestamp >= startTs && row.timestamp <= endTs)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const expectedReadings = Math.max(1, Math.round(rangeMs / expectedMs));
-  const receivedReadings = sorted.length;
-  const deliveryPct = clamp(
-    Math.round((receivedReadings / expectedReadings) * 100),
-    0,
-    100
-  );
-
-  const lastDelayMs = lastSeenIso
-    ? Date.now() - new Date(lastSeenIso).getTime()
-    : null;
-
-  if (!sorted.length) {
-    return {
-      score: 0,
-      label: "Sem dados",
-      tone: "neutral",
-      summary: "Sem leituras suficientes para avaliar.",
-      delivery_pct: deliveryPct,
-      regularity_pct: 0,
-      expected_readings: expectedReadings,
-      received_readings: receivedReadings,
-      expected_interval_ms: expectedMs,
-      offline_threshold_ms: offlineThresholdMs,
-      last_delay_ms: lastDelayMs,
-      max_gap_ms: null,
-      relevant_gap_count: 0,
-      severe_gap_count: 0,
-    };
-  }
-
-  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
-  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
-
-  let maxGapMs = 0;
-  let relevantGapCount = 0;
-  let severeGapCount = 0;
-
-  for (let i = 1; i < sorted.length; i += 1) {
-    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
-    if (!Number.isFinite(delta) || delta <= 0) continue;
-
-    if (delta > maxGapMs) maxGapMs = delta;
-    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
-    if (delta >= severeGapThresholdMs) severeGapCount += 1;
-  }
-
-  let penalty = 0;
-  penalty += relevantGapCount * 2;
-  penalty += severeGapCount * 8;
-
-  if (lastDelayMs !== null) {
-    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
-    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7))
-      penalty += 10;
-  }
-
-  const regularityPct = clamp(Math.round(deliveryPct - penalty), 0, 100);
-
-  let label = "Estável";
-  let tone = "good";
-  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-
-  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
-
-  if (isOffline) {
-    label = "Offline";
-    tone = "bad";
-    summary = "Sem comunicação recente do dispositivo.";
-  } else if (
-    deliveryPct >= 98 &&
-    relevantGapCount <= 1 &&
-    severeGapCount === 0
-  ) {
-    label = "Excelente";
-    tone = "good";
-    summary = "Cobertura muito alta e comunicação muito consistente.";
-  } else if (
-    deliveryPct >= 94 &&
-    relevantGapCount <= 5 &&
-    severeGapCount <= 1
-  ) {
-    label = "Estável";
-    tone = "good";
-    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
-    label = "Com falhas";
-    tone = "warn";
-    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
-  } else {
-    label = "Instável";
-    tone = "bad";
-    summary = "Perdas ou gaps relevantes na comunicação.";
-  }
-
-  return {
-    score: regularityPct,
-    label,
-    tone,
-    summary,
-    delivery_pct: deliveryPct,
-    regularity_pct: regularityPct,
-    expected_readings: expectedReadings,
-    received_readings: receivedReadings,
-    expected_interval_ms: expectedMs,
-    offline_threshold_ms: offlineThresholdMs,
-    last_delay_ms: lastDelayMs,
-    max_gap_ms: maxGapMs || null,
-    relevant_gap_count: relevantGapCount,
-    severe_gap_count: severeGapCount,
-  };
-}
-
 async function getRecentReadingsForAnalysis(deviceId, hours = 24) {
   const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
@@ -888,6 +785,34 @@ async function getRecentReadingsForAnalysis(deviceId, hours = 24) {
   }
 
   return data || [];
+}
+
+async function fetchAllReadingsSince(deviceId, sinceIso) {
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("readings")
+      .select("created_at, temperature, humidity")
+      .eq("device_id", deviceId)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const chunk = data || [];
+    allRows = allRows.concat(chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return allRows;
 }
 
 // -------------------- RECIPIENTS / EMAIL --------------------
@@ -2034,8 +1959,8 @@ app.post("/api/temperature", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings: last24hReadings,
       sendIntervalS: refreshedCfg.send_interval_s,
-      lastSeenIso: currentNowIso,
-      rangeHours: 24,
+      deviceLastSeen: currentNowIso,
+      periodHours: 24,
     });
 
     const predictiveStatus = getPredictiveStatus(last24hReadings, refreshedCfg);
@@ -2053,160 +1978,145 @@ app.post("/api/temperature", async (req, res) => {
   }
 });
 
-
-
-async function fetchAllReadingsSince(deviceId, sinceIso) {
-  const pageSize = 1000;
-  let from = 0;
-  let allRows = [];
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("readings")
-      .select("created_at, temperature, humidity")
-      .eq("device_id", deviceId)
-      .gte("created_at", sinceIso)
-      .order("created_at", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) {
-      throw error;
-    }
-
-    const chunk = data || [];
-    allRows = allRows.concat(chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return allRows;
-}
-
-
 // -------------------- DASHBOARD: DEVICE OVERVIEW --------------------
 app.get("/api/dashboard/device/:id", async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
-app.get("/api/dashboard/device/:id", async (req, res) => {
   try {
     const deviceId = req.params.id;
 
-    // 1) buscar dispositivo
     const { data: deviceRow, error: deviceError } = await supabase
       .from("devices")
       .select("*")
       .eq("device_id", deviceId)
       .maybeSingle();
 
-    if (deviceError) throw deviceError;
-    if (!deviceRow) {
-      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    if (deviceError) {
+      console.error("Erro ao ler devices:", deviceError);
+      return res.status(500).json({ error: "Erro ao obter dispositivo" });
     }
 
-    const cfg = deviceRow.config || {};
-
-    // 2) última leitura
-    const { data: latestReading } = await supabase
+    const { data: latestReading, error: latestError } = await supabase
       .from("readings")
-      .select("temperature, humidity, created_at")
+      .select("*")
       .eq("device_id", deviceId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const temperature = latestReading?.temperature ?? null;
-    const humidity = latestReading?.humidity ?? null;
-    const lastSeenIso = latestReading?.created_at || null;
+    if (latestError) {
+      console.error("Erro ao ler última leitura:", latestError);
+      return res.status(500).json({ error: "Erro ao obter última leitura" });
+    }
 
+    if (!deviceRow && !latestReading) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const cfg = getDeviceConfig(deviceRow);
+    const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
+
+    const temperature =
+      latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
+    const humidity =
+      latestReading?.humidity ?? deviceRow?.last_humidity ?? null;
+
+    const lastSeenIso = deviceRow?.last_seen || latestReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
-      : null;
-
-    const sendIntervalS = Number(cfg.send_interval_s || 30);
-    const offlineThreshold = Math.max(sendIntervalS * 6, 180);
+      : 999999;
 
     const online =
-      lastSeenSeconds !== null && lastSeenSeconds <= offlineThreshold;
+      lastSeenSeconds <=
+      Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
 
-    const normalizedStatus = online ? "normal" : "offline";
+    const normalizedStatus =
+      temperature !== null && humidity !== null
+        ? getDeviceStatus({
+            online,
+            temperature: Number(temperature),
+            humidity: Number(humidity),
+            temp_low_c,
+            temp_high_c,
+            hum_low,
+            hum_high,
+          })
+        : online
+        ? "normal"
+        : "offline";
 
-    // 3) limites
-    const temp_low_c = Number(cfg.temp_low_c ?? null);
-    const temp_high_c = Number(cfg.temp_high_c ?? null);
-    const hum_low = Number(cfg.hum_low ?? null);
-    const hum_high = Number(cfg.hum_high ?? null);
-
-    // 4) leituras últimas 24h (REAL - SEM LIMIT)
     const since24hIso = new Date(
       Date.now() - 24 * 60 * 60 * 1000
     ).toISOString();
 
-    const readings24hRows = await fetchAllReadingsSince(
-      deviceId,
-      since24hIso
-    );
+    const readings24hRows = await fetchAllReadingsSince(deviceId, since24hIso);
 
-    const readings24hCount = readings24hRows.length;
-
-    // 5) alertas últimas 24h
-    const { count: alerts24hCount } = await supabase
-      .from("alerts")
-      .select("*", { count: "exact", head: true })
-      .eq("device_id", deviceId)
-      .eq("event", "triggered")
-      .gte("sent_at", since24hIso);
-
-    // 6) comunicação (CORRIGIDO)
-    const communication_health = getCommunicationHealth({
+    const communicationHealth = getCommunicationHealth({
       readings: readings24hRows,
-      sendIntervalS,
+      sendIntervalS: cfg.send_interval_s,
       deviceLastSeen: lastSeenIso,
       periodHours: 24,
     });
 
-    // 7) resposta final
+    const predictiveStatus = getPredictiveStatus(readings24hRows, cfg);
+
+    const [
+      { count: alerts24hCount, error: alertsCountError },
+      { count: readings24hCount, error: readingsCountError },
+    ] = await Promise.all([
+      supabase
+        .from("alerts")
+        .select("*", { count: "exact", head: true })
+        .eq("device_id", deviceId)
+        .eq("event", "triggered")
+        .gte("sent_at", since24hIso),
+
+      supabase
+        .from("readings")
+        .select("*", { count: "exact", head: true })
+        .eq("device_id", deviceId)
+        .gte("created_at", since24hIso),
+    ]);
+
+    if (alertsCountError) {
+      console.error("Erro ao contar alertas:", alertsCountError);
+      return res.status(500).json({ error: "Erro ao contar alertas" });
+    }
+
+    if (readingsCountError) {
+      console.error("Erro ao contar leituras:", readingsCountError);
+      return res.status(500).json({ error: "Erro ao contar leituras" });
+    }
+
     res.json({
       device_id: deviceId,
-      name: deviceRow.name || deviceId,
-      location: deviceRow.location || "Local não definido",
-
-      temperature:
-        temperature !== null ? Number(temperature) : null,
-      humidity:
-        humidity !== null ? Number(humidity) : null,
-
+      name: deviceRow?.name || deviceId,
+      location: deviceRow?.location || "Local não definido",
+      temperature: temperature !== null ? Number(temperature) : null,
+      humidity: humidity !== null ? Number(humidity) : null,
       temp_low_c,
       temp_high_c,
       hum_low,
       hum_high,
-
-      status: normalizedStatus,
+      status: statusToApiLabel(normalizedStatus),
       online,
       last_seen_seconds: lastSeenSeconds,
-
       alerts_24h: alerts24hCount || 0,
-      total_readings_24h: readings24hCount,
-
+      total_readings_24h: readings24hCount || 0,
       backend_status: "connected",
-      updated_at:
-        deviceRow.updated_at || latestReading?.created_at || null,
-
-      alert_state: deviceRow.alert_state || {},
-
-      communication_health,
+      updated_at: deviceRow?.updated_at || latestReading?.created_at || null,
+      alert_state,
+      communication_health: communicationHealth,
+      predictive_status: predictiveStatus,
     });
   } catch (error) {
-    console.error("dashboard/device:", error);
-    res.status(500).json({
-      error: "Erro ao obter dados do dispositivo",
-    });
+    console.error("Erro em /api/dashboard/device/:id:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
   }
 });
 
-  
 // -------------------- DASHBOARD: DEVICE HEALTH --------------------
 app.get("/api/dashboard/device/:id/health", async (req, res) => {
   if (!isAuthorized(req)) {
@@ -2238,8 +2148,8 @@ app.get("/api/dashboard/device/:id/health", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings,
       sendIntervalS: cfg.send_interval_s,
-      lastSeenIso: deviceRow.last_seen,
-      rangeHours: hours,
+      deviceLastSeen: deviceRow.last_seen,
+      periodHours: hours,
     });
 
     const predictiveStatus = getPredictiveStatus(readings, cfg);
@@ -2424,6 +2334,232 @@ app.get("/api/dashboard/device/:id/summary", async (req, res) => {
   } catch (error) {
     console.error("Erro em /api/dashboard/device/:id/summary:", error);
     res.status(500).json({ error: "Erro interno no servidor" });
+  }
+});
+
+// -------------------- PDF REPORT --------------------
+app.get("/api/sts/device/:id/report", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+    const period = req.query.period || "24h";
+    const { key: periodKey, label: periodLabel, sinceIso } =
+      getReportPeriodRange(period);
+
+    const [
+      { data: deviceRow, error: deviceError },
+      { data: readings, error: readingsError },
+    ] = await Promise.all([
+      supabase
+        .from("devices")
+        .select("*")
+        .eq("device_id", deviceId)
+        .maybeSingle(),
+
+      supabase
+        .from("readings")
+        .select("temperature, humidity, created_at")
+        .eq("device_id", deviceId)
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (deviceError) {
+      console.error("Erro ao obter dispositivo para PDF:", deviceError);
+      return res.status(500).json({ error: "Erro ao obter dispositivo" });
+    }
+
+    if (readingsError) {
+      console.error("Erro ao obter leituras para PDF:", readingsError);
+      return res.status(500).json({ error: "Erro ao obter leituras" });
+    }
+
+    if (!deviceRow) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const rows = readings || [];
+
+    const temperatures = rows
+      .map((row) => Number(row.temperature))
+      .filter((value) => Number.isFinite(value));
+
+    const humidities = rows
+      .map((row) => Number(row.humidity))
+      .filter((value) => Number.isFinite(value));
+
+    const tempMin = temperatures.length ? Math.min(...temperatures) : null;
+    const tempAvg = average(temperatures, 1);
+    const tempMax = temperatures.length ? Math.max(...temperatures) : null;
+
+    const humMin = humidities.length ? Math.min(...humidities) : null;
+    const humAvg = average(humidities, 0);
+    const humMax = humidities.length ? Math.max(...humidities) : null;
+
+    const firstReadingAt = rows[0]?.created_at || null;
+    const lastReadingAt = rows[rows.length - 1]?.created_at || null;
+
+    const safeFilenameName = sanitizeDeviceName(
+      deviceRow?.name,
+      deviceId
+    ).replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    const filePeriod = formatPeriodLabelForFilename(periodKey);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeFilenameName}_relatorio_${filePeriod}.pdf"`
+    );
+
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 42,
+      info: {
+        Title: `Relatório ${sanitizeDeviceName(deviceRow?.name, deviceId)}`,
+        Author: "SmartTempSystems",
+        Subject: "Resumo de leituras",
+      },
+    });
+
+    doc.pipe(res);
+
+    doc
+      .fillColor("#0f172a")
+      .fontSize(22)
+      .font("Helvetica-Bold")
+      .text("SmartTempSystems", 42, 42);
+
+    doc
+      .fillColor("#475569")
+      .fontSize(12)
+      .font("Helvetica")
+      .text("Relatório de leituras", 42, 72);
+
+    doc
+      .roundedRect(42, 108, 511, 92, 12)
+      .fillAndStroke("#f8fafc", "#dbe4ee");
+
+    doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11);
+    doc.text("Dispositivo", 58, 126);
+    doc.text("Device ID", 58, 151);
+    doc.text("Localização", 58, 176);
+
+    doc.text("Período", 320, 126);
+    doc.text("Leituras", 320, 151);
+    doc.text("Gerado em", 320, 176);
+
+    doc.fillColor("#334155").font("Helvetica").fontSize(11);
+    doc.text(sanitizeDeviceName(deviceRow?.name, deviceId), 140, 126);
+    doc.text(deviceId, 140, 151);
+    doc.text(sanitizeLocation(deviceRow?.location), 140, 176);
+
+    doc.text(periodLabel, 390, 126);
+    doc.text(String(rows.length), 390, 151);
+    doc.text(formatDateTimePt(new Date(), true), 390, 176);
+
+    let y = 228;
+
+    doc
+      .fillColor("#0f172a")
+      .font("Helvetica-Bold")
+      .fontSize(15)
+      .text("Resumo de temperatura", 42, y);
+
+    y += 26;
+
+    doc
+      .roundedRect(42, y, 511, 68, 10)
+      .fillAndStroke("#ffffff", "#e2e8f0");
+
+    doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
+    doc.text("MÍNIMA", 62, y + 14);
+    doc.text("MÉDIA", 234, y + 14);
+    doc.text("MÁXIMA", 406, y + 14);
+
+    doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(17);
+    doc.text(tempMin !== null ? `${formatNumber(tempMin, 1)} °C` : "-", 62, y + 31);
+    doc.text(tempAvg !== null ? `${formatNumber(tempAvg, 1)} °C` : "-", 234, y + 31);
+    doc.text(tempMax !== null ? `${formatNumber(tempMax, 1)} °C` : "-", 406, y + 31);
+
+    y += 98;
+
+    doc
+      .fillColor("#0f172a")
+      .font("Helvetica-Bold")
+      .fontSize(15)
+      .text("Resumo de humidade", 42, y);
+
+    y += 26;
+
+    doc
+      .roundedRect(42, y, 511, 68, 10)
+      .fillAndStroke("#ffffff", "#e2e8f0");
+
+    doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
+    doc.text("MÍNIMA", 62, y + 14);
+    doc.text("MÉDIA", 234, y + 14);
+    doc.text("MÁXIMA", 406, y + 14);
+
+    doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(17);
+    doc.text(humMin !== null ? `${formatNumber(humMin, 0)} %` : "-", 62, y + 31);
+    doc.text(humAvg !== null ? `${formatNumber(humAvg, 0)} %` : "-", 234, y + 31);
+    doc.text(humMax !== null ? `${formatNumber(humMax, 0)} %` : "-", 406, y + 31);
+
+    y += 102;
+
+    doc
+      .fillColor("#0f172a")
+      .font("Helvetica-Bold")
+      .fontSize(15)
+      .text("Janela temporal analisada", 42, y);
+
+    y += 26;
+
+    doc
+      .roundedRect(42, y, 511, 82, 10)
+      .fillAndStroke("#ffffff", "#e2e8f0");
+
+    doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
+    doc.text("Primeira leitura", 62, y + 16);
+    doc.text("Última leitura", 62, y + 46);
+
+    doc.fillColor("#0f172a").font("Helvetica").fontSize(11);
+    doc.text(
+      firstReadingAt ? formatDateTimePt(firstReadingAt, true) : "-",
+      170,
+      y + 16
+    );
+    doc.text(
+      lastReadingAt ? formatDateTimePt(lastReadingAt, true) : "-",
+      170,
+      y + 46
+    );
+
+    doc
+      .fillColor("#64748b")
+      .font("Helvetica")
+      .fontSize(9)
+      .text(
+        "Documento gerado automaticamente pela plataforma SmartTempSystems.",
+        42,
+        785,
+        {
+          width: 511,
+          align: "center",
+        }
+      );
+
+    doc.end();
+  } catch (error) {
+    console.error("Erro em /api/sts/device/:id/report:", error);
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Erro ao gerar relatório PDF" });
+    }
   }
 });
 
