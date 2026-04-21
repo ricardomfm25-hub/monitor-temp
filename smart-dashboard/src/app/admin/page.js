@@ -91,10 +91,18 @@ export default function AdminPage() {
   const [alertRecipients, setAlertRecipients] = useState([]);
   const [profile, setProfile] = useState(null);
 
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedUserRole, setSelectedUserRole] = useState("viewer");
-
+  const [deviceSearch, setDeviceSearch] = useState("");
   const [selectedDevice, setSelectedDevice] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedClientRole, setSelectedClientRole] = useState("viewer");
+
+  const [newUser, setNewUser] = useState({
+    full_name: "",
+    email: "",
+    password: "",
+    role: "viewer",
+  });
+
   const [accessUserId, setAccessUserId] = useState("");
   const [canEdit, setCanEdit] = useState(false);
 
@@ -108,13 +116,6 @@ export default function AdminPage() {
     hyst_c: "",
     send_interval_s: "",
     display_standby_min: "",
-  });
-
-  const [newUser, setNewUser] = useState({
-    full_name: "",
-    email: "",
-    password: "",
-    role: "viewer",
   });
 
   const [message, setMessage] = useState("");
@@ -135,20 +136,52 @@ export default function AdminPage() {
     [users]
   );
 
+  const filteredDevices = useMemo(() => {
+    const search = deviceSearch.trim().toLowerCase();
+    if (!search) return devices;
+
+    return devices.filter((device) => {
+      const haystack = [
+        device.device_id,
+        device.name,
+        device.location,
+        device.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(search);
+    });
+  }, [devices, deviceSearch]);
+
   const selectedDeviceData = useMemo(
     () => devices.find((d) => d.device_id === selectedDevice) || null,
     [devices, selectedDevice]
   );
 
-  const selectedUser = useMemo(
-    () => users.find((u) => u.id === selectedUserId) || null,
-    [users, selectedUserId]
-  );
+  const selectedDeviceAccesses = useMemo(() => {
+    if (!selectedDevice) return [];
+    return deviceAccess.filter((row) => row.device_id === selectedDevice);
+  }, [deviceAccess, selectedDevice]);
 
-  const selectedUserAccesses = useMemo(() => {
-    if (!selectedUserId) return [];
-    return deviceAccess.filter((row) => row.user_id === selectedUserId);
-  }, [deviceAccess, selectedUserId]);
+  const selectedDeviceClients = useMemo(() => {
+    return selectedDeviceAccesses
+      .map((access) => {
+        const user = users.find((u) => u.id === access.user_id);
+        if (!user || user.role === "super_admin") return null;
+        return {
+          ...user,
+          access,
+        };
+      })
+      .filter(Boolean);
+  }, [selectedDeviceAccesses, users]);
+
+  const selectedClient = useMemo(
+    () => users.find((u) => u.id === selectedClientId) || null,
+    [users, selectedClientId]
+  );
 
   useEffect(() => {
     loadData({ showLoader: true });
@@ -186,14 +219,12 @@ export default function AdminPage() {
   }, [selectedDeviceData]);
 
   useEffect(() => {
-    if (selectedUser) {
-      setSelectedUserRole(selectedUser.role || "viewer");
-      setAccessUserId(selectedUser.id);
-    } else {
-      setSelectedUserRole("viewer");
-      if (!selectedUserId) setAccessUserId("");
+    if (!selectedClient) {
+      setSelectedClientRole("viewer");
+      return;
     }
-  }, [selectedUser, selectedUserId]);
+    setSelectedClientRole(selectedClient.role || "viewer");
+  }, [selectedClient]);
 
   async function loadData({ showLoader = false } = {}) {
     if (showLoader) setLoading(true);
@@ -242,33 +273,56 @@ export default function AdminPage() {
         return;
       }
 
-      const safeDevices = devicesData || [];
       const safeUsers = profiles || [];
+      const safeDevices = devicesData || [];
+      const safeAccesses = accessData || [];
 
       setProfile(profileData);
       setUsers(safeUsers);
       setDevices(safeDevices);
-      setDeviceAccess(accessData || []);
+      setDeviceAccess(safeAccesses);
       setAlertRecipients(alertData || []);
 
-      if (!selectedDevice && safeDevices.length > 0) {
-        setSelectedDevice(safeDevices[0].device_id);
+      let nextSelectedDevice = selectedDevice;
+      if (!nextSelectedDevice && safeDevices.length > 0) {
+        nextSelectedDevice = safeDevices[0].device_id;
+        setSelectedDevice(nextSelectedDevice);
       } else if (
-        selectedDevice &&
-        !safeDevices.some((d) => d.device_id === selectedDevice)
+        nextSelectedDevice &&
+        !safeDevices.some((d) => d.device_id === nextSelectedDevice)
       ) {
-        setSelectedDevice(safeDevices[0]?.device_id || "");
+        nextSelectedDevice = safeDevices[0]?.device_id || "";
+        setSelectedDevice(nextSelectedDevice);
       }
 
-      if (!selectedUserId && safeUsers.some((u) => u.role !== "super_admin")) {
-        const firstUser = safeUsers.find((u) => u.role !== "super_admin");
-        setSelectedUserId(firstUser?.id || "");
+      const deviceUsers = safeAccesses
+        .filter((row) => row.device_id === nextSelectedDevice)
+        .map((row) => row.user_id);
+
+      if (!selectedClientId && deviceUsers.length > 0) {
+        setSelectedClientId(deviceUsers[0]);
       } else if (
-        selectedUserId &&
-        !safeUsers.some((u) => u.id === selectedUserId)
+        selectedClientId &&
+        !safeUsers.some((u) => u.id === selectedClientId)
+      ) {
+        setSelectedClientId(deviceUsers[0] || "");
+      } else if (
+        selectedClientId &&
+        nextSelectedDevice &&
+        !deviceUsers.includes(selectedClientId)
+      ) {
+        setSelectedClientId(deviceUsers[0] || "");
+      }
+
+      if (!accessUserId && safeUsers.some((u) => u.role !== "super_admin")) {
+        const firstUser = safeUsers.find((u) => u.role !== "super_admin");
+        setAccessUserId(firstUser?.id || "");
+      } else if (
+        accessUserId &&
+        !safeUsers.some((u) => u.id === accessUserId)
       ) {
         const firstUser = safeUsers.find((u) => u.role !== "super_admin");
-        setSelectedUserId(firstUser?.id || "");
+        setAccessUserId(firstUser?.id || "");
       }
     } catch (error) {
       setMessage(error?.message || "Erro ao carregar dados de administração.");
@@ -343,14 +397,14 @@ export default function AdminPage() {
     }
   }
 
-  async function updateSelectedUserRole() {
-    if (!selectedUser) {
-      setMessage("Seleciona um utilizador.");
+  async function updateSelectedClientRole() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
       setMessageType("error");
       return;
     }
 
-    if (!["viewer", "client_admin"].includes(selectedUserRole)) {
+    if (!["viewer", "client_admin"].includes(selectedClientRole)) {
       setMessage("Role inválido.");
       setMessageType("error");
       return;
@@ -363,9 +417,9 @@ export default function AdminPage() {
       const { error } = await supabase
         .from("profiles")
         .update({
-          role: selectedUserRole,
+          role: selectedClientRole,
         })
-        .eq("id", selectedUser.id);
+        .eq("id", selectedClient.id);
 
       if (error) throw error;
 
@@ -380,9 +434,9 @@ export default function AdminPage() {
     }
   }
 
-  async function toggleSelectedUserActive() {
-    if (!selectedUser) {
-      setMessage("Seleciona um utilizador.");
+  async function toggleSelectedClientActive() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
       setMessageType("error");
       return;
     }
@@ -394,14 +448,14 @@ export default function AdminPage() {
       const { error } = await supabase
         .from("profiles")
         .update({
-          is_active: !selectedUser.is_active,
+          is_active: !selectedClient.is_active,
         })
-        .eq("id", selectedUser.id);
+        .eq("id", selectedClient.id);
 
       if (error) throw error;
 
       setMessage(
-        !selectedUser.is_active
+        !selectedClient.is_active
           ? "Utilizador reativado com sucesso."
           : "Utilizador desativado com sucesso."
       );
@@ -415,15 +469,15 @@ export default function AdminPage() {
     }
   }
 
-  async function deleteSelectedUser() {
-    if (!selectedUser) {
-      setMessage("Seleciona um utilizador.");
+  async function deleteSelectedClient() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
       setMessageType("error");
       return;
     }
 
     const confirmed = window.confirm(
-      `Remover totalmente o utilizador "${selectedUser.full_name}"?\n\nEsta ação vai apagar:\n- login\n- perfil\n- acessos a dispositivos\n- preferências de alertas\n\nNão pode ser revertida.`
+      `Remover totalmente o utilizador "${selectedClient.full_name}"?\n\nEsta ação vai apagar:\n- login\n- perfil\n- acessos a dispositivos\n- preferências de alertas\n\nNão pode ser revertida.`
     );
 
     if (!confirmed) return;
@@ -438,7 +492,7 @@ export default function AdminPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_id: selectedUser.id,
+          user_id: selectedClient.id,
         }),
       });
 
@@ -452,7 +506,7 @@ export default function AdminPage() {
 
       setMessage("Utilizador removido totalmente com sucesso.");
       setMessageType("success");
-      setSelectedUserId("");
+      setSelectedClientId("");
       await loadData();
     } catch (error) {
       setMessage(error?.message || "Erro ao remover utilizador.");
@@ -506,6 +560,7 @@ export default function AdminPage() {
 
       setMessage("Acesso atribuído com sucesso.");
       setMessageType("success");
+      setSelectedClientId(accessUserId);
       await loadData();
     } catch (error) {
       setMessage(error?.message || "Erro ao atribuir ou atualizar acesso.");
@@ -529,6 +584,11 @@ export default function AdminPage() {
 
       setMessage("Acesso removido.");
       setMessageType("success");
+
+      if (selectedClientId === userId) {
+        setSelectedClientId("");
+      }
+
       await loadData();
     } catch (error) {
       setMessage(error?.message || "Erro ao remover acesso.");
@@ -720,7 +780,7 @@ export default function AdminPage() {
           <div style={styles.header}>
             <h1 style={styles.title}>Admin Panel</h1>
             <p style={styles.subtitle}>
-              Gestão de utilizadores, acessos, alertas e configuração técnica dos dispositivos
+              Gestão por dispositivo, clientes, alertas e configuração técnica
             </p>
           </div>
 
@@ -760,17 +820,278 @@ export default function AdminPage() {
         ) : null}
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Gestão de utilizador</div>
+          <div style={styles.cardTitle}>1. Selecionar dispositivo</div>
           <div style={styles.cardDescription}>
-            Seleciona um utilizador para gerir role, estado e remoção total da conta.
+            Pesquisa rapidamente por nome, localização ou Device ID e escolhe o dispositivo que queres gerir.
           </div>
 
-          <div style={styles.userManagerGrid}>
-            <div style={styles.userManagerLeft}>
-              <div style={styles.sectionLabel}>Selecionar utilizador</div>
+          <div style={styles.devicePickerGrid}>
+            <div style={styles.devicePickerLeft}>
+              <input
+                type="text"
+                placeholder="Pesquisar dispositivo, localização ou ID"
+                value={deviceSearch}
+                onChange={(e) => setDeviceSearch(e.target.value)}
+                style={styles.input}
+              />
+
               <select
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Selecionar dispositivo</option>
+                {filteredDevices.map((d) => (
+                  <option key={d.device_id} value={d.device_id}>
+                    {d.name ? `${d.name} (${d.device_id})` : d.device_id}
+                  </option>
+                ))}
+              </select>
+
+              <div style={styles.deviceQuickList}>
+                {filteredDevices.length === 0 ? (
+                  <div style={styles.emptyStateSmall}>Nenhum dispositivo encontrado.</div>
+                ) : (
+                  filteredDevices.map((d) => (
+                    <button
+                      key={d.device_id}
+                      type="button"
+                      onClick={() => setSelectedDevice(d.device_id)}
+                      style={{
+                        ...styles.deviceQuickItem,
+                        ...(selectedDevice === d.device_id
+                          ? styles.deviceQuickItemActive
+                          : {}),
+                      }}
+                    >
+                      <div style={styles.deviceQuickName}>
+                        {d.name || d.device_id}
+                      </div>
+                      <div style={styles.deviceQuickMeta}>
+                        {d.device_id} · {d.location || "Sem localização"}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={styles.devicePickerRight}>
+              {!selectedDeviceData ? (
+                <div style={styles.emptyState}>
+                  Seleciona um dispositivo para veres o resumo e os clientes associados.
+                </div>
+              ) : (
+                <>
+                  <div style={styles.selectedDeviceCard}>
+                    <div style={styles.selectedDeviceTop}>
+                      <div>
+                        <div style={styles.selectedDeviceName}>
+                          {selectedDeviceData.name || selectedDeviceData.device_id}
+                        </div>
+                        <div style={styles.meta}>
+                          {selectedDeviceData.device_id}
+                        </div>
+                      </div>
+
+                      <div style={styles.statusBadgeNeutral}>
+                        {selectedDeviceData.status || "Sem estado"}
+                      </div>
+                    </div>
+
+                    <div style={styles.selectedDeviceStats}>
+                      <SmallStat
+                        label="Localização"
+                        value={selectedDeviceData.location || "-"}
+                      />
+                      <SmallStat
+                        label="Última temperatura"
+                        value={formatValue(
+                          selectedDeviceData.last_temperature,
+                          " °C"
+                        )}
+                      />
+                      <SmallStat
+                        label="Última humidade"
+                        value={formatValue(
+                          selectedDeviceData.last_humidity,
+                          " %"
+                        )}
+                      />
+                      <SmallStat
+                        label="Last seen"
+                        value={formatDateTime(selectedDeviceData.last_seen)}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.inlinePanel}>
+                    <div style={styles.sectionLabel}>Clientes deste dispositivo</div>
+                    {selectedDeviceClients.length === 0 ? (
+                      <div style={styles.emptyStateSmall}>
+                        Este dispositivo ainda não tem clientes atribuídos.
+                      </div>
+                    ) : (
+                      <div style={styles.clientChipWrap}>
+                        {selectedDeviceClients.map((client) => (
+                          <button
+                            key={client.id}
+                            type="button"
+                            onClick={() => setSelectedClientId(client.id)}
+                            style={{
+                              ...styles.clientChip,
+                              ...(selectedClientId === client.id
+                                ? styles.clientChipActive
+                                : {}),
+                            }}
+                          >
+                            <div style={styles.clientChipName}>
+                              {client.full_name}
+                            </div>
+                            <div style={styles.clientChipMeta}>
+                              {client.role} · {client.is_active ? "ativo" : "inativo"}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>2. Cliente do dispositivo</div>
+          <div style={styles.cardDescription}>
+            Depois de escolher o dispositivo, gere aqui o cliente associado que pretendes editar.
+          </div>
+
+          {!selectedDevice ? (
+            <div style={styles.emptyState}>
+              Seleciona primeiro um dispositivo.
+            </div>
+          ) : !selectedClient ? (
+            <div style={styles.emptyState}>
+              Seleciona um cliente do dispositivo para gerir role, estado e remoção.
+            </div>
+          ) : (
+            <div style={styles.userManagerGrid}>
+              <div style={styles.userManagerLeft}>
+                <div style={styles.selectedUserCard}>
+                  <div style={styles.selectedUserTop}>
+                    <div>
+                      <div style={styles.selectedUserName}>
+                        {selectedClient.full_name}
+                      </div>
+                      <div style={styles.meta}>{selectedClient.email}</div>
+                    </div>
+
+                    <div
+                      style={{
+                        ...styles.statusBadge,
+                        ...(selectedClient.is_active
+                          ? styles.statusBadgeActive
+                          : styles.statusBadgeInactive),
+                      }}
+                    >
+                      {selectedClient.is_active ? "Ativo" : "Inativo"}
+                    </div>
+                  </div>
+
+                  <div style={styles.selectedUserDetails}>
+                    <SmallStat label="Role atual" value={selectedClient.role} />
+                    <SmallStat label="User ID" value={selectedClient.id} />
+                    <SmallStat
+                      label="Permissão no dispositivo"
+                      value={
+                        selectedDeviceClients.find((c) => c.id === selectedClient.id)
+                          ?.access?.can_edit
+                          ? "Com edição"
+                          : "Só leitura"
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.userManagerRight}>
+                <div style={styles.inlinePanel}>
+                  <div style={styles.sectionLabel}>Alterar role</div>
+                  <div style={styles.inlineControls}>
+                    <select
+                      value={selectedClientRole}
+                      onChange={(e) => setSelectedClientRole(e.target.value)}
+                      style={styles.input}
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="client_admin">Client Admin</option>
+                    </select>
+
+                    <button
+                      onClick={updateSelectedClientRole}
+                      style={styles.primaryButton}
+                      disabled={savingUserRole}
+                    >
+                      {savingUserRole ? "A guardar..." : "Guardar role"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.inlinePanel}>
+                  <div style={styles.sectionLabel}>Estado do utilizador</div>
+                  <div style={styles.inlineControls}>
+                    <button
+                      onClick={toggleSelectedClientActive}
+                      style={
+                        selectedClient.is_active
+                          ? styles.warningButton
+                          : styles.successButton
+                      }
+                      disabled={savingUserActive}
+                    >
+                      {savingUserActive
+                        ? "A atualizar..."
+                        : selectedClient.is_active
+                        ? "Desativar utilizador"
+                        : "Reativar utilizador"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={styles.inlinePanelDanger}>
+                  <div style={styles.sectionLabelDanger}>Zona de remoção</div>
+                  <div style={styles.dangerText}>
+                    Remove totalmente este utilizador, incluindo login, perfil,
+                    acessos e preferências de alertas.
+                  </div>
+                  <div style={styles.inlineControls}>
+                    <button
+                      onClick={deleteSelectedClient}
+                      style={styles.dangerButton}
+                      disabled={deletingUser}
+                    >
+                      {deletingUser ? "A remover..." : "Remover Utilizador"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <div style={styles.twoColGrid}>
+          <section style={styles.card}>
+            <div style={styles.cardTitle}>3. Atribuir cliente a este dispositivo</div>
+            <div style={styles.cardDescription}>
+              Atribui um utilizador ao dispositivo selecionado e define se pode editar configurações.
+            </div>
+
+            <div style={styles.formGrid}>
+              <select
+                value={accessUserId}
+                onChange={(e) => setAccessUserId(e.target.value)}
                 style={styles.input}
               >
                 <option value="">Selecionar utilizador</option>
@@ -781,139 +1102,43 @@ export default function AdminPage() {
                 ))}
               </select>
 
-              <div style={styles.userQuickList}>
-                {nonAdminUsers.map((u) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => setSelectedUserId(u.id)}
-                    style={{
-                      ...styles.userQuickItem,
-                      ...(selectedUserId === u.id
-                        ? styles.userQuickItemActive
-                        : {}),
-                    }}
-                  >
-                    <div style={styles.userQuickName}>{u.full_name}</div>
-                    <div style={styles.userQuickMeta}>
-                      {u.email} · {u.role} · {u.is_active ? "ativo" : "inativo"}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <input
+                type="text"
+                value={
+                  selectedDeviceData
+                    ? `${selectedDeviceData.name || selectedDeviceData.device_id} (${selectedDeviceData.device_id})`
+                    : ""
+                }
+                style={styles.input}
+                disabled
+                placeholder="Seleciona primeiro um dispositivo"
+              />
             </div>
 
-            <div style={styles.userManagerRight}>
-              {!selectedUser ? (
-                <div style={styles.emptyState}>
-                  Seleciona um utilizador para veres e editares os detalhes.
-                </div>
-              ) : (
-                <>
-                  <div style={styles.selectedUserCard}>
-                    <div style={styles.selectedUserTop}>
-                      <div>
-                        <div style={styles.selectedUserName}>
-                          {selectedUser.full_name}
-                        </div>
-                        <div style={styles.meta}>{selectedUser.email}</div>
-                      </div>
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={canEdit}
+                onChange={() => setCanEdit((prev) => !prev)}
+              />
+              <span>Permitir edição de configurações</span>
+            </label>
 
-                      <div
-                        style={{
-                          ...styles.statusBadge,
-                          ...(selectedUser.is_active
-                            ? styles.statusBadgeActive
-                            : styles.statusBadgeInactive),
-                        }}
-                      >
-                        {selectedUser.is_active ? "Ativo" : "Inativo"}
-                      </div>
-                    </div>
-
-                    <div style={styles.selectedUserDetails}>
-                      <SmallStat label="Role atual" value={selectedUser.role} />
-                      <SmallStat
-                        label="Criado em"
-                        value={formatDateTime(selectedUser.created_at)}
-                      />
-                      <SmallStat
-                        label="User ID"
-                        value={selectedUser.id}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={styles.inlinePanel}>
-                    <div style={styles.sectionLabel}>Alterar role</div>
-                    <div style={styles.inlineControls}>
-                      <select
-                        value={selectedUserRole}
-                        onChange={(e) => setSelectedUserRole(e.target.value)}
-                        style={styles.input}
-                      >
-                        <option value="viewer">Viewer</option>
-                        <option value="client_admin">Client Admin</option>
-                      </select>
-
-                      <button
-                        onClick={updateSelectedUserRole}
-                        style={styles.primaryButton}
-                        disabled={savingUserRole}
-                      >
-                        {savingUserRole ? "A guardar..." : "Guardar role"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={styles.inlinePanel}>
-                    <div style={styles.sectionLabel}>Estado do utilizador</div>
-                    <div style={styles.inlineControls}>
-                      <button
-                        onClick={toggleSelectedUserActive}
-                        style={
-                          selectedUser.is_active
-                            ? styles.warningButton
-                            : styles.successButton
-                        }
-                        disabled={savingUserActive}
-                      >
-                        {savingUserActive
-                          ? "A atualizar..."
-                          : selectedUser.is_active
-                          ? "Desativar utilizador"
-                          : "Reativar utilizador"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={styles.inlinePanelDanger}>
-                    <div style={styles.sectionLabelDanger}>Zona de remoção</div>
-                    <div style={styles.dangerText}>
-                      Remove totalmente o utilizador, incluindo login, perfil,
-                      acessos e preferências de alertas.
-                    </div>
-                    <div style={styles.inlineControls}>
-                      <button
-                        onClick={deleteSelectedUser}
-                        style={styles.dangerButton}
-                        disabled={deletingUser}
-                      >
-                        {deletingUser ? "A remover..." : "Remover Utilizador"}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
+            <div style={styles.actionsRow}>
+              <button
+                onClick={assignDevice}
+                style={styles.primaryButton}
+                disabled={savingAccess || !selectedDevice}
+              >
+                {savingAccess ? "A guardar..." : "Atribuir acesso"}
+              </button>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <div style={styles.twoColGrid}>
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Criar utilizador</div>
+            <div style={styles.cardTitle}>4. Criar utilizador</div>
             <div style={styles.cardDescription}>
-              Cria um novo utilizador cliente para futura associação a dispositivos.
+              Cria um novo cliente e depois associa-o ao dispositivo que estiver selecionado.
             </div>
 
             <div style={styles.formGrid}>
@@ -981,426 +1206,335 @@ export default function AdminPage() {
               </button>
             </div>
           </section>
-
-          <section style={styles.card}>
-            <div style={styles.cardTitle}>Atribuir dispositivo</div>
-            <div style={styles.cardDescription}>
-              Liga um utilizador a um dispositivo e define se pode editar configurações.
-            </div>
-
-            <div style={styles.formGrid}>
-              <select
-                value={accessUserId}
-                onChange={(e) => setAccessUserId(e.target.value)}
-                style={styles.input}
-              >
-                <option value="">Selecionar utilizador</option>
-                {nonAdminUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email})
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={selectedDevice}
-                onChange={(e) => setSelectedDevice(e.target.value)}
-                style={styles.input}
-              >
-                <option value="">Selecionar dispositivo</option>
-                {devices.map((d) => (
-                  <option key={d.device_id} value={d.device_id}>
-                    {d.name ? `${d.name} (${d.device_id})` : d.device_id}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <label style={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={canEdit}
-                onChange={() => setCanEdit((prev) => !prev)}
-              />
-              <span>Permitir edição de configurações</span>
-            </label>
-
-            <div style={styles.actionsRow}>
-              <button
-                onClick={assignDevice}
-                style={styles.primaryButton}
-                disabled={savingAccess}
-              >
-                {savingAccess ? "A guardar..." : "Atribuir acesso"}
-              </button>
-            </div>
-          </section>
         </div>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Acessos e alertas do utilizador selecionado</div>
+          <div style={styles.cardTitle}>5. Alertas do cliente neste dispositivo</div>
           <div style={styles.cardDescription}>
-            Para o utilizador escolhido no topo, gere os dispositivos atribuídos e os tipos de alerta por email.
+            Controla exatamente que notificações o cliente selecionado recebe para este dispositivo.
           </div>
 
-          {!selectedUser ? (
+          {!selectedDevice ? (
             <div style={styles.emptyState}>
-              Seleciona um utilizador no topo para veres os acessos e os alertas.
+              Seleciona primeiro um dispositivo.
             </div>
-          ) : selectedUserAccesses.length === 0 ? (
+          ) : !selectedClient ? (
             <div style={styles.emptyState}>
-              Este utilizador ainda não tem dispositivos atribuídos.
+              Seleciona um cliente deste dispositivo para gerir os alertas.
             </div>
           ) : (
-            <div style={styles.deviceList}>
-              {selectedUserAccesses.map((access) => {
-                const device = devices.find((d) => d.device_id === access.device_id);
-                const alertRow = getUserAlertRow(selectedUser.id, access.device_id);
-                const savingPrefix = `${selectedUser.id}_${access.device_id}_`;
+            <div style={styles.alertsBoxLarge}>
+              {(() => {
+                const alertRow = getUserAlertRow(selectedClient.id, selectedDevice);
+                const savingPrefix = `${selectedClient.id}_${selectedDevice}_`;
 
                 return (
-                  <div
-                    key={`${access.user_id}-${access.device_id}`}
-                    style={styles.deviceAccessCard}
-                  >
-                    <div style={styles.deviceAccessTop}>
+                  <>
+                    <div style={styles.alertsHeaderRow}>
                       <div>
-                        <div style={styles.deviceName}>
-                          {device?.name || access.device_id}
+                        <div style={styles.alertsTitle}>
+                          {selectedClient.full_name}
                         </div>
-                        <div style={styles.meta}>
-                          {access.device_id} ·{" "}
-                          {access.can_edit ? "Com edição" : "Só leitura"}
+                        <div style={styles.alertsSubtitle}>
+                          {selectedClient.email} · {selectedDeviceData?.name || selectedDevice}
                         </div>
                       </div>
+                    </div>
 
-                      <button
-                        style={styles.removeBtn}
+                    <div style={styles.toggleWrap}>
+                      <TogglePill
+                        checked={Boolean(alertRow?.is_active)}
                         onClick={() =>
-                          removeAccess(access.user_id, access.device_id)
+                          toggleAlertSetting(
+                            selectedClient,
+                            selectedDevice,
+                            "is_active",
+                            !Boolean(alertRow?.is_active)
+                          )
                         }
-                      >
-                        Remover acesso
-                      </button>
+                        label={`Receber alertas: ${
+                          alertRow?.is_active ? "Sim" : "Não"
+                        }`}
+                      />
+
+                      <TogglePill
+                        checked={Boolean(alertRow?.temp_alerts)}
+                        onClick={() =>
+                          toggleAlertSetting(
+                            selectedClient,
+                            selectedDevice,
+                            "temp_alerts",
+                            !Boolean(alertRow?.temp_alerts)
+                          )
+                        }
+                        label="Temperatura"
+                        disabled={!alertRow?.is_active}
+                      />
+
+                      <TogglePill
+                        checked={Boolean(alertRow?.humidity_alerts)}
+                        onClick={() =>
+                          toggleAlertSetting(
+                            selectedClient,
+                            selectedDevice,
+                            "humidity_alerts",
+                            !Boolean(alertRow?.humidity_alerts)
+                          )
+                        }
+                        label="Humidade"
+                        disabled={!alertRow?.is_active}
+                      />
+
+                      <TogglePill
+                        checked={Boolean(alertRow?.offline_alerts)}
+                        onClick={() =>
+                          toggleAlertSetting(
+                            selectedClient,
+                            selectedDevice,
+                            "offline_alerts",
+                            !Boolean(alertRow?.offline_alerts)
+                          )
+                        }
+                        label="Offline"
+                        disabled={!alertRow?.is_active}
+                      />
+
+                      <TogglePill
+                        checked={Boolean(alertRow?.predictive_alerts)}
+                        onClick={() =>
+                          toggleAlertSetting(
+                            selectedClient,
+                            selectedDevice,
+                            "predictive_alerts",
+                            !Boolean(alertRow?.predictive_alerts)
+                          )
+                        }
+                        label="Preditivo"
+                        disabled={!alertRow?.is_active}
+                      />
                     </div>
 
-                    <div style={styles.alertsBox}>
-                      <div style={styles.alertsTitle}>Alertas por email</div>
-                      <div style={styles.alertsSubtitle}>
-                        Define exatamente que notificações este utilizador recebe para este dispositivo.
+                    {savingAlertKey.startsWith(savingPrefix) ? (
+                      <div style={styles.savingHint}>
+                        A guardar preferências de alertas...
                       </div>
-
-                      <div style={styles.toggleWrap}>
-                        <TogglePill
-                          checked={Boolean(alertRow?.is_active)}
-                          onClick={() =>
-                            toggleAlertSetting(
-                              selectedUser,
-                              access.device_id,
-                              "is_active",
-                              !Boolean(alertRow?.is_active)
-                            )
-                          }
-                          label={`Receber alertas: ${
-                            alertRow?.is_active ? "Sim" : "Não"
-                          }`}
-                        />
-
-                        <TogglePill
-                          checked={Boolean(alertRow?.temp_alerts)}
-                          onClick={() =>
-                            toggleAlertSetting(
-                              selectedUser,
-                              access.device_id,
-                              "temp_alerts",
-                              !Boolean(alertRow?.temp_alerts)
-                            )
-                          }
-                          label="Temperatura"
-                          disabled={!alertRow?.is_active}
-                        />
-
-                        <TogglePill
-                          checked={Boolean(alertRow?.humidity_alerts)}
-                          onClick={() =>
-                            toggleAlertSetting(
-                              selectedUser,
-                              access.device_id,
-                              "humidity_alerts",
-                              !Boolean(alertRow?.humidity_alerts)
-                            )
-                          }
-                          label="Humidade"
-                          disabled={!alertRow?.is_active}
-                        />
-
-                        <TogglePill
-                          checked={Boolean(alertRow?.offline_alerts)}
-                          onClick={() =>
-                            toggleAlertSetting(
-                              selectedUser,
-                              access.device_id,
-                              "offline_alerts",
-                              !Boolean(alertRow?.offline_alerts)
-                            )
-                          }
-                          label="Offline"
-                          disabled={!alertRow?.is_active}
-                        />
-
-                        <TogglePill
-                          checked={Boolean(alertRow?.predictive_alerts)}
-                          onClick={() =>
-                            toggleAlertSetting(
-                              selectedUser,
-                              access.device_id,
-                              "predictive_alerts",
-                              !Boolean(alertRow?.predictive_alerts)
-                            )
-                          }
-                          label="Preditivo"
-                          disabled={!alertRow?.is_active}
-                        />
-                      </div>
-
-                      {savingAlertKey.startsWith(savingPrefix) ? (
-                        <div style={styles.savingHint}>
-                          A guardar preferências de alertas...
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
+                    ) : null}
+                  </>
                 );
-              })}
+              })()}
             </div>
           )}
         </section>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Configuração do dispositivo</div>
+          <div style={styles.cardTitle}>6. Configuração do dispositivo</div>
           <div style={styles.cardDescription}>
             Ajusta os limites operacionais e parâmetros técnicos do dispositivo selecionado.
           </div>
 
-          <div style={styles.configTopRow}>
-            <select
-              value={selectedDevice}
-              onChange={(e) => setSelectedDevice(e.target.value)}
-              style={styles.input}
-            >
-              <option value="">Selecionar dispositivo</option>
-              {devices.map((d) => (
-                <option key={d.device_id} value={d.device_id}>
-                  {d.name ? `${d.name} (${d.device_id})` : d.device_id}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!selectedDeviceData ? (
+            <div style={styles.emptyState}>
+              Seleciona um dispositivo para editar a configuração.
+            </div>
+          ) : (
+            <>
+              <div style={styles.configSectionTitle}>Identificação</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Nome do dispositivo"
+                  help="Nome apresentado na dashboard, emails e área administrativa."
+                >
+                  <input
+                    type="text"
+                    placeholder="Nome do dispositivo"
+                    value={deviceForm.name}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        name: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
 
-          <div style={styles.configSectionTitle}>Identificação</div>
-          <div style={styles.configGrid}>
-            <ConfigField
-              label="Nome do dispositivo"
-              help="Nome apresentado na dashboard, emails e área administrativa."
-            >
-              <input
-                type="text"
-                placeholder="Nome do dispositivo"
-                value={deviceForm.name}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    name: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
+                <ConfigField
+                  label="Localização"
+                  help="Descrição do local físico onde o dispositivo está instalado."
+                >
+                  <input
+                    type="text"
+                    placeholder="Localização"
+                    value={deviceForm.location}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        location: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
 
-            <ConfigField
-              label="Localização"
-              help="Descrição do local físico onde o dispositivo está instalado."
-            >
-              <input
-                type="text"
-                placeholder="Localização"
-                value={deviceForm.location}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    location: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
-          </div>
+              <div style={styles.configSectionTitle}>Limites de temperatura</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Temperatura mínima (°C)"
+                  help="Abaixo deste valor, o sistema entra em alerta de temperatura baixa."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Temp. mínima"
+                    value={deviceForm.temp_low_c}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        temp_low_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
 
-          <div style={styles.configSectionTitle}>Limites de temperatura</div>
-          <div style={styles.configGrid}>
-            <ConfigField
-              label="Temperatura mínima (°C)"
-              help="Abaixo deste valor, o sistema entra em alerta de temperatura baixa."
-            >
-              <input
-                type="number"
-                step="0.1"
-                placeholder="Temp. mínima"
-                value={deviceForm.temp_low_c}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    temp_low_c: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
+                <ConfigField
+                  label="Temperatura máxima (°C)"
+                  help="Acima deste valor, o sistema entra em alerta de temperatura alta."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Temp. máxima"
+                    value={deviceForm.temp_high_c}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        temp_high_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
 
-            <ConfigField
-              label="Temperatura máxima (°C)"
-              help="Acima deste valor, o sistema entra em alerta de temperatura alta."
-            >
-              <input
-                type="number"
-                step="0.1"
-                placeholder="Temp. máxima"
-                value={deviceForm.temp_high_c}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    temp_high_c: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
-          </div>
+              <div style={styles.configSectionTitle}>Limites de humidade</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Humidade mínima (%)"
+                  help="Abaixo deste valor, o sistema entra em alerta de humidade baixa."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Humidade mínima"
+                    value={deviceForm.hum_low}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hum_low: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
 
-          <div style={styles.configSectionTitle}>Limites de humidade</div>
-          <div style={styles.configGrid}>
-            <ConfigField
-              label="Humidade mínima (%)"
-              help="Abaixo deste valor, o sistema entra em alerta de humidade baixa."
-            >
-              <input
-                type="number"
-                step="1"
-                placeholder="Humidade mínima"
-                value={deviceForm.hum_low}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    hum_low: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
+                <ConfigField
+                  label="Humidade máxima (%)"
+                  help="Acima deste valor, o sistema entra em alerta de humidade alta."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Humidade máxima"
+                    value={deviceForm.hum_high}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hum_high: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
 
-            <ConfigField
-              label="Humidade máxima (%)"
-              help="Acima deste valor, o sistema entra em alerta de humidade alta."
-            >
-              <input
-                type="number"
-                step="1"
-                placeholder="Humidade máxima"
-                value={deviceForm.hum_high}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    hum_high: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
-          </div>
+              <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Histerese (°C)"
+                  help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Histerese"
+                    value={deviceForm.hyst_c}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hyst_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
 
-          <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
-          <div style={styles.configGrid}>
-            <ConfigField
-              label="Histerese (°C)"
-              help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
-            >
-              <input
-                type="number"
-                step="0.1"
-                placeholder="Histerese"
-                value={deviceForm.hyst_c}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    hyst_c: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
+                <ConfigField
+                  label="Intervalo de envio (s)"
+                  help="Tempo entre cada envio de leitura do dispositivo para o backend."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Intervalo de envio"
+                    value={deviceForm.send_interval_s}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        send_interval_s: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
 
-            <ConfigField
-              label="Intervalo de envio (s)"
-              help="Tempo entre cada envio de leitura do dispositivo para o backend."
-            >
-              <input
-                type="number"
-                step="1"
-                placeholder="Intervalo de envio"
-                value={deviceForm.send_interval_s}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    send_interval_s: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
+                <ConfigField
+                  label="Standby do display (min)"
+                  help="Minutos até o ecrã entrar em standby para poupança de energia."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Standby display"
+                    value={deviceForm.display_standby_min}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        display_standby_min: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
 
-            <ConfigField
-              label="Standby do display (min)"
-              help="Minutos até o ecrã entrar em standby para poupança de energia."
-            >
-              <input
-                type="number"
-                step="1"
-                placeholder="Standby display"
-                value={deviceForm.display_standby_min}
-                onChange={(e) =>
-                  setDeviceForm((prev) => ({
-                    ...prev,
-                    display_standby_min: e.target.value,
-                  }))
-                }
-                style={styles.input}
-                disabled={!selectedDevice}
-              />
-            </ConfigField>
-          </div>
-
-          <div style={styles.actionsRow}>
-            <button
-              onClick={saveDeviceConfig}
-              style={styles.primaryButton}
-              disabled={savingDevice || !selectedDevice}
-            >
-              {savingDevice ? "A guardar..." : "Guardar dispositivo"}
-            </button>
-          </div>
+              <div style={styles.actionsRow}>
+                <button
+                  onClick={saveDeviceConfig}
+                  style={styles.primaryButton}
+                  disabled={savingDevice}
+                >
+                  {savingDevice ? "A guardar..." : "Guardar dispositivo"}
+                </button>
+              </div>
+            </>
+          )}
         </section>
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Informação técnica do dispositivo</div>
+            <div style={styles.cardTitle}>7. Informação técnica do dispositivo</div>
             <div style={styles.cardDescription}>
               Estado atual e dados principais do dispositivo selecionado.
             </div>
@@ -1427,7 +1561,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Configuração raw</div>
+            <div style={styles.cardTitle}>8. Configuração raw</div>
             <div style={styles.cardDescription}>
               Vista técnica completa do objeto de configuração atual do dispositivo.
             </div>
@@ -1453,7 +1587,7 @@ const styles = {
   },
 
   container: {
-    maxWidth: "1320px",
+    maxWidth: "1360px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -1498,42 +1632,6 @@ const styles = {
     fontSize: "13px",
     color: "#93c5fd",
     fontWeight: 700,
-  },
-
-  twoColGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
-    gap: "20px",
-  },
-
-  userManagerGrid: {
-    display: "grid",
-    gridTemplateColumns: "minmax(320px, 420px) minmax(0, 1fr)",
-    gap: "20px",
-  },
-
-  userManagerLeft: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  },
-
-  userManagerRight: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  },
-
-  sectionLabel: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#cbd5e1",
-  },
-
-  sectionLabelDanger: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#fecaca",
   },
 
   secondaryButton: {
@@ -1617,39 +1715,10 @@ const styles = {
     marginBottom: "16px",
   },
 
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "12px",
-  },
-
-  input: {
-    width: "100%",
-    border: "1px solid #253246",
-    background: "#0a1322",
-    color: "#f8fafc",
-    borderRadius: "12px",
-    padding: "12px 14px",
-    fontSize: "14px",
-    outline: "none",
-    minHeight: "44px",
-    boxSizing: "border-box",
-  },
-
-  checkboxRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    marginTop: "14px",
-    fontSize: "14px",
+  loadingText: {
     color: "#cbd5e1",
-  },
-
-  actionsRow: {
-    marginTop: "16px",
-    display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
+    fontSize: "14px",
+    fontWeight: 700,
   },
 
   messageSuccess: {
@@ -1670,10 +1739,39 @@ const styles = {
     fontWeight: 700,
   },
 
-  loadingText: {
-    color: "#cbd5e1",
+  input: {
+    width: "100%",
+    border: "1px solid #253246",
+    background: "#0a1322",
+    color: "#f8fafc",
+    borderRadius: "12px",
+    padding: "12px 14px",
     fontSize: "14px",
-    fontWeight: 700,
+    outline: "none",
+    minHeight: "44px",
+    boxSizing: "border-box",
+  },
+
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "12px",
+  },
+
+  actionsRow: {
+    marginTop: "16px",
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+
+  checkboxRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginTop: "14px",
+    fontSize: "14px",
+    color: "#cbd5e1",
   },
 
   emptyState: {
@@ -1685,7 +1783,37 @@ const styles = {
     fontSize: "14px",
   },
 
-  userQuickList: {
+  emptyStateSmall: {
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+
+  twoColGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+    gap: "20px",
+  },
+
+  devicePickerGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(320px, 430px) minmax(0, 1fr)",
+    gap: "20px",
+  },
+
+  devicePickerLeft: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  devicePickerRight: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+  },
+
+  deviceQuickList: {
     display: "flex",
     flexDirection: "column",
     gap: "10px",
@@ -1694,7 +1822,7 @@ const styles = {
     paddingRight: "4px",
   },
 
-  userQuickItem: {
+  deviceQuickItem: {
     textAlign: "left",
     background: "#0f172a",
     border: "1px solid #1e293b",
@@ -1704,22 +1832,114 @@ const styles = {
     color: "#e5edf7",
   },
 
-  userQuickItemActive: {
+  deviceQuickItemActive: {
     border: "1px solid #3b82f6",
     background: "#132033",
     boxShadow: "0 0 0 1px rgba(59,130,246,0.25) inset",
   },
 
-  userQuickName: {
+  deviceQuickName: {
     fontSize: "14px",
     fontWeight: 800,
     color: "#f8fafc",
   },
 
-  userQuickMeta: {
+  deviceQuickMeta: {
     fontSize: "12px",
     color: "#94a3b8",
     marginTop: "5px",
+  },
+
+  selectedDeviceCard: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "18px",
+    padding: "18px",
+  },
+
+  selectedDeviceTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "14px",
+  },
+
+  selectedDeviceName: {
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  selectedDeviceStats: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+  },
+
+  statusBadgeNeutral: {
+    borderRadius: "999px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+    background: "#111c2e",
+    border: "1px solid #334155",
+    color: "#cbd5e1",
+  },
+
+  clientChipWrap: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+
+  clientChip: {
+    textAlign: "left",
+    background: "#0b1220",
+    border: "1px solid #223047",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    cursor: "pointer",
+    minWidth: "220px",
+    color: "#e5edf7",
+  },
+
+  clientChipActive: {
+    border: "1px solid #3b82f6",
+    background: "#132033",
+    boxShadow: "0 0 0 1px rgba(59,130,246,0.25) inset",
+  },
+
+  clientChipName: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  clientChipMeta: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginTop: "4px",
+  },
+
+  userManagerGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(320px, 430px) minmax(0, 1fr)",
+    gap: "20px",
+  },
+
+  userManagerLeft: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+  },
+
+  userManagerRight: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
   },
 
   selectedUserCard: {
@@ -1750,23 +1970,15 @@ const styles = {
     gap: "12px",
   },
 
-  statusBadge: {
-    borderRadius: "999px",
-    padding: "6px 12px",
-    fontSize: "12px",
+  sectionLabel: {
+    fontSize: "13px",
     fontWeight: 800,
-    whiteSpace: "nowrap",
+    color: "#cbd5e1",
   },
 
-  statusBadgeActive: {
-    background: "#0f3b22",
-    border: "1px solid #22c55e",
-    color: "#bbf7d0",
-  },
-
-  statusBadgeInactive: {
-    background: "#3f1d1d",
-    border: "1px solid #ef4444",
+  sectionLabelDanger: {
+    fontSize: "13px",
+    fontWeight: 800,
     color: "#fecaca",
   },
 
@@ -1790,17 +2002,37 @@ const styles = {
     gap: "12px",
   },
 
+  inlineControls: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+
   dangerText: {
     fontSize: "13px",
     lineHeight: 1.5,
     color: "#fecaca",
   },
 
-  inlineControls: {
-    display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
-    alignItems: "center",
+  statusBadge: {
+    borderRadius: "999px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  statusBadgeActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
+  },
+
+  statusBadgeInactive: {
+    background: "#3f1d1d",
+    border: "1px solid #ef4444",
+    color: "#fecaca",
   },
 
   statsGrid: {
@@ -1832,9 +2064,67 @@ const styles = {
     overflowWrap: "anywhere",
   },
 
-  configTopRow: {
-    marginBottom: "18px",
-    maxWidth: "420px",
+  alertsBoxLarge: {
+    background: "#0b1220",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "16px",
+  },
+
+  alertsHeaderRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "12px",
+  },
+
+  alertsTitle: {
+    fontSize: "15px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  alertsSubtitle: {
+    fontSize: "12px",
+    color: "#8fa1b9",
+    marginTop: "4px",
+    lineHeight: 1.45,
+  },
+
+  toggleWrap: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+
+  togglePill: {
+    borderRadius: "999px",
+    padding: "10px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  },
+
+  togglePillActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
+  },
+
+  togglePillInactive: {
+    background: "#1f2937",
+    border: "1px solid #334155",
+    color: "#cbd5e1",
+  },
+
+  savingHint: {
+    marginTop: "10px",
+    fontSize: "12px",
+    color: "#93c5fd",
+    fontWeight: 700,
   },
 
   configSectionTitle: {
@@ -1889,102 +2179,6 @@ const styles = {
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  },
-
-  deviceList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-  },
-
-  deviceAccessCard: {
-    background: "#020617",
-    border: "1px solid #172033",
-    padding: "14px",
-    borderRadius: "14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-  },
-
-  deviceAccessTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "12px",
-    flexWrap: "wrap",
-  },
-
-  deviceName: {
-    fontWeight: 800,
-    color: "#f8fafc",
-    fontSize: "15px",
-  },
-
-  removeBtn: {
-    background: "#7f1d1d",
-    border: "1px solid #b91c1c",
-    padding: "8px 10px",
-    borderRadius: "8px",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: 700,
-  },
-
-  alertsBox: {
-    background: "#0b1220",
-    border: "1px solid #1e293b",
-    borderRadius: "14px",
-    padding: "14px",
-  },
-
-  alertsTitle: {
-    fontSize: "14px",
-    fontWeight: 800,
-    color: "#f8fafc",
-  },
-
-  alertsSubtitle: {
-    fontSize: "12px",
-    color: "#8fa1b9",
-    marginTop: "6px",
-    marginBottom: "12px",
-    lineHeight: 1.45,
-  },
-
-  toggleWrap: {
-    display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
-  },
-
-  togglePill: {
-    borderRadius: "999px",
-    padding: "10px 12px",
-    fontSize: "12px",
-    fontWeight: 800,
-    cursor: "pointer",
-    transition: "all 0.15s ease",
-  },
-
-  togglePillActive: {
-    background: "#0f3b22",
-    border: "1px solid #22c55e",
-    color: "#bbf7d0",
-  },
-
-  togglePillInactive: {
-    background: "#1f2937",
-    border: "1px solid #334155",
-    color: "#cbd5e1",
-  },
-
-  savingHint: {
-    marginTop: "10px",
-    fontSize: "12px",
-    color: "#93c5fd",
-    fontWeight: 700,
   },
 
   meta: {
