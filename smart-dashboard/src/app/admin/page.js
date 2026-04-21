@@ -92,6 +92,7 @@ export default function AdminPage() {
   const [profile, setProfile] = useState(null);
 
   const [deviceSearch, setDeviceSearch] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
   const [selectedDevice, setSelectedDevice] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedClientRole, setSelectedClientRole] = useState("viewer");
@@ -177,6 +178,19 @@ export default function AdminPage() {
       })
       .filter(Boolean);
   }, [selectedDeviceAccesses, users]);
+
+  const filteredSelectedDeviceClients = useMemo(() => {
+    const search = clientSearch.trim().toLowerCase();
+    if (!search) return selectedDeviceClients;
+
+    return selectedDeviceClients.filter((client) => {
+      const haystack = [client.full_name, client.email, client.role]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [selectedDeviceClients, clientSearch]);
 
   const selectedClient = useMemo(
     () => users.find((u) => u.id === selectedClientId) || null,
@@ -819,327 +833,9 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        <section style={styles.card}>
-          <div style={styles.cardTitle}>1. Selecionar dispositivo</div>
-          <div style={styles.cardDescription}>
-            Pesquisa rapidamente por nome, localização ou Device ID e escolhe o dispositivo que queres gerir.
-          </div>
-
-          <div style={styles.devicePickerGrid}>
-            <div style={styles.devicePickerLeft}>
-              <input
-                type="text"
-                placeholder="Pesquisar dispositivo, localização ou ID"
-                value={deviceSearch}
-                onChange={(e) => setDeviceSearch(e.target.value)}
-                style={styles.input}
-              />
-
-              <select
-                value={selectedDevice}
-                onChange={(e) => setSelectedDevice(e.target.value)}
-                style={styles.input}
-              >
-                <option value="">Selecionar dispositivo</option>
-                {filteredDevices.map((d) => (
-                  <option key={d.device_id} value={d.device_id}>
-                    {d.name ? `${d.name} (${d.device_id})` : d.device_id}
-                  </option>
-                ))}
-              </select>
-
-              <div style={styles.deviceQuickList}>
-                {filteredDevices.length === 0 ? (
-                  <div style={styles.emptyStateSmall}>Nenhum dispositivo encontrado.</div>
-                ) : (
-                  filteredDevices.map((d) => (
-                    <button
-                      key={d.device_id}
-                      type="button"
-                      onClick={() => setSelectedDevice(d.device_id)}
-                      style={{
-                        ...styles.deviceQuickItem,
-                        ...(selectedDevice === d.device_id
-                          ? styles.deviceQuickItemActive
-                          : {}),
-                      }}
-                    >
-                      <div style={styles.deviceQuickName}>
-                        {d.name || d.device_id}
-                      </div>
-                      <div style={styles.deviceQuickMeta}>
-                        {d.device_id} · {d.location || "Sem localização"}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div style={styles.devicePickerRight}>
-              {!selectedDeviceData ? (
-                <div style={styles.emptyState}>
-                  Seleciona um dispositivo para veres o resumo e os clientes associados.
-                </div>
-              ) : (
-                <>
-                  <div style={styles.selectedDeviceCard}>
-                    <div style={styles.selectedDeviceTop}>
-                      <div>
-                        <div style={styles.selectedDeviceName}>
-                          {selectedDeviceData.name || selectedDeviceData.device_id}
-                        </div>
-                        <div style={styles.meta}>
-                          {selectedDeviceData.device_id}
-                        </div>
-                      </div>
-
-                      <div style={styles.statusBadgeNeutral}>
-                        {selectedDeviceData.status || "Sem estado"}
-                      </div>
-                    </div>
-
-                    <div style={styles.selectedDeviceStats}>
-                      <SmallStat
-                        label="Localização"
-                        value={selectedDeviceData.location || "-"}
-                      />
-                      <SmallStat
-                        label="Última temperatura"
-                        value={formatValue(
-                          selectedDeviceData.last_temperature,
-                          " °C"
-                        )}
-                      />
-                      <SmallStat
-                        label="Última humidade"
-                        value={formatValue(
-                          selectedDeviceData.last_humidity,
-                          " %"
-                        )}
-                      />
-                      <SmallStat
-                        label="Last seen"
-                        value={formatDateTime(selectedDeviceData.last_seen)}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={styles.inlinePanel}>
-                    <div style={styles.sectionLabel}>Clientes deste dispositivo</div>
-                    {selectedDeviceClients.length === 0 ? (
-                      <div style={styles.emptyStateSmall}>
-                        Este dispositivo ainda não tem clientes atribuídos.
-                      </div>
-                    ) : (
-                      <div style={styles.clientChipWrap}>
-                        {selectedDeviceClients.map((client) => (
-                          <button
-                            key={client.id}
-                            type="button"
-                            onClick={() => setSelectedClientId(client.id)}
-                            style={{
-                              ...styles.clientChip,
-                              ...(selectedClientId === client.id
-                                ? styles.clientChipActive
-                                : {}),
-                            }}
-                          >
-                            <div style={styles.clientChipName}>
-                              {client.full_name}
-                            </div>
-                            <div style={styles.clientChipMeta}>
-                              {client.role} · {client.is_active ? "ativo" : "inativo"}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section style={styles.card}>
-          <div style={styles.cardTitle}>2. Cliente do dispositivo</div>
-          <div style={styles.cardDescription}>
-            Depois de escolher o dispositivo, gere aqui o cliente associado que pretendes editar.
-          </div>
-
-          {!selectedDevice ? (
-            <div style={styles.emptyState}>
-              Seleciona primeiro um dispositivo.
-            </div>
-          ) : !selectedClient ? (
-            <div style={styles.emptyState}>
-              Seleciona um cliente do dispositivo para gerir role, estado e remoção.
-            </div>
-          ) : (
-            <div style={styles.userManagerGrid}>
-              <div style={styles.userManagerLeft}>
-                <div style={styles.selectedUserCard}>
-                  <div style={styles.selectedUserTop}>
-                    <div>
-                      <div style={styles.selectedUserName}>
-                        {selectedClient.full_name}
-                      </div>
-                      <div style={styles.meta}>{selectedClient.email}</div>
-                    </div>
-
-                    <div
-                      style={{
-                        ...styles.statusBadge,
-                        ...(selectedClient.is_active
-                          ? styles.statusBadgeActive
-                          : styles.statusBadgeInactive),
-                      }}
-                    >
-                      {selectedClient.is_active ? "Ativo" : "Inativo"}
-                    </div>
-                  </div>
-
-                  <div style={styles.selectedUserDetails}>
-                    <SmallStat label="Role atual" value={selectedClient.role} />
-                    <SmallStat label="User ID" value={selectedClient.id} />
-                    <SmallStat
-                      label="Permissão no dispositivo"
-                      value={
-                        selectedDeviceClients.find((c) => c.id === selectedClient.id)
-                          ?.access?.can_edit
-                          ? "Com edição"
-                          : "Só leitura"
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div style={styles.userManagerRight}>
-                <div style={styles.inlinePanel}>
-                  <div style={styles.sectionLabel}>Alterar role</div>
-                  <div style={styles.inlineControls}>
-                    <select
-                      value={selectedClientRole}
-                      onChange={(e) => setSelectedClientRole(e.target.value)}
-                      style={styles.input}
-                    >
-                      <option value="viewer">Viewer</option>
-                      <option value="client_admin">Client Admin</option>
-                    </select>
-
-                    <button
-                      onClick={updateSelectedClientRole}
-                      style={styles.primaryButton}
-                      disabled={savingUserRole}
-                    >
-                      {savingUserRole ? "A guardar..." : "Guardar role"}
-                    </button>
-                  </div>
-                </div>
-
-                <div style={styles.inlinePanel}>
-                  <div style={styles.sectionLabel}>Estado do utilizador</div>
-                  <div style={styles.inlineControls}>
-                    <button
-                      onClick={toggleSelectedClientActive}
-                      style={
-                        selectedClient.is_active
-                          ? styles.warningButton
-                          : styles.successButton
-                      }
-                      disabled={savingUserActive}
-                    >
-                      {savingUserActive
-                        ? "A atualizar..."
-                        : selectedClient.is_active
-                        ? "Desativar utilizador"
-                        : "Reativar utilizador"}
-                    </button>
-                  </div>
-                </div>
-
-                <div style={styles.inlinePanelDanger}>
-                  <div style={styles.sectionLabelDanger}>Zona de remoção</div>
-                  <div style={styles.dangerText}>
-                    Remove totalmente este utilizador, incluindo login, perfil,
-                    acessos e preferências de alertas.
-                  </div>
-                  <div style={styles.inlineControls}>
-                    <button
-                      onClick={deleteSelectedClient}
-                      style={styles.dangerButton}
-                      disabled={deletingUser}
-                    >
-                      {deletingUser ? "A remover..." : "Remover Utilizador"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <div style={styles.twoColGrid}>
+        <div style={styles.topGrid}>
           <section style={styles.card}>
-            <div style={styles.cardTitle}>3. Atribuir cliente a este dispositivo</div>
-            <div style={styles.cardDescription}>
-              Atribui um utilizador ao dispositivo selecionado e define se pode editar configurações.
-            </div>
-
-            <div style={styles.formGrid}>
-              <select
-                value={accessUserId}
-                onChange={(e) => setAccessUserId(e.target.value)}
-                style={styles.input}
-              >
-                <option value="">Selecionar utilizador</option>
-                {nonAdminUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email})
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="text"
-                value={
-                  selectedDeviceData
-                    ? `${selectedDeviceData.name || selectedDeviceData.device_id} (${selectedDeviceData.device_id})`
-                    : ""
-                }
-                style={styles.input}
-                disabled
-                placeholder="Seleciona primeiro um dispositivo"
-              />
-            </div>
-
-            <label style={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={canEdit}
-                onChange={() => setCanEdit((prev) => !prev)}
-              />
-              <span>Permitir edição de configurações</span>
-            </label>
-
-            <div style={styles.actionsRow}>
-              <button
-                onClick={assignDevice}
-                style={styles.primaryButton}
-                disabled={savingAccess || !selectedDevice}
-              >
-                {savingAccess ? "A guardar..." : "Atribuir acesso"}
-              </button>
-            </div>
-          </section>
-
-          <section style={styles.card}>
-            <div style={styles.cardTitle}>4. Criar utilizador</div>
-            <div style={styles.cardDescription}>
-              Cria um novo cliente e depois associa-o ao dispositivo que estiver selecionado.
-            </div>
+            <div style={styles.cardTitle}>Criar utilizador</div>
 
             <div style={styles.formGrid}>
               <input
@@ -1206,131 +902,424 @@ export default function AdminPage() {
               </button>
             </div>
           </section>
+
+          <section style={styles.card}>
+            <div style={styles.cardTitle}>Atribuir dispositivo</div>
+
+            <div style={styles.formGrid}>
+              <select
+                value={accessUserId}
+                onChange={(e) => setAccessUserId(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Selecionar utilizador</option>
+                {nonAdminUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                value={
+                  selectedDeviceData
+                    ? `${selectedDeviceData.name || selectedDeviceData.device_id} (${selectedDeviceData.device_id})`
+                    : ""
+                }
+                style={styles.input}
+                disabled
+                placeholder="Seleciona primeiro um dispositivo"
+              />
+            </div>
+
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={canEdit}
+                onChange={() => setCanEdit((prev) => !prev)}
+              />
+              <span>Permitir edição de configurações</span>
+            </label>
+
+            <div style={styles.actionsRow}>
+              <button
+                onClick={assignDevice}
+                style={styles.primaryButton}
+                disabled={savingAccess || !selectedDevice}
+              >
+                {savingAccess ? "A guardar..." : "Atribuir acesso"}
+              </button>
+            </div>
+          </section>
         </div>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>5. Alertas do cliente neste dispositivo</div>
-          <div style={styles.cardDescription}>
-            Controla exatamente que notificações o cliente selecionado recebe para este dispositivo.
+          <div style={styles.cardTitle}>Selecionar dispositivo</div>
+
+          <div style={styles.devicePickerGrid}>
+            <div style={styles.devicePickerLeft}>
+              <input
+                type="text"
+                placeholder="Pesquisar dispositivo, localização ou ID"
+                value={deviceSearch}
+                onChange={(e) => setDeviceSearch(e.target.value)}
+                style={styles.input}
+              />
+
+              <select
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Selecionar dispositivo</option>
+                {filteredDevices.map((d) => (
+                  <option key={d.device_id} value={d.device_id}>
+                    {d.name ? `${d.name} (${d.device_id})` : d.device_id}
+                  </option>
+                ))}
+              </select>
+
+              <div style={styles.deviceQuickList}>
+                {filteredDevices.length === 0 ? (
+                  <div style={styles.emptyStateSmall}>Nenhum dispositivo encontrado.</div>
+                ) : (
+                  filteredDevices.map((d) => (
+                    <button
+                      key={d.device_id}
+                      type="button"
+                      onClick={() => setSelectedDevice(d.device_id)}
+                      style={{
+                        ...styles.deviceQuickItem,
+                        ...(selectedDevice === d.device_id
+                          ? styles.deviceQuickItemActive
+                          : {}),
+                      }}
+                    >
+                      <div style={styles.deviceQuickName}>
+                        {d.name || d.device_id}
+                      </div>
+                      <div style={styles.deviceQuickMeta}>
+                        {d.device_id} · {d.location || "Sem localização"}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={styles.devicePickerRight}>
+              {!selectedDeviceData ? (
+                <div style={styles.emptyState}>
+                  Seleciona um dispositivo para veres o resumo.
+                </div>
+              ) : (
+                <div style={styles.selectedDeviceCard}>
+                  <div style={styles.selectedDeviceTop}>
+                    <div>
+                      <div style={styles.selectedDeviceName}>
+                        {selectedDeviceData.name || selectedDeviceData.device_id}
+                      </div>
+                      <div style={styles.meta}>
+                        {selectedDeviceData.device_id}
+                      </div>
+                    </div>
+
+                    <div style={styles.statusBadgeNeutral}>
+                      {selectedDeviceData.status || "Sem estado"}
+                    </div>
+                  </div>
+
+                  <div style={styles.selectedDeviceStats}>
+                    <SmallStat
+                      label="Localização"
+                      value={selectedDeviceData.location || "-"}
+                    />
+                    <SmallStat
+                      label="Última temperatura"
+                      value={formatValue(
+                        selectedDeviceData.last_temperature,
+                        " °C"
+                      )}
+                    />
+                    <SmallStat
+                      label="Última humidade"
+                      value={formatValue(
+                        selectedDeviceData.last_humidity,
+                        " %"
+                      )}
+                    />
+                    <SmallStat
+                      label="Last seen"
+                      value={formatDateTime(selectedDeviceData.last_seen)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>Cliente do dispositivo</div>
 
           {!selectedDevice ? (
             <div style={styles.emptyState}>
               Seleciona primeiro um dispositivo.
             </div>
-          ) : !selectedClient ? (
-            <div style={styles.emptyState}>
-              Seleciona um cliente deste dispositivo para gerir os alertas.
-            </div>
           ) : (
-            <div style={styles.alertsBoxLarge}>
-              {(() => {
-                const alertRow = getUserAlertRow(selectedClient.id, selectedDevice);
-                const savingPrefix = `${selectedClient.id}_${selectedDevice}_`;
+            <div style={styles.clientSectionGrid}>
+              <div style={styles.clientListPanel}>
+                <input
+                  type="text"
+                  placeholder="Pesquisar cliente por nome ou email"
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  style={styles.input}
+                />
 
-                return (
+                {filteredSelectedDeviceClients.length === 0 ? (
+                  <div style={styles.emptyStateSmall}>
+                    Nenhum cliente encontrado para este dispositivo.
+                  </div>
+                ) : (
+                  <div style={styles.clientCardList}>
+                    {filteredSelectedDeviceClients.map((client) => (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => setSelectedClientId(client.id)}
+                        style={{
+                          ...styles.clientCard,
+                          ...(selectedClientId === client.id
+                            ? styles.clientCardActive
+                            : {}),
+                        }}
+                      >
+                        <div style={styles.clientCardTop}>
+                          <div>
+                            <div style={styles.clientCardName}>
+                              {client.full_name}
+                            </div>
+                            <div style={styles.clientCardMeta}>
+                              {client.email}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              ...styles.miniStatusBadge,
+                              ...(client.is_active
+                                ? styles.miniStatusBadgeActive
+                                : styles.miniStatusBadgeInactive),
+                            }}
+                          >
+                            {client.is_active ? "Ativo" : "Inativo"}
+                          </div>
+                        </div>
+
+                        <div style={styles.clientCardBottom}>
+                          <span style={styles.mutedTag}>{client.role}</span>
+                          <span style={styles.mutedTag}>
+                            {client.access?.can_edit ? "Com edição" : "Só leitura"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.clientDetailsPanel}>
+                {!selectedClient ? (
+                  <div style={styles.emptyState}>
+                    Seleciona um cliente para gerir o utilizador e os alertas.
+                  </div>
+                ) : (
                   <>
-                    <div style={styles.alertsHeaderRow}>
+                    <div style={styles.clientDetailsHeader}>
                       <div>
-                        <div style={styles.alertsTitle}>
+                        <div style={styles.selectedUserName}>
                           {selectedClient.full_name}
                         </div>
-                        <div style={styles.alertsSubtitle}>
-                          {selectedClient.email} · {selectedDeviceData?.name || selectedDevice}
-                        </div>
+                        <div style={styles.meta}>{selectedClient.email}</div>
+                      </div>
+
+                      <div style={styles.clientActionRow}>
+                        <button
+                          onClick={toggleSelectedClientActive}
+                          style={styles.smallActionButton}
+                          disabled={savingUserActive}
+                        >
+                          {savingUserActive
+                            ? "A atualizar..."
+                            : selectedClient.is_active
+                            ? "Desativar"
+                            : "Reativar"}
+                        </button>
+
+                        <button
+                          onClick={deleteSelectedClient}
+                          style={styles.smallDangerButton}
+                          disabled={deletingUser}
+                        >
+                          {deletingUser ? "A remover..." : "Remover"}
+                        </button>
                       </div>
                     </div>
 
-                    <div style={styles.toggleWrap}>
-                      <TogglePill
-                        checked={Boolean(alertRow?.is_active)}
-                        onClick={() =>
-                          toggleAlertSetting(
-                            selectedClient,
-                            selectedDevice,
-                            "is_active",
-                            !Boolean(alertRow?.is_active)
-                          )
-                        }
-                        label={`Receber alertas: ${
-                          alertRow?.is_active ? "Sim" : "Não"
-                        }`}
+                    <div style={styles.clientMiniStats}>
+                      <SmallStat label="Role atual" value={selectedClient.role} />
+                      <SmallStat
+                        label="Estado"
+                        value={selectedClient.is_active ? "Ativo" : "Inativo"}
                       />
-
-                      <TogglePill
-                        checked={Boolean(alertRow?.temp_alerts)}
-                        onClick={() =>
-                          toggleAlertSetting(
-                            selectedClient,
-                            selectedDevice,
-                            "temp_alerts",
-                            !Boolean(alertRow?.temp_alerts)
-                          )
+                      <SmallStat
+                        label="Permissão"
+                        value={
+                          selectedDeviceClients.find((c) => c.id === selectedClient.id)
+                            ?.access?.can_edit
+                            ? "Com edição"
+                            : "Só leitura"
                         }
-                        label="Temperatura"
-                        disabled={!alertRow?.is_active}
-                      />
-
-                      <TogglePill
-                        checked={Boolean(alertRow?.humidity_alerts)}
-                        onClick={() =>
-                          toggleAlertSetting(
-                            selectedClient,
-                            selectedDevice,
-                            "humidity_alerts",
-                            !Boolean(alertRow?.humidity_alerts)
-                          )
-                        }
-                        label="Humidade"
-                        disabled={!alertRow?.is_active}
-                      />
-
-                      <TogglePill
-                        checked={Boolean(alertRow?.offline_alerts)}
-                        onClick={() =>
-                          toggleAlertSetting(
-                            selectedClient,
-                            selectedDevice,
-                            "offline_alerts",
-                            !Boolean(alertRow?.offline_alerts)
-                          )
-                        }
-                        label="Offline"
-                        disabled={!alertRow?.is_active}
-                      />
-
-                      <TogglePill
-                        checked={Boolean(alertRow?.predictive_alerts)}
-                        onClick={() =>
-                          toggleAlertSetting(
-                            selectedClient,
-                            selectedDevice,
-                            "predictive_alerts",
-                            !Boolean(alertRow?.predictive_alerts)
-                          )
-                        }
-                        label="Preditivo"
-                        disabled={!alertRow?.is_active}
                       />
                     </div>
 
-                    {savingAlertKey.startsWith(savingPrefix) ? (
-                      <div style={styles.savingHint}>
-                        A guardar preferências de alertas...
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Role</div>
+                      <div style={styles.inlineControls}>
+                        <select
+                          value={selectedClientRole}
+                          onChange={(e) => setSelectedClientRole(e.target.value)}
+                          style={styles.input}
+                        >
+                          <option value="viewer">Viewer</option>
+                          <option value="client_admin">Client Admin</option>
+                        </select>
+
+                        <button
+                          onClick={updateSelectedClientRole}
+                          style={styles.primaryButton}
+                          disabled={savingUserRole}
+                        >
+                          {savingUserRole ? "A guardar..." : "Guardar"}
+                        </button>
                       </div>
-                    ) : null}
+                    </div>
+
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Alertas</div>
+                      {(() => {
+                        const alertRow = getUserAlertRow(selectedClient.id, selectedDevice);
+                        const savingPrefix = `${selectedClient.id}_${selectedDevice}_`;
+
+                        return (
+                          <>
+                            <div style={styles.toggleWrap}>
+                              <TogglePill
+                                checked={Boolean(alertRow?.is_active)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "is_active",
+                                    !Boolean(alertRow?.is_active)
+                                  )
+                                }
+                                label={`Receber alertas: ${
+                                  alertRow?.is_active ? "Sim" : "Não"
+                                }`}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.temp_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "temp_alerts",
+                                    !Boolean(alertRow?.temp_alerts)
+                                  )
+                                }
+                                label="Temperatura"
+                                disabled={!alertRow?.is_active}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.humidity_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "humidity_alerts",
+                                    !Boolean(alertRow?.humidity_alerts)
+                                  )
+                                }
+                                label="Humidade"
+                                disabled={!alertRow?.is_active}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.offline_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "offline_alerts",
+                                    !Boolean(alertRow?.offline_alerts)
+                                  )
+                                }
+                                label="Offline"
+                                disabled={!alertRow?.is_active}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.predictive_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "predictive_alerts",
+                                    !Boolean(alertRow?.predictive_alerts)
+                                  )
+                                }
+                                label="Preditivo"
+                                disabled={!alertRow?.is_active}
+                              />
+                            </div>
+
+                            {savingAlertKey.startsWith(savingPrefix) ? (
+                              <div style={styles.savingHint}>
+                                A guardar preferências...
+                              </div>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Acesso ao dispositivo</div>
+                      <div style={styles.inlineControls}>
+                        <button
+                          style={styles.removeBtn}
+                          onClick={() =>
+                            removeAccess(selectedClient.id, selectedDevice)
+                          }
+                        >
+                          Remover acesso
+                        </button>
+                      </div>
+                    </div>
                   </>
-                );
-              })()}
+                )}
+              </div>
             </div>
           )}
         </section>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>6. Configuração do dispositivo</div>
-          <div style={styles.cardDescription}>
-            Ajusta os limites operacionais e parâmetros técnicos do dispositivo selecionado.
-          </div>
+          <div style={styles.cardTitle}>Configuração do dispositivo</div>
 
           {!selectedDeviceData ? (
             <div style={styles.emptyState}>
@@ -1534,10 +1523,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>7. Informação técnica do dispositivo</div>
-            <div style={styles.cardDescription}>
-              Estado atual e dados principais do dispositivo selecionado.
-            </div>
+            <div style={styles.cardTitle}>Informação técnica do dispositivo</div>
 
             <div style={styles.statsGrid}>
               <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
@@ -1561,10 +1547,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>8. Configuração raw</div>
-            <div style={styles.cardDescription}>
-              Vista técnica completa do objeto de configuração atual do dispositivo.
-            </div>
+            <div style={styles.cardTitle}>Configuração raw</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
@@ -1591,7 +1574,7 @@ const styles = {
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    gap: "20px",
+    gap: "18px",
   },
 
   headerBar: {
@@ -1634,6 +1617,12 @@ const styles = {
     fontWeight: 700,
   },
 
+  topGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "18px",
+  },
+
   secondaryButton: {
     border: "1px solid #334155",
     background: "#111c2e",
@@ -1656,37 +1645,26 @@ const styles = {
     fontSize: "14px",
   },
 
-  successButton: {
-    border: "1px solid #15803d",
-    background: "#14532d",
-    color: "#dcfce7",
-    borderRadius: "12px",
-    padding: "12px 16px",
+  smallActionButton: {
+    border: "1px solid #475569",
+    background: "#0f172a",
+    color: "#e2e8f0",
+    borderRadius: "10px",
+    padding: "9px 12px",
     cursor: "pointer",
-    fontWeight: 800,
-    fontSize: "14px",
+    fontWeight: 700,
+    fontSize: "12px",
   },
 
-  warningButton: {
-    border: "1px solid #b45309",
-    background: "#78350f",
-    color: "#fde68a",
-    borderRadius: "12px",
-    padding: "12px 16px",
-    cursor: "pointer",
-    fontWeight: 800,
-    fontSize: "14px",
-  },
-
-  dangerButton: {
-    border: "1px solid #dc2626",
+  smallDangerButton: {
+    border: "1px solid #b91c1c",
     background: "#7f1d1d",
-    color: "#ffffff",
-    borderRadius: "12px",
-    padding: "12px 16px",
+    color: "#fff",
+    borderRadius: "10px",
+    padding: "9px 12px",
     cursor: "pointer",
-    fontWeight: 800,
-    fontSize: "14px",
+    fontWeight: 700,
+    fontSize: "12px",
   },
 
   disabledButton: {
@@ -1697,22 +1675,15 @@ const styles = {
   card: {
     background: "#111827",
     border: "1px solid #1f2937",
-    borderRadius: "22px",
-    padding: "22px",
+    borderRadius: "20px",
+    padding: "18px",
   },
 
   cardTitle: {
-    fontSize: "19px",
+    fontSize: "18px",
     fontWeight: 800,
-    marginBottom: "8px",
+    marginBottom: "12px",
     color: "#f8fafc",
-  },
-
-  cardDescription: {
-    color: "#94a3b8",
-    fontSize: "13px",
-    lineHeight: 1.5,
-    marginBottom: "16px",
   },
 
   loadingText: {
@@ -1759,7 +1730,7 @@ const styles = {
   },
 
   actionsRow: {
-    marginTop: "16px",
+    marginTop: "14px",
     display: "flex",
     gap: "12px",
     flexWrap: "wrap",
@@ -1789,35 +1760,29 @@ const styles = {
     lineHeight: 1.5,
   },
 
-  twoColGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
-    gap: "20px",
-  },
-
   devicePickerGrid: {
     display: "grid",
-    gridTemplateColumns: "minmax(320px, 430px) minmax(0, 1fr)",
-    gap: "20px",
+    gridTemplateColumns: "390px 1fr",
+    gap: "16px",
   },
 
   devicePickerLeft: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "10px",
   },
 
   devicePickerRight: {
     display: "flex",
     flexDirection: "column",
-    gap: "14px",
+    gap: "12px",
   },
 
   deviceQuickList: {
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
-    maxHeight: "420px",
+    gap: "8px",
+    maxHeight: "330px",
     overflowY: "auto",
     paddingRight: "4px",
   },
@@ -1826,8 +1791,8 @@ const styles = {
     textAlign: "left",
     background: "#0f172a",
     border: "1px solid #1e293b",
-    borderRadius: "14px",
-    padding: "12px 14px",
+    borderRadius: "12px",
+    padding: "11px 12px",
     cursor: "pointer",
     color: "#e5edf7",
   },
@@ -1847,14 +1812,14 @@ const styles = {
   deviceQuickMeta: {
     fontSize: "12px",
     color: "#94a3b8",
-    marginTop: "5px",
+    marginTop: "4px",
   },
 
   selectedDeviceCard: {
     background: "#0f172a",
     border: "1px solid #1e293b",
-    borderRadius: "18px",
-    padding: "18px",
+    borderRadius: "16px",
+    padding: "16px",
   },
 
   selectedDeviceTop: {
@@ -1874,8 +1839,8 @@ const styles = {
 
   selectedDeviceStats: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: "10px",
   },
 
   statusBadgeNeutral: {
@@ -1889,73 +1854,126 @@ const styles = {
     color: "#cbd5e1",
   },
 
-  clientChipWrap: {
-    display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
+  clientSectionGrid: {
+    display: "grid",
+    gridTemplateColumns: "370px 1fr",
+    gap: "16px",
+    alignItems: "start",
   },
 
-  clientChip: {
+  clientListPanel: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+
+  clientCardList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    maxHeight: "420px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  },
+
+  clientCard: {
     textAlign: "left",
     background: "#0b1220",
     border: "1px solid #223047",
-    borderRadius: "14px",
-    padding: "12px 14px",
+    borderRadius: "12px",
+    padding: "12px",
     cursor: "pointer",
-    minWidth: "220px",
     color: "#e5edf7",
   },
 
-  clientChipActive: {
+  clientCardActive: {
     border: "1px solid #3b82f6",
     background: "#132033",
     boxShadow: "0 0 0 1px rgba(59,130,246,0.25) inset",
   },
 
-  clientChipName: {
+  clientCardTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "10px",
+  },
+
+  clientCardName: {
     fontSize: "14px",
     fontWeight: 800,
     color: "#f8fafc",
   },
 
-  clientChipMeta: {
+  clientCardMeta: {
     fontSize: "12px",
     color: "#94a3b8",
-    marginTop: "4px",
+    marginTop: "3px",
   },
 
-  userManagerGrid: {
-    display: "grid",
-    gridTemplateColumns: "minmax(320px, 430px) minmax(0, 1fr)",
-    gap: "20px",
-  },
-
-  userManagerLeft: {
+  clientCardBottom: {
     display: "flex",
-    flexDirection: "column",
-    gap: "14px",
+    gap: "8px",
+    flexWrap: "wrap",
+    marginTop: "10px",
   },
 
-  userManagerRight: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
+  mutedTag: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "#cbd5e1",
+    border: "1px solid #334155",
+    background: "#111c2e",
+    borderRadius: "999px",
+    padding: "5px 8px",
   },
 
-  selectedUserCard: {
+  miniStatusBadge: {
+    borderRadius: "999px",
+    padding: "5px 8px",
+    fontSize: "11px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  miniStatusBadgeActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
+  },
+
+  miniStatusBadgeInactive: {
+    background: "#3f1d1d",
+    border: "1px solid #ef4444",
+    color: "#fecaca",
+  },
+
+  clientDetailsPanel: {
     background: "#0f172a",
     border: "1px solid #1e293b",
-    borderRadius: "18px",
-    padding: "18px",
+    borderRadius: "16px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
   },
 
-  selectedUserTop: {
+  clientDetailsHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
     gap: "12px",
     flexWrap: "wrap",
-    marginBottom: "14px",
+  },
+
+  clientActionRow: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
   },
 
   selectedUserName: {
@@ -1964,88 +1982,44 @@ const styles = {
     color: "#f8fafc",
   },
 
-  selectedUserDetails: {
+  clientMiniStats: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "10px",
   },
 
-  sectionLabel: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#cbd5e1",
-  },
-
-  sectionLabelDanger: {
-    fontSize: "13px",
-    fontWeight: 800,
-    color: "#fecaca",
-  },
-
-  inlinePanel: {
-    background: "#0f172a",
+  compactPanel: {
+    background: "#0b1220",
     border: "1px solid #1e293b",
-    borderRadius: "16px",
-    padding: "16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
+    borderRadius: "14px",
+    padding: "14px",
   },
 
-  inlinePanelDanger: {
-    background: "#2a1316",
-    border: "1px solid #4b1f24",
-    borderRadius: "16px",
-    padding: "16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
+  compactPanelTitle: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#e2e8f0",
+    marginBottom: "10px",
   },
 
   inlineControls: {
     display: "flex",
-    gap: "12px",
+    gap: "10px",
     flexWrap: "wrap",
     alignItems: "center",
   },
 
-  dangerText: {
-    fontSize: "13px",
-    lineHeight: 1.5,
-    color: "#fecaca",
-  },
-
-  statusBadge: {
-    borderRadius: "999px",
-    padding: "6px 12px",
-    fontSize: "12px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  statusBadgeActive: {
-    background: "#0f3b22",
-    border: "1px solid #22c55e",
-    color: "#bbf7d0",
-  },
-
-  statusBadgeInactive: {
-    background: "#3f1d1d",
-    border: "1px solid #ef4444",
-    color: "#fecaca",
-  },
-
   statsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: "10px",
   },
 
   smallStat: {
     background: "#0f172a",
     border: "1px solid #1e293b",
-    borderRadius: "16px",
-    padding: "16px",
+    borderRadius: "14px",
+    padding: "14px",
     minWidth: 0,
   },
 
@@ -2053,11 +2027,11 @@ const styles = {
     fontSize: "12px",
     color: "#8fa1b9",
     fontWeight: 700,
-    marginBottom: "8px",
+    marginBottom: "7px",
   },
 
   smallStatValue: {
-    fontSize: "15px",
+    fontSize: "14px",
     fontWeight: 800,
     color: "#f8fafc",
     wordBreak: "break-word",
@@ -2067,30 +2041,8 @@ const styles = {
   alertsBoxLarge: {
     background: "#0b1220",
     border: "1px solid #1e293b",
-    borderRadius: "16px",
-    padding: "16px",
-  },
-
-  alertsHeaderRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "12px",
-    flexWrap: "wrap",
-    marginBottom: "12px",
-  },
-
-  alertsTitle: {
-    fontSize: "15px",
-    fontWeight: 800,
-    color: "#f8fafc",
-  },
-
-  alertsSubtitle: {
-    fontSize: "12px",
-    color: "#8fa1b9",
-    marginTop: "4px",
-    lineHeight: 1.45,
+    borderRadius: "14px",
+    padding: "14px",
   },
 
   toggleWrap: {
@@ -2145,7 +2097,7 @@ const styles = {
   configField: {
     background: "#0f172a",
     border: "1px solid #1e293b",
-    borderRadius: "16px",
+    borderRadius: "14px",
     padding: "14px",
   },
 
@@ -2166,7 +2118,7 @@ const styles = {
   rawConfigWrap: {
     background: "#0b1220",
     border: "1px solid #1f2937",
-    borderRadius: "16px",
+    borderRadius: "14px",
     padding: "16px",
     overflow: "hidden",
   },
@@ -2179,6 +2131,17 @@ const styles = {
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  },
+
+  removeBtn: {
+    background: "#7f1d1d",
+    border: "1px solid #b91c1c",
+    padding: "8px 10px",
+    borderRadius: "8px",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 700,
   },
 
   meta: {
