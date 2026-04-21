@@ -122,10 +122,6 @@ function parseNumber(value) {
   return Number.isNaN(numeric) ? null : numeric;
 }
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
 function getOfflineLimitMs(sendIntervalS) {
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
@@ -154,9 +150,9 @@ function getStatusInfo(status) {
     return {
       label: "OFFLINE",
       color: "#94a3b8",
-      soft: "#1a2230",
+      soft: "#162033",
       border: "#334155",
-      glow: "0 0 0 1px rgba(148,163,184,0.12)",
+      glow: "0 0 0 1px rgba(148,163,184,0.10)",
       priority: 3,
       dot: "#94a3b8",
       panel: "#111827",
@@ -169,10 +165,10 @@ function getStatusInfo(status) {
       color: "#ef4444",
       soft: "#2a1316",
       border: "#4b1f24",
-      glow: "0 0 0 1px rgba(239,68,68,0.15)",
+      glow: "0 0 0 1px rgba(239,68,68,0.12)",
       priority: 0,
       dot: "#ef4444",
-      panel: "#1b1013",
+      panel: "#15131a",
     };
   }
 
@@ -182,10 +178,10 @@ function getStatusInfo(status) {
       color: "#f59e0b",
       soft: "#2a2112",
       border: "#4b3a1d",
-      glow: "0 0 0 1px rgba(245,158,11,0.12)",
+      glow: "0 0 0 1px rgba(245,158,11,0.10)",
       priority: 1,
       dot: "#f59e0b",
-      panel: "#1a1610",
+      panel: "#15131a",
     };
   }
 
@@ -195,10 +191,10 @@ function getStatusInfo(status) {
       color: "#22c55e",
       soft: "#132219",
       border: "#1f3b2a",
-      glow: "0 0 0 1px rgba(34,197,94,0.12)",
+      glow: "0 0 0 1px rgba(34,197,94,0.10)",
       priority: 2,
       dot: "#22c55e",
-      panel: "#0f1712",
+      panel: "#151c27",
     };
   }
 
@@ -207,10 +203,10 @@ function getStatusInfo(status) {
     color: "#94a3b8",
     soft: "#161b22",
     border: "#293241",
-    glow: "0 0 0 1px rgba(148,163,184,0.10)",
+    glow: "0 0 0 1px rgba(148,163,184,0.08)",
     priority: 4,
     dot: "#94a3b8",
-    panel: "#111827",
+    panel: "#151c27",
   };
 }
 
@@ -508,141 +504,6 @@ function getXAxisTicks(periodKey) {
 
   ticks.push(end);
   return Array.from(new Set(ticks)).sort((a, b) => a - b);
-}
-
-function getCommunicationHealth({
-  rawReadings,
-  sendIntervalS,
-  deviceLastSeen,
-  periodKey,
-}) {
-  const { start, end } = getPeriodWindow(periodKey);
-
-  const sorted = [...(rawReadings || [])]
-    .filter((item) => Number.isFinite(item?.timestamp))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
-
-  const offlineThresholdMs = getOfflineLimitMs(sendIntervalS);
-  const periodMs = Math.max(end - start, expectedMs);
-  const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
-  const receivedReadings = sorted.length;
-
-  const deliveryPct = clamp(
-    Math.round((receivedReadings / expectedReadings) * 100),
-    0,
-    100
-  );
-
-  const lastDelayMs = deviceLastSeen
-    ? Date.now() - new Date(deviceLastSeen).getTime()
-    : null;
-
-  if (!sorted.length) {
-    return {
-      score: 0,
-      label: "Sem dados",
-      tone: "neutral",
-      summary: "Sem leituras suficientes para avaliar.",
-      delivery_pct: deliveryPct,
-      regularity_pct: 0,
-      expected_readings: expectedReadings,
-      received_readings: receivedReadings,
-      expected_interval_ms: expectedMs,
-      offline_threshold_ms: offlineThresholdMs,
-      last_delay_ms: lastDelayMs,
-      max_gap_ms: null,
-      relevant_gap_count: 0,
-      severe_gap_count: 0,
-    };
-  }
-
-  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
-  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
-
-  let maxGapMs = 0;
-  let relevantGapCount = 0;
-  let severeGapCount = 0;
-
-  for (let i = 1; i < sorted.length; i += 1) {
-    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
-    if (!Number.isFinite(delta) || delta <= 0) continue;
-
-    if (delta > maxGapMs) maxGapMs = delta;
-    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
-    if (delta >= severeGapThresholdMs) severeGapCount += 1;
-  }
-
-  let penalty = 0;
-  penalty += relevantGapCount * 2;
-  penalty += severeGapCount * 8;
-
-  if (lastDelayMs !== null) {
-    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
-    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
-      penalty += 10;
-    }
-  }
-
-  const regularityPct = clamp(Math.round(deliveryPct - penalty), 0, 100);
-
-  let label = "Estável";
-  let tone = "good";
-  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-
-  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
-
-  if (isOffline) {
-    label = "Offline";
-    tone = "bad";
-    summary = "Sem comunicação recente do dispositivo.";
-  } else if (
-    deliveryPct >= 98 &&
-    relevantGapCount <= 1 &&
-    severeGapCount === 0
-  ) {
-    label = "Excelente";
-    tone = "good";
-    summary = "Cobertura muito alta e comunicação muito consistente.";
-  } else if (
-    deliveryPct >= 94 &&
-    relevantGapCount <= 5 &&
-    severeGapCount <= 1
-  ) {
-    label = "Estável";
-    tone = "good";
-    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
-    label = "Com falhas";
-    tone = "warn";
-    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
-  } else {
-    label = "Instável";
-    tone = "bad";
-    summary = "Perdas ou gaps relevantes na comunicação.";
-  }
-
-  return {
-    score: regularityPct,
-    label,
-    tone,
-    summary,
-    delivery_pct: deliveryPct,
-    regularity_pct: regularityPct,
-    expected_readings: expectedReadings,
-    received_readings: receivedReadings,
-    expected_interval_ms: expectedMs,
-    offline_threshold_ms: offlineThresholdMs,
-    last_delay_ms: lastDelayMs,
-    max_gap_ms: maxGapMs || null,
-    relevant_gap_count: relevantGapCount,
-    severe_gap_count: severeGapCount,
-  };
 }
 
 function getMinutesDiff(a, b) {
@@ -1051,52 +912,6 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
 }
 
-async function fetchAllReadingsForPeriod(supabase, deviceId, sinceIso) {
-  const pageSize = 1000;
-  let from = 0;
-  let allRows = [];
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("readings")
-      .select("device_id, temperature, humidity, created_at")
-      .eq("device_id", deviceId)
-      .gte("created_at", sinceIso)
-      .order("created_at", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) {
-      console.warn("readings:", JSON.stringify(error, null, 2));
-      throw error;
-    }
-
-    const chunk = data || [];
-    allRows = allRows.concat(chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return allRows;
-}
-
-async function fetchRecentAlerts(supabase, deviceId, limit = 20) {
-  const { data, error } = await supabase
-    .from("alerts")
-    .select("*")
-    .eq("device_id", deviceId)
-    .eq("event", "triggered")
-    .order("sent_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.warn("alerts:", JSON.stringify(error, null, 2));
-    throw error;
-  }
-
-  return data || [];
-}
-
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -1124,28 +939,32 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
 function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
   const toneMap = {
     neutral: {
-      border: "#1e293b",
+      border: "#223047",
       bg: "#0f172a",
       value: "#f8fafc",
       accent: "#94a3b8",
+      chipBg: "#111827",
     },
     good: {
-      border: "#1f3b2a",
-      bg: "#0f1d15",
-      value: "#86efac",
+      border: "#223047",
+      bg: "#0f172a",
+      value: "#f8fafc",
       accent: "#22c55e",
+      chipBg: "#132219",
     },
     warn: {
-      border: "#4b3a1d",
-      bg: "#21180f",
-      value: "#fcd34d",
+      border: "#223047",
+      bg: "#0f172a",
+      value: "#f8fafc",
       accent: "#f59e0b",
+      chipBg: "#2a2112",
     },
     bad: {
-      border: "#4b1f24",
-      bg: "#211013",
-      value: "#fca5a5",
+      border: "#223047",
+      bg: "#0f172a",
+      value: "#f8fafc",
       accent: "#ef4444",
+      chipBg: "#2a1316",
     },
   };
 
@@ -1166,8 +985,8 @@ function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
             style={{
               ...styles.miniChip,
               color: selected.accent,
-              borderColor: selected.border,
-              background: "rgba(255,255,255,0.02)",
+              borderColor: "transparent",
+              background: selected.chipBg,
             }}
           >
             {accentLabel}
@@ -1232,7 +1051,7 @@ function getHealthToneStyles(tone) {
     return {
       valueColor: "#22c55e",
       badgeBg: "#132219",
-      badgeBorder: "#1f3b2a",
+      badgeBorder: "transparent",
     };
   }
 
@@ -1240,7 +1059,7 @@ function getHealthToneStyles(tone) {
     return {
       valueColor: "#f59e0b",
       badgeBg: "#2a2112",
-      badgeBorder: "#4b3a1d",
+      badgeBorder: "transparent",
     };
   }
 
@@ -1248,14 +1067,14 @@ function getHealthToneStyles(tone) {
     return {
       valueColor: "#ef4444",
       badgeBg: "#2a1316",
-      badgeBorder: "#4b1f24",
+      badgeBorder: "transparent",
     };
   }
 
   return {
     valueColor: "#cbd5e1",
     badgeBg: "#162033",
-    badgeBorder: "#243042",
+    badgeBorder: "transparent",
   };
 }
 
@@ -1375,7 +1194,7 @@ function DeviceSelector({
                 ...styles.selectorMainStatus,
                 color: selectedStatusInfo.color,
                 background: selectedStatusInfo.soft,
-                borderColor: selectedStatusInfo.border,
+                borderColor: "transparent",
               }}
             >
               {selectedStatusInfo.label}
@@ -1444,7 +1263,7 @@ function DeviceSelector({
                         ...styles.selectorOptionStatus,
                         color: info.color,
                         background: info.soft,
-                        borderColor: info.border,
+                        borderColor: "transparent",
                       }}
                     >
                       {info.label}
@@ -1482,7 +1301,7 @@ function AlertRow({ item }) {
             ...styles.alertBadge,
             color: levelInfo.color,
             background: levelInfo.bg,
-            borderColor: levelInfo.border,
+            borderColor: "transparent",
           }}
         >
           {levelInfo.label}
@@ -1507,25 +1326,28 @@ function AlertRow({ item }) {
 function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
     low: {
-      border: "#1f3b2a",
-      bg: "#0f1d15",
-      value: "#86efac",
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
       badgeBg: "#132219",
-      badgeBorder: "#1f3b2a",
+      badgeBorder: "transparent",
+      badgeColor: "#22c55e",
     },
     medium: {
-      border: "#4b3a1d",
-      bg: "#21180f",
-      value: "#fcd34d",
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
       badgeBg: "#2a2112",
-      badgeBorder: "#4b3a1d",
+      badgeBorder: "transparent",
+      badgeColor: "#f59e0b",
     },
     high: {
-      border: "#4b1f24",
-      bg: "#211013",
-      value: "#fca5a5",
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
       badgeBg: "#2a1316",
-      badgeBorder: "#4b1f24",
+      badgeBorder: "transparent",
+      badgeColor: "#ef4444",
     },
   };
 
@@ -1552,7 +1374,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
             ...styles.healthBadge,
             background: selected.badgeBg,
             borderColor: selected.badgeBorder,
-            color: selected.value,
+            color: selected.badgeColor,
           }}
         >
           {prediction?.chip || "Baixo"}
@@ -1597,19 +1419,19 @@ function OperationalInsightCard({ items }) {
           const toneStyles =
             item.tone === "bad"
               ? {
-                  border: "#4b1f24",
-                  bg: "#211013",
+                  border: "#223047",
+                  bg: "#0f172a",
                   title: "#fca5a5",
                 }
               : item.tone === "warn"
               ? {
-                  border: "#4b3a1d",
-                  bg: "#21180f",
+                  border: "#223047",
+                  bg: "#0f172a",
                   title: "#fcd34d",
                 }
               : {
-                  border: "#1f3b2a",
-                  bg: "#0f1d15",
+                  border: "#223047",
+                  bg: "#0f172a",
                   title: "#86efac",
                 };
 
@@ -1831,7 +1653,7 @@ export default function DashboardPage() {
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
-const [deviceOverview, setDeviceOverview] = useState(null);
+  const [deviceOverview, setDeviceOverview] = useState(null);
 
   const [profile, setProfile] = useState(null);
   const [devicePermissions, setDevicePermissions] = useState([]);
@@ -1936,9 +1758,6 @@ const [deviceOverview, setDeviceOverview] = useState(null);
           return;
         }
 
-        const maxHistoryStart = Date.now() - MAX_HISTORY_HOURS * 60 * 60 * 1000;
-        const since = new Date(maxHistoryStart).toISOString();
-
         const [profileResponse, permissionsResponse] = await Promise.all([
           supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
           supabase
@@ -2001,28 +1820,28 @@ const [deviceOverview, setDeviceOverview] = useState(null);
         const safeDevices = devicesData || [];
         const nextSelectedDeviceId = getBestInitialDeviceId(safeDevices, selectedDeviceId);
 
-const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.all([
-  nextSelectedDeviceId
-    ? supabase
-        .from("devices")
-        .select("*")
-        .eq("device_id", nextSelectedDeviceId)
-        .limit(1)
-        .maybeSingle()
-    : Promise.resolve({ data: null, error: null }),
+        const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.all([
+          nextSelectedDeviceId
+            ? supabase
+                .from("devices")
+                .select("*")
+                .eq("device_id", nextSelectedDeviceId)
+                .limit(1)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
 
-  nextSelectedDeviceId
-    ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`)
-    : Promise.resolve(null),
+          nextSelectedDeviceId
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`)
+            : Promise.resolve(null),
 
-  nextSelectedDeviceId
-    ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
-    : Promise.resolve([]),
+          nextSelectedDeviceId
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
+            : Promise.resolve([]),
 
-  nextSelectedDeviceId
-    ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`)
-    : Promise.resolve([]),
-]);
+          nextSelectedDeviceId
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`)
+            : Promise.resolve([]),
+        ]);
 
         if (deviceResponse?.error) {
           console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
@@ -2031,23 +1850,29 @@ const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.al
 
         const baseDeviceData = deviceResponse?.data || null;
 
-const deviceData = baseDeviceData
-  ? {
-      ...baseDeviceData,
-      last_temperature:
-        overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
-      last_humidity:
-        overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
-      status:
-        overviewData?.status
-          ? String(overviewData.status).toUpperCase()
-          : baseDeviceData?.status,
-      communication_health: overviewData?.communication_health || null,
-      predictive_status: overviewData?.predictive_status || null,
-      alerts_24h: overviewData?.alerts_24h ?? 0,
-      total_readings_24h: overviewData?.total_readings_24h ?? 0,
-    }
-  : null;
+        const deviceData = baseDeviceData
+          ? {
+              ...baseDeviceData,
+              last_temperature:
+                overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
+              last_humidity:
+                overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+              status:
+                overviewData?.status
+                  ? String(overviewData.status).toUpperCase()
+                  : baseDeviceData?.status,
+              communication_health: overviewData?.communication_health || null,
+              predictive_status: overviewData?.predictive_status || null,
+              alerts_24h: overviewData?.alerts_24h ?? 0,
+              total_readings_24h: overviewData?.total_readings_24h ?? 0,
+              last_seen:
+                baseDeviceData?.last_seen ||
+                (overviewData?.last_seen_seconds !== null &&
+                overviewData?.last_seen_seconds !== undefined
+                  ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
+                  : baseDeviceData?.last_seen),
+            }
+          : null;
 
         const readingsData = (historyRows || [])
           .map((item) => {
@@ -2072,7 +1897,7 @@ const deviceData = baseDeviceData
         setDevicePermissions(permissionsData);
         setDevices(safeDevices);
         setDevice(deviceData);
-setDeviceOverview(overviewData || null);
+        setDeviceOverview(overviewData || null);
         setReadings(readingsData);
         setAlerts(alertsRows || []);
 
@@ -2187,35 +2012,43 @@ setDeviceOverview(overviewData || null);
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
-const communicationHealth =
-  device?.communication_health || {
-    score: 0,
-    label: "Sem dados",
-    tone: "neutral",
-    summary: "Sem dados disponíveis.",
-    delivery_pct: 0,
-    regularity_pct: 0,
-    expected_readings: 0,
-    received_readings: 0,
-    expected_interval_ms: 0,
-    offline_threshold_ms: 0,
-    last_delay_ms: null,
-    max_gap_ms: null,
-    relevant_gap_count: 0,
-    severe_gap_count: 0,
-  };
+  const communicationHealth =
+    device?.communication_health || {
+      score: 0,
+      label: "Sem dados",
+      tone: "neutral",
+      summary: "Sem dados disponíveis.",
+      delivery_pct: 0,
+      regularity_pct: 0,
+      expected_readings: 0,
+      received_readings: 0,
+      expected_interval_ms: 0,
+      offline_threshold_ms: 0,
+      last_delay_ms: null,
+      max_gap_ms: null,
+      relevant_gap_count: 0,
+      severe_gap_count: 0,
+    };
 
-const predictiveStatus =
-  device?.predictive_status || {
-    level: "low",
-    title: "Risco baixo",
-    detail: "Sem tendência relevante nas últimas leituras",
-    chip: "Baixo",
-    source: "none",
-    source_label: "Sem variável crítica",
-    eta_minutes: null,
-    score: 0,
-  };
+  const predictiveStatus =
+    device?.predictive_status || {
+      level: "low",
+      title: "Risco baixo",
+      detail: "Sem tendência relevante nas últimas leituras",
+      chip: "Baixo",
+      source: "none",
+      source_label: "Sem variável crítica",
+      eta_minutes: null,
+      score: 0,
+    };
+
+  const effectiveLastDelayMs =
+    communicationHealth?.last_delay_ms !== null &&
+    communicationHealth?.last_delay_ms !== undefined
+      ? communicationHealth.last_delay_ms
+      : device?.last_seen
+      ? Date.now() - new Date(device.last_seen).getTime()
+      : null;
 
   const operationalInsights = useMemo(
     () =>
@@ -2235,7 +2068,7 @@ const predictiveStatus =
       ? "bad"
       : tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow
       ? "warn"
-      : "good";
+      : "neutral";
 
   const currentHumTone =
     effectiveStatus === "OFFLINE"
@@ -2244,7 +2077,7 @@ const predictiveStatus =
       ? "bad"
       : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
       ? "warn"
-      : "good";
+      : "neutral";
 
   const summary24h = useMemo(() => {
     const { start, end } = getPeriodWindow("24h");
@@ -2311,61 +2144,54 @@ const predictiveStatus =
       return;
     }
 
-    const newConfig = {
-      ...config,
-      temp_low_c: newTempLow,
-      temp_high_c: newTempHigh,
-      hum_low: newHumLow,
-      hum_high: newHumHigh,
+    let data;
+
+    try {
+      data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+        method: "POST",
+        body: JSON.stringify({
+          temp_low_c: newTempLow,
+          temp_high_c: newTempHigh,
+          hum_low: newHumLow,
+          hum_high: newHumHigh,
+        }),
+      });
+    } catch (error) {
+      setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
+      setSavingClient(false);
+      return;
+    }
+
+    const refreshedConfig = data?.config || {};
+
+    const nextDevice = {
+      ...device,
+      config: refreshedConfig,
+      config_version: data?.config_version ?? device?.config_version,
+      name: data?.name ?? device?.name,
+      location: data?.location ?? device?.location,
+      updated_at: data?.updated_at ?? device?.updated_at,
     };
 
-let data;
+    setDevice(nextDevice);
+    setDevices((prev) =>
+      prev.map((item) =>
+        item.device_id === selectedDeviceId
+          ? {
+              ...item,
+              ...nextDevice,
+            }
+          : item
+      )
+    );
 
-try {
-  data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
-    method: "POST",
-    body: JSON.stringify({
-      temp_low_c: newTempLow,
-      temp_high_c: newTempHigh,
-      hum_low: newHumLow,
-      hum_high: newHumHigh,
-    }),
-  });
-} catch (error) {
-  setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
-  setSavingClient(false);
-  return;
-}
+    setClientForm({
+      temp_low_c: toInputValue(refreshedConfig?.temp_low_c),
+      temp_high_c: toInputValue(refreshedConfig?.temp_high_c),
+      hum_low: toInputValue(refreshedConfig?.hum_low),
+      hum_high: toInputValue(refreshedConfig?.hum_high),
+    });
 
-const refreshedConfig = data?.config || {};
-
-const nextDevice = {
-  ...device,
-  config: refreshedConfig,
-  config_version: data?.config_version ?? device?.config_version,
-  name: data?.name ?? device?.name,
-  location: data?.location ?? device?.location,
-  updated_at: data?.updated_at ?? device?.updated_at,
-};
-
-setDevice(nextDevice);
-setDevices((prev) =>
-  prev.map((item) =>
-    item.device_id === selectedDeviceId
-      ? {
-          ...item,
-          ...nextDevice,
-        }
-      : item
-  )
-);
-
-setClientForm({
-  temp_low_c: toInputValue(refreshedConfig?.temp_low_c),
-  temp_high_c: toInputValue(refreshedConfig?.temp_high_c),
-  hum_low: toInputValue(refreshedConfig?.hum_low),
-  hum_high: toInputValue(refreshedConfig?.hum_high),
-});
     setClientMessage("Configurações do cliente guardadas com sucesso.");
     setSavingClient(false);
   }
@@ -2548,7 +2374,7 @@ setClientForm({
                   ...styles.statusPillLarge,
                   color: statusInfo.color,
                   background: statusInfo.soft,
-                  borderColor: statusInfo.border,
+                  borderColor: "transparent",
                   boxShadow: statusInfo.glow,
                 }}
               >
@@ -2688,15 +2514,15 @@ setClientForm({
 
           <MetricBox
             label="Última comunicação"
-            value={formatDurationCompact(communicationHealth.last_delay_ms)}
+            value={formatDurationCompact(effectiveLastDelayMs)}
             tone={
               communicationHealth.label === "Offline"
                 ? "bad"
-                : communicationHealth.last_delay_ms !== null &&
-                  communicationHealth.last_delay_ms >
+                : effectiveLastDelayMs !== null &&
+                  effectiveLastDelayMs >
                     Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
                 ? "warn"
-                : "good"
+                : "neutral"
             }
             accentLabel="Atraso"
             subvalue={`Intervalo esperado: ${formatDurationCompact(communicationHealth.expected_interval_ms)}`}
@@ -2734,13 +2560,13 @@ setClientForm({
           >
             <HealthStatCard
               label="Atraso da última leitura"
-              value={formatDurationCompact(communicationHealth.last_delay_ms)}
+              value={formatDurationCompact(effectiveLastDelayMs)}
               hint="Tempo desde a última leitura recebida"
               tone={
                 communicationHealth.label === "Offline"
                   ? "bad"
-                  : communicationHealth.last_delay_ms !== null &&
-                    communicationHealth.last_delay_ms >
+                  : effectiveLastDelayMs !== null &&
+                    effectiveLastDelayMs >
                       Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
                   ? "warn"
                   : "good"
@@ -3418,7 +3244,7 @@ const styles = {
   },
 
   selectorMainStatus: {
-    border: "1px solid",
+    border: "1px solid transparent",
     borderRadius: "999px",
     padding: "6px 10px",
     fontSize: "11px",
@@ -3515,7 +3341,7 @@ const styles = {
   },
 
   selectorOptionStatus: {
-    border: "1px solid",
+    border: "1px solid transparent",
     borderRadius: "999px",
     padding: "4px 8px",
     fontSize: "10px",
@@ -3611,7 +3437,7 @@ const styles = {
     justifyContent: "center",
     padding: "10px 14px",
     borderRadius: "999px",
-    border: "1px solid",
+    border: "1px solid transparent",
     fontSize: "13px",
     fontWeight: 800,
     whiteSpace: "nowrap",
@@ -3630,7 +3456,7 @@ const styles = {
 
   metricCard: {
     background: "#0f172a",
-    border: "1px solid #1e293b",
+    border: "1px solid #223047",
     borderRadius: "20px",
     padding: "18px",
     minWidth: 0,
@@ -3652,7 +3478,7 @@ const styles = {
   },
 
   miniChip: {
-    border: "1px solid",
+    border: "1px solid transparent",
     borderRadius: "999px",
     padding: "4px 8px",
     fontSize: "10px",
@@ -3686,7 +3512,7 @@ const styles = {
 
   infoItem: {
     background: "#0f172a",
-    border: "1px solid #1e293b",
+    border: "1px solid #223047",
     borderRadius: "16px",
     padding: "14px",
     display: "flex",
@@ -3723,7 +3549,7 @@ const styles = {
 
   summaryBlock: {
     background: "#0f172a",
-    border: "1px solid #1e293b",
+    border: "1px solid #223047",
     borderRadius: "16px",
     padding: "14px",
     display: "flex",
@@ -3754,9 +3580,10 @@ const styles = {
   },
 
   insightCard: {
-    border: "1px solid",
+    border: "1px solid #223047",
     borderRadius: "18px",
     padding: "16px",
+    background: "#0f172a",
   },
 
   insightTitle: {
@@ -3817,7 +3644,7 @@ const styles = {
 
   healthCard: {
     background: "#0f172a",
-    border: "1px solid #1e293b",
+    border: "1px solid #223047",
     borderRadius: "20px",
     padding: "16px",
     minWidth: 0,
@@ -3840,7 +3667,7 @@ const styles = {
   },
 
   healthBadge: {
-    border: "1px solid",
+    border: "1px solid transparent",
     borderRadius: "999px",
     padding: "5px 9px",
     fontSize: "11px",
@@ -3963,7 +3790,7 @@ const styles = {
   },
 
   alertBadge: {
-    border: "1px solid",
+    border: "1px solid transparent",
     borderRadius: "999px",
     padding: "5px 9px",
     fontSize: "11px",
@@ -4102,7 +3929,7 @@ const styles = {
 
   smallStat: {
     background: "#0f172a",
-    border: "1px solid #1e293b",
+    border: "1px solid #223047",
     borderRadius: "18px",
     padding: "16px",
     minWidth: 0,
