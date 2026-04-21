@@ -886,7 +886,7 @@ async function getWeeklyReportRecipients() {
   return ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
 }
 
-async function sendEmail({ to, subject, htmlContent }) {
+async function sendEmail({ to, subject, htmlContent, attachment = [] }) {
   if (!BREVO_API_KEY || !ALERT_FROM_EMAIL) {
     console.warn("Brevo/email não configurado. Email não enviado.");
     return;
@@ -911,6 +911,7 @@ async function sendEmail({ to, subject, htmlContent }) {
       to: normalizedTo,
       subject,
       htmlContent,
+attachment: attachment || [],
     },
     {
       headers: {
@@ -2820,6 +2821,85 @@ app.get("/api/device/:id/report", async (req, res) => {
     doc.end();
   } catch (error) {
     console.error("Erro PDF:", error);
+    res.status(500).json({ error: "Erro ao gerar PDF" });
+  }
+});
+
+const PDFDocument = require("pdfkit");
+
+app.get("/api/device/:id/report", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+    const hours = Number(req.query.hours || 24);
+
+    const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+    const readings = await fetchAllReadingsSince(deviceId, sinceIso);
+
+    if (!readings.length) {
+      return res.status(404).json({ error: "Sem dados para relatório" });
+    }
+
+    // ---- gerar PDF ----
+    const doc = new PDFDocument({ margin: 40 });
+    const buffers = [];
+
+    doc.on("data", buffers.push.bind(buffers));
+
+    doc.on("end", async () => {
+      const pdfBuffer = Buffer.concat(buffers);
+
+      // 👉 envio email (opcional automático)
+      try {
+        await sendEmail({
+          to: await getDeviceAlertRecipients(deviceId),
+          subject: `Relatório STS - ${deviceId}`,
+          htmlContent: "Segue relatório em anexo.",
+          attachment: [
+            {
+              content: pdfBuffer.toString("base64"),
+              name: `report-${deviceId}.pdf`,
+            },
+          ],
+        });
+      } catch (e) {
+        console.log("Email falhou mas PDF gerado");
+      }
+
+      // 👉 download direto
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=report-${deviceId}.pdf`
+      );
+
+      res.send(pdfBuffer);
+    });
+
+    // ---- conteúdo PDF ----
+    doc.fontSize(18).text("SmartTempSystems", { align: "center" });
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Dispositivo: ${deviceId}`);
+    doc.text(`Período: últimas ${hours}h`);
+    doc.moveDown();
+
+    readings.slice(-50).forEach((r) => {
+      doc.text(
+        `${formatDateTimePt(r.created_at)} | ${formatNumber(
+          r.temperature,
+          1
+        )}°C | ${formatNumber(r.humidity, 0)}%`
+      );
+    });
+
+    doc.end();
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Erro ao gerar PDF" });
   }
 });
