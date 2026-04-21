@@ -2712,6 +2712,118 @@ app.get("/api/device/:id/config", async (req, res) => {
   }
 });
 
+// -------------------- PDF REPORT --------------------
+app.get("/api/device/:id/report", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+
+    // buscar dispositivo
+    const { data: device } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("device_id", deviceId)
+      .single();
+
+    if (!device) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const cfg = getDeviceConfig(device);
+
+    // últimas 24h
+    const readings = await getRecentReadingsForAnalysis(deviceId, 24);
+
+    const temps = readings.map(r => Number(r.temperature)).filter(Number.isFinite);
+    const hums = readings.map(r => Number(r.humidity)).filter(Number.isFinite);
+
+    const avg = (arr) =>
+      arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+    const summary = {
+      temp_min: temps.length ? Math.min(...temps) : null,
+      temp_max: temps.length ? Math.max(...temps) : null,
+      temp_avg: avg(temps),
+      hum_min: hums.length ? Math.min(...hums) : null,
+      hum_max: hums.length ? Math.max(...hums) : null,
+      hum_avg: avg(hums),
+      total: readings.length,
+    };
+
+    // criar PDF
+    const doc = new PDFDocument({ margin: 40 });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=STS_Report_${deviceId}.pdf`
+    );
+
+    doc.pipe(res);
+
+    // HEADER
+    doc.fontSize(20).text("SmartTempSystems", { align: "center" });
+    doc.moveDown(0.5);
+    doc.fontSize(14).text("Relatório de Monitorização", { align: "center" });
+
+    doc.moveDown(2);
+
+    // INFO
+    doc.fontSize(12);
+    doc.text(`Dispositivo: ${device.name || deviceId}`);
+    doc.text(`Localização: ${device.location || "-"}`);
+    doc.text(`Gerado em: ${formatDateTimePt(new Date(), true)}`);
+
+    doc.moveDown(1.5);
+
+    // MÉTRICAS
+    doc.fontSize(14).text("Resumo (últimas 24h)", { underline: true });
+
+    doc.moveDown(0.5);
+    doc.fontSize(12);
+
+    doc.text(`Leituras: ${summary.total}`);
+    doc.text(`Temperatura mínima: ${formatNumber(summary.temp_min, 1)} °C`);
+    doc.text(`Temperatura máxima: ${formatNumber(summary.temp_max, 1)} °C`);
+    doc.text(`Temperatura média: ${formatNumber(summary.temp_avg, 1)} °C`);
+
+    doc.moveDown(0.5);
+
+    doc.text(`Humidade mínima: ${formatNumber(summary.hum_min, 0)} %`);
+    doc.text(`Humidade máxima: ${formatNumber(summary.hum_max, 0)} %`);
+    doc.text(`Humidade média: ${formatNumber(summary.hum_avg, 0)} %`);
+
+    doc.moveDown(2);
+
+    // CONFIG
+    doc.fontSize(14).text("Configuração", { underline: true });
+
+    doc.moveDown(0.5);
+    doc.fontSize(12);
+
+    doc.text(
+      `Temperatura: ${cfg.temp_low_c}°C → ${cfg.temp_high_c}°C`
+    );
+    doc.text(`Humidade: ${cfg.hum_low}% → ${cfg.hum_high}%`);
+    doc.text(`Intervalo envio: ${cfg.send_interval_s}s`);
+
+    doc.moveDown(2);
+
+    doc.fontSize(10).fillColor("gray").text(
+      "Relatório gerado automaticamente pelo sistema SmartTempSystems.",
+      { align: "center" }
+    );
+
+    doc.end();
+  } catch (error) {
+    console.error("Erro PDF:", error);
+    res.status(500).json({ error: "Erro ao gerar PDF" });
+  }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Servidor SmartTempSystems ativo na porta " + PORT);
 });
