@@ -2370,56 +2370,81 @@ setClientForm({
     setSavingClient(false);
   }
 
-let data;
+  async function saveAdminConfig() {
+    if (!device || !selectedDeviceId || !isSuperAdmin) return;
 
-try {
-  data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
-    method: "POST",
-    body: JSON.stringify({
-      name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
-      location: adminForm.location.trim() || "Localização por definir",
-      hyst_c: newHyst,
-      send_interval_s: newSendInterval,
-      display_standby_min: newDisplayStandby,
-    }),
-  });
-} catch (error) {
-  setAdminMessage(error?.message || "Erro ao guardar configurações admin.");
-  setSavingAdmin(false);
-  return;
-}
+    setSavingAdmin(true);
+    setAdminMessage("");
 
-const refreshedConfig = data?.config || {};
+    const newHyst = parseNumber(adminForm.hyst_c);
+    const newSendInterval = parseNumber(adminForm.send_interval_s);
+    const newDisplayStandby = parseNumber(adminForm.display_standby_min);
 
-const nextDevice = {
-  ...device,
-  config: refreshedConfig,
-  config_version: data?.config_version ?? device?.config_version,
-  name: data?.name ?? device?.name,
-  location: data?.location ?? device?.location,
-  updated_at: data?.updated_at ?? device?.updated_at,
-};
+    if (
+      newHyst === null ||
+      newSendInterval === null ||
+      newDisplayStandby === null
+    ) {
+      setAdminMessage("Preenche todos os campos admin com valores válidos.");
+      setSavingAdmin(false);
+      return;
+    }
 
-setDevice(nextDevice);
-setDevices((prev) =>
-  prev.map((item) =>
-    item.device_id === selectedDeviceId
-      ? {
-          ...item,
-          ...nextDevice,
-        }
-      : item
-  )
-);
+    if (newSendInterval < 5) {
+      setAdminMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+      setSavingAdmin(false);
+      return;
+    }
 
-setAdminForm({
-  name: nextDevice?.name || "",
-  location: nextDevice?.location || "",
-  hyst_c: toInputValue(refreshedConfig?.hyst_c),
-  send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
-  display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
-});
+    let data;
 
+    try {
+      data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
+          location: adminForm.location.trim() || "Localização por definir",
+          hyst_c: newHyst,
+          send_interval_s: newSendInterval,
+          display_standby_min: newDisplayStandby,
+        }),
+      });
+    } catch (error) {
+      setAdminMessage(error?.message || "Erro ao guardar configurações admin.");
+      setSavingAdmin(false);
+      return;
+    }
+
+    const refreshedConfig = data?.config || {};
+
+    const nextDevice = {
+      ...device,
+      config: refreshedConfig,
+      config_version: data?.config_version ?? device?.config_version,
+      name: data?.name ?? device?.name,
+      location: data?.location ?? device?.location,
+      updated_at: data?.updated_at ?? device?.updated_at,
+    };
+
+    setDevice(nextDevice);
+    setDevices((prev) =>
+      prev.map((item) =>
+        item.device_id === selectedDeviceId
+          ? {
+              ...item,
+              ...nextDevice,
+            }
+          : item
+      )
+    );
+
+    setAdminForm({
+      name: nextDevice?.name || "",
+      location: nextDevice?.location || "",
+      hyst_c: toInputValue(refreshedConfig?.hyst_c),
+      send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
+    });
 
     setAdminMessage("Configurações admin guardadas com sucesso.");
     setSavingAdmin(false);
