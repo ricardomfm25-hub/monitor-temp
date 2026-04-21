@@ -2339,7 +2339,7 @@ app.get("/api/dashboard/device/:id/summary", async (req, res) => {
 });
 
 // -------------------- PDF REPORT --------------------
-app.get("/api/sts/device/:id/report", async (req, res) => {
+app.get("/api/device/:id/report", async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Não autorizado" });
   }
@@ -2347,6 +2347,9 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
   try {
     const deviceId = req.params.id;
     const period = req.query.period || "24h";
+    const sendEmailCopy =
+      String(req.query.email || "false").toLowerCase() === "true";
+
     const { key: periodKey, label: periodLabel, sinceIso } =
       getReportPeriodRange(period);
 
@@ -2384,6 +2387,12 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
 
     const rows = readings || [];
 
+    if (!rows.length) {
+      return res.status(404).json({ error: "Sem dados para relatório" });
+    }
+
+    const cfg = getDeviceConfig(deviceRow);
+
     const temperatures = rows
       .map((row) => Number(row.temperature))
       .filter((value) => Number.isFinite(value));
@@ -2410,12 +2419,6 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
 
     const filePeriod = formatPeriodLabelForFilename(periodKey);
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${safeFilenameName}_relatorio_${filePeriod}.pdf"`
-    );
-
     const doc = new PDFDocument({
       size: "A4",
       margin: 42,
@@ -2426,8 +2429,60 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
       },
     });
 
-    doc.pipe(res);
+    const buffers = [];
+    doc.on("data", (chunk) => buffers.push(chunk));
 
+    doc.on("end", async () => {
+      const pdfBuffer = Buffer.concat(buffers);
+
+      if (sendEmailCopy) {
+        try {
+          const recipients = await getDeviceAlertRecipients(deviceId);
+
+          if (recipients.length) {
+            await sendEmail({
+              to: recipients,
+              subject: `Relatório STS — ${sanitizeDeviceName(
+                deviceRow?.name,
+                deviceId
+              )}`,
+              htmlContent: buildEmailShell({
+                heading: "Relatório de leituras",
+                intro: `Segue em anexo o relatório do dispositivo ${sanitizeDeviceName(
+                  deviceRow?.name,
+                  deviceId
+                )}, referente ao período de ${periodLabel}.`,
+                blocks: [
+                  { label: "Dispositivo", value: sanitizeDeviceName(deviceRow?.name, deviceId) },
+                  { label: "Device ID", value: deviceId },
+                  { label: "Localização", value: sanitizeLocation(deviceRow?.location) },
+                  { label: "Período", value: periodLabel },
+                  { label: "Total de leituras", value: String(rows.length) },
+                ],
+              }),
+              attachment: [
+                {
+                  name: `${safeFilenameName}_relatorio_${filePeriod}.pdf`,
+                  content: pdfBuffer.toString("base64"),
+                },
+              ],
+            });
+          }
+        } catch (emailError) {
+          console.error("Erro ao enviar PDF por email:", emailError);
+        }
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeFilenameName}_relatorio_${filePeriod}.pdf"`
+      );
+
+      return res.send(pdfBuffer);
+    });
+
+    // HEADER
     doc
       .fillColor("#0f172a")
       .fontSize(22)
@@ -2441,7 +2496,7 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
       .text("Relatório de leituras", 42, 72);
 
     doc
-      .roundedRect(42, 108, 511, 92, 12)
+      .roundedRect(42, 108, 511, 110, 12)
       .fillAndStroke("#f8fafc", "#dbe4ee");
 
     doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11);
@@ -2462,8 +2517,9 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
     doc.text(String(rows.length), 390, 151);
     doc.text(formatDateTimePt(new Date(), true), 390, 176);
 
-    let y = 228;
+    let y = 246;
 
+    // TEMPERATURA
     doc
       .fillColor("#0f172a")
       .font("Helvetica-Bold")
@@ -2488,6 +2544,7 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
 
     y += 98;
 
+    // HUMIDADE
     doc
       .fillColor("#0f172a")
       .font("Helvetica-Bold")
@@ -2512,6 +2569,7 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
 
     y += 102;
 
+    // JANELA TEMPORAL
     doc
       .fillColor("#0f172a")
       .font("Helvetica-Bold")
@@ -2521,23 +2579,35 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
     y += 26;
 
     doc
-      .roundedRect(42, y, 511, 82, 10)
+      .roundedRect(42, y, 511, 92, 10)
       .fillAndStroke("#ffffff", "#e2e8f0");
 
     doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
     doc.text("Primeira leitura", 62, y + 16);
     doc.text("Última leitura", 62, y + 46);
+    doc.text("Intervalos configurados", 62, y + 76);
 
     doc.fillColor("#0f172a").font("Helvetica").fontSize(11);
     doc.text(
       firstReadingAt ? formatDateTimePt(firstReadingAt, true) : "-",
-      170,
+      190,
       y + 16
     );
     doc.text(
       lastReadingAt ? formatDateTimePt(lastReadingAt, true) : "-",
-      170,
+      190,
       y + 46
+    );
+    doc.text(
+      `Temp: ${formatNumber(cfg.temp_low_c, 1)} °C a ${formatNumber(
+        cfg.temp_high_c,
+        1
+      )} °C | Hum: ${formatNumber(cfg.hum_low, 0)} % a ${formatNumber(
+        cfg.hum_high,
+        0
+      )} %`,
+      190,
+      y + 76
     );
 
     doc
@@ -2556,352 +2626,16 @@ app.get("/api/sts/device/:id/report", async (req, res) => {
 
     doc.end();
   } catch (error) {
-    console.error("Erro em /api/sts/device/:id/report:", error);
+    console.error("Erro em /api/device/:id/report:", error);
 
     if (!res.headersSent) {
-      res.status(500).json({ error: "Erro ao gerar relatório PDF" });
+      res.status(500).json({ error: "Erro ao gerar PDF" });
     }
   }
 });
 
-// -------------------- ATUALIZAR CONFIG DISPOSITIVO --------------------
-app.post("/api/device/:id/config", async (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: "Não autorizado" });
-  }
-
-  try {
-    const deviceId = req.params.id;
-    const {
-      temp_low_c,
-      temp_high_c,
-      hum_low,
-      hum_high,
-      hyst_c,
-      send_interval_s,
-      display_standby_min,
-      name,
-      location,
-    } = req.body;
-
-    const validationErrors = validateConfigNumbers({
-      temp_low_c,
-      temp_high_c,
-      hum_low,
-      hum_high,
-      hyst_c,
-      send_interval_s,
-      display_standby_min,
-    });
-
-    if (validationErrors.length > 0) {
-      return res.status(400).json({ error: validationErrors.join(" | ") });
-    }
-
-    const { data: deviceRow, error: fetchError } = await supabase
-      .from("devices")
-      .select("*")
-      .eq("device_id", deviceId)
-      .maybeSingle();
-
-    if (fetchError) {
-      return res.status(500).json({ error: fetchError.message });
-    }
-
-    if (!deviceRow) {
-      return res.status(404).json({ error: "Dispositivo não encontrado" });
-    }
-
-    const currentConfig = deviceRow?.config || {};
-    const nextVersion = (deviceRow?.config_version || 0) + 1;
-
-    const updatedConfig = {
-      ...currentConfig,
-      ...(temp_low_c !== undefined ? { temp_low_c: Number(temp_low_c) } : {}),
-      ...(temp_high_c !== undefined ? { temp_high_c: Number(temp_high_c) } : {}),
-      ...(hum_low !== undefined ? { hum_low: Number(hum_low) } : {}),
-      ...(hum_high !== undefined ? { hum_high: Number(hum_high) } : {}),
-      ...(hyst_c !== undefined ? { hyst_c: Number(hyst_c) } : {}),
-      ...(send_interval_s !== undefined
-        ? { send_interval_s: Number(send_interval_s) }
-        : {}),
-      ...(display_standby_min !== undefined
-        ? { display_standby_min: Number(display_standby_min) }
-        : {}),
-      alert_state: currentConfig.alert_state || {
-        temp_active: false,
-        hum_active: false,
-        offline_active: false,
-      },
-    };
-
-    const payload = {
-      config: updatedConfig,
-      config_version: nextVersion,
-      updated_at: nowIso(),
-    };
-
-    if (name !== undefined) {
-      payload.name = sanitizeDeviceName(name, deviceId);
-    }
-
-    if (location !== undefined) {
-      payload.location = sanitizeLocation(location);
-    }
-
-    const { data: updatedRow, error } = await supabase
-      .from("devices")
-      .update(payload)
-      .eq("device_id", deviceId)
-      .select("*")
-      .single();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({
-      message: "Configuração atualizada com sucesso",
-      config_version: updatedRow.config_version,
-      config: updatedRow.config,
-      name: updatedRow.name,
-      location: updatedRow.location,
-      updated_at: updatedRow.updated_at,
-    });
-  } catch (error) {
-    console.error("Erro em /api/device/:id/config [POST]:", error);
-    res.status(500).json({ error: "Erro interno no servidor" });
-  }
-});
-
-// -------------------- OBTER CONFIG DISPOSITIVO --------------------
-app.get("/api/device/:id/config", async (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: "Não autorizado" });
-  }
-
-  try {
-    const deviceId = req.params.id;
-
-    const { data, error } = await supabase
-      .from("devices")
-      .select("device_id,name,location,config,config_version,updated_at")
-      .eq("device_id", deviceId)
-      .maybeSingle();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    if (!data) {
-      return res.status(404).json({ error: "Dispositivo não encontrado" });
-    }
-
-    const config = getDeviceConfig(data);
-
-    res.json({
-      device_id: deviceId,
-      name: data.name || deviceId,
-      location: data.location || "Localização por definir",
-      config_version: data.config_version || 1,
-      updated_at: data.updated_at || null,
-      config,
-    });
-  } catch (error) {
-    console.error("Erro em /api/device/:id/config [GET]:", error);
-    res.status(500).json({ error: "Erro interno no servidor" });
-  }
-});
-
-// -------------------- PDF REPORT --------------------
-app.get("/api/device/:id/report", async (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: "Não autorizado" });
-  }
-
-  try {
-    const deviceId = req.params.id;
-
-    // buscar dispositivo
-    const { data: device } = await supabase
-      .from("devices")
-      .select("*")
-      .eq("device_id", deviceId)
-      .single();
-
-    if (!device) {
-      return res.status(404).json({ error: "Dispositivo não encontrado" });
-    }
-
-    const cfg = getDeviceConfig(device);
-
-    // últimas 24h
-    const readings = await getRecentReadingsForAnalysis(deviceId, 24);
-
-    const temps = readings.map(r => Number(r.temperature)).filter(Number.isFinite);
-    const hums = readings.map(r => Number(r.humidity)).filter(Number.isFinite);
-
-    const avg = (arr) =>
-      arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-
-    const summary = {
-      temp_min: temps.length ? Math.min(...temps) : null,
-      temp_max: temps.length ? Math.max(...temps) : null,
-      temp_avg: avg(temps),
-      hum_min: hums.length ? Math.min(...hums) : null,
-      hum_max: hums.length ? Math.max(...hums) : null,
-      hum_avg: avg(hums),
-      total: readings.length,
-    };
-
-    // criar PDF
-    const doc = new PDFDocument({ margin: 40 });
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=STS_Report_${deviceId}.pdf`
-    );
-
-    doc.pipe(res);
-
-    // HEADER
-    doc.fontSize(20).text("SmartTempSystems", { align: "center" });
-    doc.moveDown(0.5);
-    doc.fontSize(14).text("Relatório de Monitorização", { align: "center" });
-
-    doc.moveDown(2);
-
-    // INFO
-    doc.fontSize(12);
-    doc.text(`Dispositivo: ${device.name || deviceId}`);
-    doc.text(`Localização: ${device.location || "-"}`);
-    doc.text(`Gerado em: ${formatDateTimePt(new Date(), true)}`);
-
-    doc.moveDown(1.5);
-
-    // MÉTRICAS
-    doc.fontSize(14).text("Resumo (últimas 24h)", { underline: true });
-
-    doc.moveDown(0.5);
-    doc.fontSize(12);
-
-    doc.text(`Leituras: ${summary.total}`);
-    doc.text(`Temperatura mínima: ${formatNumber(summary.temp_min, 1)} °C`);
-    doc.text(`Temperatura máxima: ${formatNumber(summary.temp_max, 1)} °C`);
-    doc.text(`Temperatura média: ${formatNumber(summary.temp_avg, 1)} °C`);
-
-    doc.moveDown(0.5);
-
-    doc.text(`Humidade mínima: ${formatNumber(summary.hum_min, 0)} %`);
-    doc.text(`Humidade máxima: ${formatNumber(summary.hum_max, 0)} %`);
-    doc.text(`Humidade média: ${formatNumber(summary.hum_avg, 0)} %`);
-
-    doc.moveDown(2);
-
-    // CONFIG
-    doc.fontSize(14).text("Configuração", { underline: true });
-
-    doc.moveDown(0.5);
-    doc.fontSize(12);
-
-    doc.text(
-      `Temperatura: ${cfg.temp_low_c}°C → ${cfg.temp_high_c}°C`
-    );
-    doc.text(`Humidade: ${cfg.hum_low}% → ${cfg.hum_high}%`);
-    doc.text(`Intervalo envio: ${cfg.send_interval_s}s`);
-
-    doc.moveDown(2);
-
-    doc.fontSize(10).fillColor("gray").text(
-      "Relatório gerado automaticamente pelo sistema SmartTempSystems.",
-      { align: "center" }
-    );
-
-    doc.end();
-  } catch (error) {
-    console.error("Erro PDF:", error);
-    res.status(500).json({ error: "Erro ao gerar PDF" });
-  }
-});
-
-const PDFDocument = require("pdfkit");
-
-app.get("/api/device/:id/report", async (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: "Não autorizado" });
-  }
-
-  try {
-    const deviceId = req.params.id;
-    const hours = Number(req.query.hours || 24);
-
-    const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
-    const readings = await fetchAllReadingsSince(deviceId, sinceIso);
-
-    if (!readings.length) {
-      return res.status(404).json({ error: "Sem dados para relatório" });
-    }
-
-    // ---- gerar PDF ----
-    const doc = new PDFDocument({ margin: 40 });
-    const buffers = [];
-
-    doc.on("data", buffers.push.bind(buffers));
-
-    doc.on("end", async () => {
-      const pdfBuffer = Buffer.concat(buffers);
-
-      // 👉 envio email (opcional automático)
-      try {
-        await sendEmail({
-          to: await getDeviceAlertRecipients(deviceId),
-          subject: `Relatório STS - ${deviceId}`,
-          htmlContent: "Segue relatório em anexo.",
-          attachment: [
-            {
-              content: pdfBuffer.toString("base64"),
-              name: `report-${deviceId}.pdf`,
-            },
-          ],
-        });
-      } catch (e) {
-        console.log("Email falhou mas PDF gerado");
-      }
-
-      // 👉 download direto
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=report-${deviceId}.pdf`
-      );
-
-      res.send(pdfBuffer);
-    });
-
-    // ---- conteúdo PDF ----
-    doc.fontSize(18).text("SmartTempSystems", { align: "center" });
-    doc.moveDown();
-
-    doc.fontSize(12).text(`Dispositivo: ${deviceId}`);
-    doc.text(`Período: últimas ${hours}h`);
-    doc.moveDown();
-
-    readings.slice(-50).forEach((r) => {
-      doc.text(
-        `${formatDateTimePt(r.created_at)} | ${formatNumber(
-          r.temperature,
-          1
-        )}°C | ${formatNumber(r.humidity, 0)}%`
-      );
-    });
-
-    doc.end();
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erro ao gerar PDF" });
-  }
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("Servidor SmartTempSystems ativo na porta " + PORT);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
