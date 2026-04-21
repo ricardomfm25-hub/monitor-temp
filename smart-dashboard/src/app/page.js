@@ -1802,6 +1802,25 @@ function BootScreen() {
   );
 }
 
+async function fetchJsonOrThrow(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload?.error || "Erro inesperado.");
+  }
+
+  return payload;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -1812,6 +1831,7 @@ export default function DashboardPage() {
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
+const [deviceOverview, setDeviceOverview] = useState(null);
 
   const [profile, setProfile] = useState(null);
   const [devicePermissions, setDevicePermissions] = useState([]);
@@ -1981,31 +2001,55 @@ export default function DashboardPage() {
         const safeDevices = devicesData || [];
         const nextSelectedDeviceId = getBestInitialDeviceId(safeDevices, selectedDeviceId);
 
-        const [deviceResponse, readingsRows, alertsRows] = await Promise.all([
-          nextSelectedDeviceId
-            ? supabase
-                .from("devices")
-                .select("*")
-                .eq("device_id", nextSelectedDeviceId)
-                .limit(1)
-                .maybeSingle()
-            : Promise.resolve({ data: null, error: null }),
-          nextSelectedDeviceId
-            ? fetchAllReadingsForPeriod(supabase, nextSelectedDeviceId, since)
-            : Promise.resolve([]),
-          nextSelectedDeviceId
-            ? fetchRecentAlerts(supabase, nextSelectedDeviceId, 20)
-            : Promise.resolve([]),
-        ]);
+const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.all([
+  nextSelectedDeviceId
+    ? supabase
+        .from("devices")
+        .select("*")
+        .eq("device_id", nextSelectedDeviceId)
+        .limit(1)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null }),
+
+  nextSelectedDeviceId
+    ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`)
+    : Promise.resolve(null),
+
+  nextSelectedDeviceId
+    ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
+    : Promise.resolve([]),
+
+  nextSelectedDeviceId
+    ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`)
+    : Promise.resolve([]),
+]);
 
         if (deviceResponse?.error) {
           console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
           throw new Error("Não foi possível carregar o dispositivo selecionado.");
         }
 
-        const deviceData = deviceResponse?.data || null;
+        const baseDeviceData = deviceResponse?.data || null;
 
-        const readingsData = (readingsRows || [])
+const deviceData = baseDeviceData
+  ? {
+      ...baseDeviceData,
+      last_temperature:
+        overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
+      last_humidity:
+        overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+      status:
+        overviewData?.status
+          ? String(overviewData.status).toUpperCase()
+          : baseDeviceData?.status,
+      communication_health: overviewData?.communication_health || null,
+      predictive_status: overviewData?.predictive_status || null,
+      alerts_24h: overviewData?.alerts_24h ?? 0,
+      total_readings_24h: overviewData?.total_readings_24h ?? 0,
+    }
+  : null;
+
+        const readingsData = (historyRows || [])
           .map((item) => {
             const timestamp = new Date(item.created_at).getTime();
 
@@ -2028,6 +2072,7 @@ export default function DashboardPage() {
         setDevicePermissions(permissionsData);
         setDevices(safeDevices);
         setDevice(deviceData);
+setDeviceOverview(overviewData || null);
         setReadings(readingsData);
         setAlerts(alertsRows || []);
 
@@ -2142,21 +2187,35 @@ export default function DashboardPage() {
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
-  const communicationHealth = useMemo(
-    () =>
-      getCommunicationHealth({
-        rawReadings: readings,
-        sendIntervalS,
-        deviceLastSeen: device?.last_seen,
-        periodKey: period,
-      }),
-    [readings, sendIntervalS, device?.last_seen, period]
-  );
+const communicationHealth =
+  device?.communication_health || {
+    score: 0,
+    label: "Sem dados",
+    tone: "neutral",
+    summary: "Sem dados disponíveis.",
+    delivery_pct: 0,
+    regularity_pct: 0,
+    expected_readings: 0,
+    received_readings: 0,
+    expected_interval_ms: 0,
+    offline_threshold_ms: 0,
+    last_delay_ms: null,
+    max_gap_ms: null,
+    relevant_gap_count: 0,
+    severe_gap_count: 0,
+  };
 
-  const predictiveStatus = useMemo(
-    () => getPredictiveStatus(readings, config),
-    [readings, config]
-  );
+const predictiveStatus =
+  device?.predictive_status || {
+    level: "low",
+    title: "Risco baixo",
+    detail: "Sem tendência relevante nas últimas leituras",
+    chip: "Baixo",
+    source: "none",
+    source_label: "Sem variável crítica",
+    eta_minutes: null,
+    score: 0,
+  };
 
   const operationalInsights = useMemo(
     () =>
@@ -2260,109 +2319,107 @@ export default function DashboardPage() {
       hum_high: newHumHigh,
     };
 
-    const { data, error } = await supabase
-      .from("devices")
-      .update({
-        config: newConfig,
-        config_version: Number(device?.config_version || 0) + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("device_id", selectedDeviceId)
-      .select("*")
-      .single();
+let data;
 
-    if (error || !data) {
-      setClientMessage("Erro ao guardar configurações do cliente.");
-      console.warn("saveClientConfig:", JSON.stringify(error, null, 2));
-      setSavingClient(false);
-      return;
-    }
+try {
+  data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+    method: "POST",
+    body: JSON.stringify({
+      temp_low_c: newTempLow,
+      temp_high_c: newTempHigh,
+      hum_low: newHumLow,
+      hum_high: newHumHigh,
+    }),
+  });
+} catch (error) {
+  setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
+  setSavingClient(false);
+  return;
+}
 
-    setDevice(data);
-    setDevices((prev) =>
-      prev.map((item) =>
-        item.device_id === data.device_id ? { ...item, ...data } : item
-      )
-    );
+const refreshedConfig = data?.config || {};
 
-    setClientForm({
-      temp_low_c: toInputValue(data?.config?.temp_low_c),
-      temp_high_c: toInputValue(data?.config?.temp_high_c),
-      hum_low: toInputValue(data?.config?.hum_low),
-      hum_high: toInputValue(data?.config?.hum_high),
-    });
+const nextDevice = {
+  ...device,
+  config: refreshedConfig,
+  config_version: data?.config_version ?? device?.config_version,
+  name: data?.name ?? device?.name,
+  location: data?.location ?? device?.location,
+  updated_at: data?.updated_at ?? device?.updated_at,
+};
 
+setDevice(nextDevice);
+setDevices((prev) =>
+  prev.map((item) =>
+    item.device_id === selectedDeviceId
+      ? {
+          ...item,
+          ...nextDevice,
+        }
+      : item
+  )
+);
+
+setClientForm({
+  temp_low_c: toInputValue(refreshedConfig?.temp_low_c),
+  temp_high_c: toInputValue(refreshedConfig?.temp_high_c),
+  hum_low: toInputValue(refreshedConfig?.hum_low),
+  hum_high: toInputValue(refreshedConfig?.hum_high),
+});
     setClientMessage("Configurações do cliente guardadas com sucesso.");
     setSavingClient(false);
   }
 
-  async function saveAdminConfig() {
-    if (!device || !selectedDeviceId || !isSuperAdmin) return;
+let data;
 
-    setSavingAdmin(true);
-    setAdminMessage("");
-
-    const newHyst = parseNumber(adminForm.hyst_c);
-    const newSendInterval = parseNumber(adminForm.send_interval_s);
-    const newDisplayStandby = parseNumber(adminForm.display_standby_min);
-
-    if (
-      newHyst === null ||
-      newSendInterval === null ||
-      newDisplayStandby === null
-    ) {
-      setAdminMessage("Preenche todos os campos admin com valores válidos.");
-      setSavingAdmin(false);
-      return;
-    }
-
-    if (newSendInterval < 5) {
-      setAdminMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
-      setSavingAdmin(false);
-      return;
-    }
-
-    const newConfig = {
-      ...config,
+try {
+  data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
+      location: adminForm.location.trim() || "Localização por definir",
       hyst_c: newHyst,
       send_interval_s: newSendInterval,
       display_standby_min: newDisplayStandby,
-    };
+    }),
+  });
+} catch (error) {
+  setAdminMessage(error?.message || "Erro ao guardar configurações admin.");
+  setSavingAdmin(false);
+  return;
+}
 
-    const { data, error } = await supabase
-      .from("devices")
-      .update({
-        name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
-        location: adminForm.location.trim() || "Localização por definir",
-        config: newConfig,
-        config_version: Number(device?.config_version || 0) + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("device_id", selectedDeviceId)
-      .select("*")
-      .single();
+const refreshedConfig = data?.config || {};
 
-    if (error || !data) {
-      setAdminMessage("Erro ao guardar configurações admin.");
-      console.warn("saveAdminConfig:", JSON.stringify(error, null, 2));
-      setSavingAdmin(false);
-      return;
-    }
+const nextDevice = {
+  ...device,
+  config: refreshedConfig,
+  config_version: data?.config_version ?? device?.config_version,
+  name: data?.name ?? device?.name,
+  location: data?.location ?? device?.location,
+  updated_at: data?.updated_at ?? device?.updated_at,
+};
 
-    setDevice(data);
-    setDevices((prev) =>
-      prev.map((item) =>
-        item.device_id === data.device_id ? { ...item, ...data } : item
-      )
-    );
+setDevice(nextDevice);
+setDevices((prev) =>
+  prev.map((item) =>
+    item.device_id === selectedDeviceId
+      ? {
+          ...item,
+          ...nextDevice,
+        }
+      : item
+  )
+);
 
-    setAdminForm({
-      name: data?.name || "",
-      location: data?.location || "",
-      hyst_c: toInputValue(data?.config?.hyst_c),
-      send_interval_s: toInputValue(data?.config?.send_interval_s),
-      display_standby_min: toInputValue(data?.config?.display_standby_min),
-    });
+setAdminForm({
+  name: nextDevice?.name || "",
+  location: nextDevice?.location || "",
+  hyst_c: toInputValue(refreshedConfig?.hyst_c),
+  send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+  display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
+});
+
 
     setAdminMessage("Configurações admin guardadas com sucesso.");
     setSavingAdmin(false);
