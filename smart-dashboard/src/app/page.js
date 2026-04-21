@@ -2599,66 +2599,7 @@ const communicationHealth = useMemo(
           </div>
         </section>
 
-        <section
-          style={{
-            ...styles.kpiStrip,
-            gridTemplateColumns: isMobile
-              ? "1fr"
-              : "repeat(4, minmax(0, 1fr))",
-          }}
-        >
-          <MetricBox
-            label="Saúde da comunicação"
-            value={`${communicationHealth.score}%`}
-            tone={communicationHealth.tone}
-            accentLabel={communicationHealth.label}
-            subvalue={communicationHealth.summary}
-          />
 
-          <MetricBox
-            label="Cobertura de leituras"
-            value={`${communicationHealth.delivery_pct}%`}
-            tone={
-              communicationHealth.delivery_pct >= 94
-                ? "good"
-                : communicationHealth.delivery_pct >= 88
-                ? "warn"
-                : "bad"
-            }
-            accentLabel="Entrega"
-            subvalue={`${communicationHealth.received_readings}/${communicationHealth.expected_readings} leituras esperadas`}
-          />
-
-          <MetricBox
-            label="Tendência preditiva"
-            value={predictiveStatus.title}
-            tone={
-              predictiveStatus.level === "high"
-                ? "bad"
-                : predictiveStatus.level === "medium"
-                ? "warn"
-                : "good"
-            }
-            accentLabel={predictiveStatus.chip}
-            subvalue={predictiveStatus.source_label}
-          />
-
-          <MetricBox
-            label="Última comunicação"
-            value={formatDurationCompact(effectiveLastDelayMs)}
-            tone={
-              communicationHealth.label === "Offline"
-                ? "bad"
-                : effectiveLastDelayMs !== null &&
-                  effectiveLastDelayMs >
-                    Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
-                ? "warn"
-                : "neutral"
-            }
-            accentLabel="Atraso"
-            subvalue={`Intervalo esperado: ${formatDurationCompact(communicationHealth.expected_interval_ms)}`}
-          />
-        </section>
 
         <OperationalInsightCard items={operationalInsights} />
 
@@ -3580,11 +3521,6 @@ const styles = {
     fontSize: "13px",
     fontWeight: 800,
     whiteSpace: "nowrap",
-  },
-
-  kpiStrip: {
-    display: "grid",
-    gap: "14px",
   },
 
   metricsRow: {
