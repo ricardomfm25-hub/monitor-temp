@@ -339,6 +339,140 @@ function canSendByCooldown(lastSentAt) {
   return diffMs >= COOLDOWN_MIN * 60 * 1000;
 }
 
+function getCommunicationHealth({
+  readings,
+  sendIntervalS,
+  deviceLastSeen,
+  periodHours = 24,
+}) {
+  const expectedMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000
+      : 30 * 1000;
+
+  const offlineThresholdMs = Math.max(expectedMs * 6, 180 * 1000);
+  const periodMs = periodHours * 60 * 60 * 1000;
+  const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
+
+  const sorted = [...(readings || [])]
+    .map((item) => ({
+      timestamp: new Date(item.created_at).getTime(),
+    }))
+    .filter((item) => Number.isFinite(item.timestamp))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const receivedReadings = sorted.length;
+  const deliveryPct = Math.max(
+    0,
+    Math.min(100, Math.round((receivedReadings / expectedReadings) * 100))
+  );
+
+  const lastDelayMs = deviceLastSeen
+    ? Date.now() - new Date(deviceLastSeen).getTime()
+    : null;
+
+  if (!sorted.length) {
+    return {
+      score: 0,
+      label: "Sem dados",
+      tone: "neutral",
+      summary: "Sem leituras suficientes para avaliar.",
+      delivery_pct: deliveryPct,
+      regularity_pct: 0,
+      expected_readings: expectedReadings,
+      received_readings: receivedReadings,
+      expected_interval_ms: expectedMs,
+      offline_threshold_ms: offlineThresholdMs,
+      last_delay_ms: lastDelayMs,
+      max_gap_ms: null,
+      relevant_gap_count: 0,
+      severe_gap_count: 0,
+    };
+  }
+
+  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
+  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
+
+  let maxGapMs = 0;
+  let relevantGapCount = 0;
+  let severeGapCount = 0;
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
+    if (!Number.isFinite(delta) || delta <= 0) continue;
+
+    if (delta > maxGapMs) maxGapMs = delta;
+    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
+    if (delta >= severeGapThresholdMs) severeGapCount += 1;
+  }
+
+  let penalty = 0;
+  penalty += relevantGapCount * 2;
+  penalty += severeGapCount * 8;
+
+  if (lastDelayMs !== null) {
+    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
+    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
+      penalty += 10;
+    }
+  }
+
+  const regularityPct = Math.max(0, Math.min(100, Math.round(deliveryPct - penalty)));
+
+  let label = "Estável";
+  let tone = "good";
+  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+
+  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
+
+  if (isOffline) {
+    label = "Offline";
+    tone = "bad";
+    summary = "Sem comunicação recente do dispositivo.";
+  } else if (
+    deliveryPct >= 98 &&
+    relevantGapCount <= 1 &&
+    severeGapCount === 0
+  ) {
+    label = "Excelente";
+    tone = "good";
+    summary = "Cobertura muito alta e comunicação muito consistente.";
+  } else if (
+    deliveryPct >= 94 &&
+    relevantGapCount <= 5 &&
+    severeGapCount <= 1
+  ) {
+    label = "Estável";
+    tone = "good";
+    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
+    label = "Com falhas";
+    tone = "warn";
+    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
+  } else {
+    label = "Instável";
+    tone = "bad";
+    summary = "Perdas ou gaps relevantes na comunicação.";
+  }
+
+  return {
+    score: regularityPct,
+    label,
+    tone,
+    summary,
+    delivery_pct: deliveryPct,
+    regularity_pct: regularityPct,
+    expected_readings: expectedReadings,
+    received_readings: receivedReadings,
+    expected_interval_ms: expectedMs,
+    offline_threshold_ms: offlineThresholdMs,
+    last_delay_ms: lastDelayMs,
+    max_gap_ms: maxGapMs || null,
+    relevant_gap_count: relevantGapCount,
+    severe_gap_count: severeGapCount,
+  };
+}
+
 // -------------------- HEALTH / PREDICTIVE ENGINE --------------------
 function getMinutesDiff(a, b) {
   const diffMs = new Date(b).getTime() - new Date(a).getTime();
@@ -1919,6 +2053,37 @@ app.post("/api/temperature", async (req, res) => {
   }
 });
 
+
+
+async function fetchAllReadingsSince(deviceId, sinceIso) {
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("readings")
+      .select("created_at, temperature, humidity")
+      .eq("device_id", deviceId)
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const chunk = data || [];
+    allRows = allRows.concat(chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return allRows;
+}
+
+
 // -------------------- DASHBOARD: DEVICE OVERVIEW --------------------
 app.get("/api/dashboard/device/:id", async (req, res) => {
   if (!isAuthorized(req)) {
@@ -1990,6 +2155,14 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const since24hIso = new Date(
       Date.now() - 24 * 60 * 60 * 1000
     ).toISOString();
+const readings24hRows = await fetchAllReadingsSince(deviceId, since24hIso);
+
+const communication_health = getCommunicationHealth({
+  readings: readings24hRows,
+  sendIntervalS: cfg.send_interval_s,
+  deviceLastSeen: lastSeenIso,
+  periodHours: 24,
+});
 
     const [
       { count: alerts24hCount, error: alertsCountError },
@@ -2030,27 +2203,27 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
 
     const predictiveStatus = getPredictiveStatus(recentReadings, cfg);
 
-    res.json({
-      device_id: deviceId,
-      name: deviceRow?.name || deviceId,
-      location: deviceRow?.location || "Local não definido",
-      temperature: temperature !== null ? Number(temperature) : null,
-      humidity: humidity !== null ? Number(humidity) : null,
-      temp_low_c,
-      temp_high_c,
-      hum_low,
-      hum_high,
-      status: statusToApiLabel(normalizedStatus),
-      online,
-      last_seen_seconds: lastSeenSeconds,
-      alerts_24h: alerts24hCount || 0,
-      total_readings_24h: readings24hCount || 0,
-      backend_status: "connected",
-      updated_at: deviceRow?.updated_at || latestReading?.created_at || null,
-      alert_state,
-      communication_health: communicationHealth,
-      predictive_status: predictiveStatus,
-    });
+res.json({
+  device_id: deviceId,
+  name: deviceRow?.name || deviceId,
+  location: deviceRow?.location || "Local não definido",
+  temperature: temperature !== null ? Number(temperature) : null,
+  humidity: humidity !== null ? Number(humidity) : null,
+  temp_low_c,
+  temp_high_c,
+  hum_low,
+  hum_high,
+  status: statusToApiLabel(normalizedStatus),
+  online,
+  last_seen_seconds: lastSeenSeconds,
+  alerts_24h: alerts24hCount || 0,
+  total_readings_24h: readings24hCount || 0,
+  backend_status: "connected",
+  updated_at: deviceRow?.updated_at || latestReading?.created_at || null,
+  alert_state,
+  communication_health,
+});
+
   } catch (error) {
     console.error("Erro em /api/dashboard/device/:id:", error);
     res.status(500).json({ error: "Erro interno no servidor" });
