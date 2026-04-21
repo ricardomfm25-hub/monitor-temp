@@ -1654,6 +1654,7 @@ export default function DashboardPage() {
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
   const [deviceOverview, setDeviceOverview] = useState(null);
+const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const [profile, setProfile] = useState(null);
   const [devicePermissions, setDevicePermissions] = useState([]);
@@ -2012,23 +2013,16 @@ export default function DashboardPage() {
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
   const deviceLocation = device?.location || "Localização por definir";
 
-  const communicationHealth =
-    device?.communication_health || {
-      score: 0,
-      label: "Sem dados",
-      tone: "neutral",
-      summary: "Sem dados disponíveis.",
-      delivery_pct: 0,
-      regularity_pct: 0,
-      expected_readings: 0,
-      received_readings: 0,
-      expected_interval_ms: 0,
-      offline_threshold_ms: 0,
-      last_delay_ms: null,
-      max_gap_ms: null,
-      relevant_gap_count: 0,
-      severe_gap_count: 0,
-    };
+const communicationHealth = useMemo(
+  () =>
+    getCommunicationHealth({
+      rawReadings: readings,
+      sendIntervalS,
+      deviceLastSeen: device?.last_seen,
+      periodKey: period,
+    }),
+  [readings, sendIntervalS, device?.last_seen, period]
+);
 
   const predictiveStatus =
     device?.predictive_status || {
@@ -2664,31 +2658,39 @@ export default function DashboardPage() {
           />
         </section>
 
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Histórico de alertas</div>
-              <div style={styles.cardHint}>
-                Alertas reais registados para este dispositivo
-              </div>
-            </div>
-          </div>
+<section style={styles.card}>
+  <div style={styles.cardHeader}>
+    <div>
+      <div style={styles.cardTitle}>Histórico de alertas</div>
+      <div style={styles.cardHint}>
+        Alertas reais registados para este dispositivo
+      </div>
+    </div>
 
-          {!alerts.length ? (
-            <div style={styles.emptyState}>
-              Sem alertas registados para este dispositivo.
-            </div>
-          ) : (
-            <div style={styles.alertList}>
-              {alerts.map((item, index) => (
-                <AlertRow
-                  key={item.id || `${item.sent_at || item.created_at}-${index}`}
-                  item={item}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+    <button
+      type="button"
+      onClick={() => setAlertsCollapsed((prev) => !prev)}
+      style={styles.collapseButton}
+    >
+      {alertsCollapsed ? "Expandir" : "Minimizar"}
+    </button>
+  </div>
+
+  {alertsCollapsed ? null : !alerts.length ? (
+    <div style={styles.emptyState}>
+      Sem alertas registados para este dispositivo.
+    </div>
+  ) : (
+    <div style={styles.alertList}>
+      {alerts.map((item, index) => (
+        <AlertRow
+          key={item.id || `${item.sent_at || item.created_at}-${index}`}
+          item={item}
+        />
+      ))}
+    </div>
+  )}
+</section>
 
         <section style={styles.card}>
           <div style={styles.cardHeader}>
@@ -3766,6 +3768,17 @@ const styles = {
     flexDirection: "column",
     gap: "12px",
   },
+
+collapseButton: {
+  border: "1px solid #334155",
+  background: "#0f172a",
+  color: "#cbd5e1",
+  borderRadius: "10px",
+  padding: "8px 12px",
+  cursor: "pointer",
+  fontWeight: 800,
+  fontSize: "12px",
+},
 
   alertRow: {
     background: "#0f172a",
