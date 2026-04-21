@@ -133,7 +133,7 @@ export async function POST(req) {
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
 
       return NextResponse.json(
-        { error: Erro ao criar perfil: ${profileInsertError.message} },
+        { error: `Erro ao criar perfil: ${profileInsertError.message}` },
         { status: 400 }
       );
     }
