@@ -38,12 +38,12 @@ export async function POST(req) {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profileError) {
-      return NextResponse.json(
-        { error: Erro ao ler perfil: ${profileError.message} },
-        { status: 403 }
-      );
-    }
+   if (profileError) {
+  return NextResponse.json(
+    { error: `Erro ao ler perfil: ${profileError.message}` },
+    { status: 403 }
+  );
+}
 
     if (!profile) {
       return NextResponse.json(
