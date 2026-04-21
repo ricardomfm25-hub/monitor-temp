@@ -506,6 +506,143 @@ function getXAxisTicks(periodKey) {
   return Array.from(new Set(ticks)).sort((a, b) => a - b);
 }
 
+function getCommunicationHealth({
+  rawReadings,
+  sendIntervalS,
+  deviceLastSeen,
+  periodKey,
+}) {
+  const { start, end } = getPeriodWindow(periodKey);
+
+  const sorted = [...(rawReadings || [])]
+    .filter((item) => Number.isFinite(item?.timestamp))
+    .filter((item) => item.timestamp >= start && item.timestamp <= end)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const expectedMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000
+      : 30 * 1000;
+
+  const offlineThresholdMs = getOfflineLimitMs(sendIntervalS);
+  const periodMs = Math.max(end - start, expectedMs);
+  const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
+  const receivedReadings = sorted.length;
+
+  const deliveryPct = Math.max(
+    0,
+    Math.min(100, Math.round((receivedReadings / expectedReadings) * 100))
+  );
+
+  const lastDelayMs = deviceLastSeen
+    ? Date.now() - new Date(deviceLastSeen).getTime()
+    : null;
+
+  if (!sorted.length) {
+    return {
+      score: 0,
+      label: "Sem dados",
+      tone: "neutral",
+      summary: "Sem leituras suficientes para avaliar.",
+      delivery_pct: deliveryPct,
+      regularity_pct: 0,
+      expected_readings: expectedReadings,
+      received_readings: receivedReadings,
+      expected_interval_ms: expectedMs,
+      offline_threshold_ms: offlineThresholdMs,
+      last_delay_ms: lastDelayMs,
+      max_gap_ms: null,
+      relevant_gap_count: 0,
+      severe_gap_count: 0,
+    };
+  }
+
+  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
+  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
+
+  let maxGapMs = 0;
+  let relevantGapCount = 0;
+  let severeGapCount = 0;
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
+    if (!Number.isFinite(delta) || delta <= 0) continue;
+
+    if (delta > maxGapMs) maxGapMs = delta;
+    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
+    if (delta >= severeGapThresholdMs) severeGapCount += 1;
+  }
+
+  let penalty = 0;
+  penalty += relevantGapCount * 2;
+  penalty += severeGapCount * 8;
+
+  if (lastDelayMs !== null) {
+    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
+    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
+      penalty += 10;
+    }
+  }
+
+  const regularityPct = Math.max(
+    0,
+    Math.min(100, Math.round(deliveryPct - penalty))
+  );
+
+  let label = "Estável";
+  let tone = "good";
+  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+
+  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
+
+  if (isOffline) {
+    label = "Offline";
+    tone = "bad";
+    summary = "Sem comunicação recente do dispositivo.";
+  } else if (
+    deliveryPct >= 98 &&
+    relevantGapCount <= 1 &&
+    severeGapCount === 0
+  ) {
+    label = "Excelente";
+    tone = "good";
+    summary = "Cobertura muito alta e comunicação muito consistente.";
+  } else if (
+    deliveryPct >= 94 &&
+    relevantGapCount <= 5 &&
+    severeGapCount <= 1
+  ) {
+    label = "Estável";
+    tone = "good";
+    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
+  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
+    label = "Com falhas";
+    tone = "warn";
+    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
+  } else {
+    label = "Instável";
+    tone = "bad";
+    summary = "Perdas ou gaps relevantes na comunicação.";
+  }
+
+  return {
+    score: regularityPct,
+    label,
+    tone,
+    summary,
+    delivery_pct: deliveryPct,
+    regularity_pct: regularityPct,
+    expected_readings: expectedReadings,
+    received_readings: receivedReadings,
+    expected_interval_ms: expectedMs,
+    offline_threshold_ms: offlineThresholdMs,
+    last_delay_ms: lastDelayMs,
+    max_gap_ms: maxGapMs || null,
+    relevant_gap_count: relevantGapCount,
+    severe_gap_count: severeGapCount,
+  };
+}
+
 function getMinutesDiff(a, b) {
   const diffMs = new Date(b).getTime() - new Date(a).getTime();
   return diffMs / 60000;
