@@ -2090,146 +2090,123 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
+app.get("/api/dashboard/device/:id", async (req, res) => {
   try {
     const deviceId = req.params.id;
 
+    // 1) buscar dispositivo
     const { data: deviceRow, error: deviceError } = await supabase
       .from("devices")
       .select("*")
       .eq("device_id", deviceId)
       .maybeSingle();
 
-    if (deviceError) {
-      console.error("Erro ao ler devices:", deviceError);
-      return res.status(500).json({ error: "Erro ao obter dispositivo" });
+    if (deviceError) throw deviceError;
+    if (!deviceRow) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
     }
 
-    const { data: latestReading, error: latestError } = await supabase
+    const cfg = deviceRow.config || {};
+
+    // 2) última leitura
+    const { data: latestReading } = await supabase
       .from("readings")
-      .select("*")
+      .select("temperature, humidity, created_at")
       .eq("device_id", deviceId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (latestError) {
-      console.error("Erro ao ler última leitura:", latestError);
-      return res.status(500).json({ error: "Erro ao obter última leitura" });
-    }
+    const temperature = latestReading?.temperature ?? null;
+    const humidity = latestReading?.humidity ?? null;
+    const lastSeenIso = latestReading?.created_at || null;
 
-    if (!deviceRow && !latestReading) {
-      return res.status(404).json({ error: "Dispositivo não encontrado" });
-    }
-
-    const cfg = getDeviceConfig(deviceRow);
-    const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
-
-    const temperature =
-      latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
-    const humidity = latestReading?.humidity ?? deviceRow?.last_humidity ?? null;
-
-    const lastSeenIso = deviceRow?.last_seen || latestReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
-      : 999999;
+      : null;
+
+    const sendIntervalS = Number(cfg.send_interval_s || 30);
+    const offlineThreshold = Math.max(sendIntervalS * 6, 180);
 
     const online =
-      lastSeenSeconds <=
-      Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
+      lastSeenSeconds !== null && lastSeenSeconds <= offlineThreshold;
 
-    const normalizedStatus =
-      temperature !== null && humidity !== null
-        ? getDeviceStatus({
-            online,
-            temperature: Number(temperature),
-            humidity: Number(humidity),
-            temp_low_c,
-            temp_high_c,
-            hum_low,
-            hum_high,
-          })
-        : online
-        ? "normal"
-        : "offline";
+    const normalizedStatus = online ? "normal" : "offline";
 
+    // 3) limites
+    const temp_low_c = Number(cfg.temp_low_c ?? null);
+    const temp_high_c = Number(cfg.temp_high_c ?? null);
+    const hum_low = Number(cfg.hum_low ?? null);
+    const hum_high = Number(cfg.hum_high ?? null);
+
+    // 4) leituras últimas 24h (REAL - SEM LIMIT)
     const since24hIso = new Date(
       Date.now() - 24 * 60 * 60 * 1000
     ).toISOString();
-const readings24hRows = await fetchAllReadingsSince(deviceId, since24hIso);
 
-const communication_health = getCommunicationHealth({
-  readings: readings24hRows,
-  sendIntervalS: cfg.send_interval_s,
-  deviceLastSeen: lastSeenIso,
-  periodHours: 24,
-});
+    const readings24hRows = await fetchAllReadingsSince(
+      deviceId,
+      since24hIso
+    );
 
-    const [
-      { count: alerts24hCount, error: alertsCountError },
-      { count: readings24hCount, error: readingsCountError },
-      recentReadings,
-    ] = await Promise.all([
-      supabase
-        .from("alerts")
-        .select("*", { count: "exact", head: true })
-        .eq("device_id", deviceId)
-        .gte("sent_at", since24hIso),
+    const readings24hCount = readings24hRows.length;
 
-      supabase
-        .from("readings")
-        .select("*", { count: "exact", head: true })
-        .eq("device_id", deviceId)
-        .gte("created_at", since24hIso),
+    // 5) alertas últimas 24h
+    const { count: alerts24hCount } = await supabase
+      .from("alerts")
+      .select("*", { count: "exact", head: true })
+      .eq("device_id", deviceId)
+      .eq("event", "triggered")
+      .gte("sent_at", since24hIso);
 
-      getRecentReadingsForAnalysis(deviceId, 24),
-    ]);
-
-    if (alertsCountError) {
-      console.error("Erro ao contar alertas:", alertsCountError);
-      return res.status(500).json({ error: "Erro ao contar alertas" });
-    }
-
-    if (readingsCountError) {
-      console.error("Erro ao contar leituras:", readingsCountError);
-      return res.status(500).json({ error: "Erro ao contar leituras" });
-    }
-
-    const communicationHealth = getCommunicationHealth({
-      readings: recentReadings,
-      sendIntervalS: cfg.send_interval_s,
-      lastSeenIso,
-      rangeHours: 24,
+    // 6) comunicação (CORRIGIDO)
+    const communication_health = getCommunicationHealth({
+      readings: readings24hRows,
+      sendIntervalS,
+      deviceLastSeen: lastSeenIso,
+      periodHours: 24,
     });
 
-    const predictiveStatus = getPredictiveStatus(recentReadings, cfg);
+    // 7) resposta final
+    res.json({
+      device_id: deviceId,
+      name: deviceRow.name || deviceId,
+      location: deviceRow.location || "Local não definido",
 
-res.json({
-  device_id: deviceId,
-  name: deviceRow?.name || deviceId,
-  location: deviceRow?.location || "Local não definido",
-  temperature: temperature !== null ? Number(temperature) : null,
-  humidity: humidity !== null ? Number(humidity) : null,
-  temp_low_c,
-  temp_high_c,
-  hum_low,
-  hum_high,
-  status: statusToApiLabel(normalizedStatus),
-  online,
-  last_seen_seconds: lastSeenSeconds,
-  alerts_24h: alerts24hCount || 0,
-  total_readings_24h: readings24hCount || 0,
-  backend_status: "connected",
-  updated_at: deviceRow?.updated_at || latestReading?.created_at || null,
-  alert_state,
-  communication_health,
-});
+      temperature:
+        temperature !== null ? Number(temperature) : null,
+      humidity:
+        humidity !== null ? Number(humidity) : null,
 
+      temp_low_c,
+      temp_high_c,
+      hum_low,
+      hum_high,
+
+      status: normalizedStatus,
+      online,
+      last_seen_seconds: lastSeenSeconds,
+
+      alerts_24h: alerts24hCount || 0,
+      total_readings_24h: readings24hCount,
+
+      backend_status: "connected",
+      updated_at:
+        deviceRow.updated_at || latestReading?.created_at || null,
+
+      alert_state: deviceRow.alert_state || {},
+
+      communication_health,
+    });
   } catch (error) {
-    console.error("Erro em /api/dashboard/device/:id:", error);
-    res.status(500).json({ error: "Erro interno no servidor" });
+    console.error("dashboard/device:", error);
+    res.status(500).json({
+      error: "Erro ao obter dados do dispositivo",
+    });
   }
 });
 
+  
 // -------------------- DASHBOARD: DEVICE HEALTH --------------------
 app.get("/api/dashboard/device/:id/health", async (req, res) => {
   if (!isAuthorized(req)) {
