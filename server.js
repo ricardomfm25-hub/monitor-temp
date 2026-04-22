@@ -780,10 +780,7 @@ async function getRecentReadingsForAnalysis(deviceId, hours = 24) {
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: true });
 
-  if (error) {
-    throw error;
-  }
-
+  if (error) throw error;
   return data || [];
 }
 
@@ -801,9 +798,7 @@ async function fetchAllReadingsSince(deviceId, sinceIso) {
       .order("created_at", { ascending: true })
       .range(from, from + pageSize - 1);
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const chunk = data || [];
     allRows = allRows.concat(chunk);
@@ -848,11 +843,7 @@ async function getDeviceAlertRecipients(deviceId, alertType = "general") {
     .filter((row) => row.email);
 
   if (recipients.length > 0) return recipients;
-
-  if (ALERT_TO_EMAIL) {
-    return [{ email: ALERT_TO_EMAIL }];
-  }
-
+  if (ALERT_TO_EMAIL) return [{ email: ALERT_TO_EMAIL }];
   return [];
 }
 
@@ -911,7 +902,7 @@ async function sendEmail({ to, subject, htmlContent, attachment = [] }) {
       to: normalizedTo,
       subject,
       htmlContent,
-attachment: attachment || [],
+      attachment: attachment || [],
     },
     {
       headers: {
@@ -2482,7 +2473,6 @@ app.get("/api/device/:id/report", async (req, res) => {
       return res.send(pdfBuffer);
     });
 
-    // HEADER
     doc
       .fillColor("#0f172a")
       .fontSize(22)
@@ -2519,7 +2509,6 @@ app.get("/api/device/:id/report", async (req, res) => {
 
     let y = 246;
 
-    // TEMPERATURA
     doc
       .fillColor("#0f172a")
       .font("Helvetica-Bold")
@@ -2544,7 +2533,6 @@ app.get("/api/device/:id/report", async (req, res) => {
 
     y += 98;
 
-    // HUMIDADE
     doc
       .fillColor("#0f172a")
       .font("Helvetica-Bold")
@@ -2569,7 +2557,6 @@ app.get("/api/device/:id/report", async (req, res) => {
 
     y += 102;
 
-    // JANELA TEMPORAL
     doc
       .fillColor("#0f172a")
       .font("Helvetica-Bold")
@@ -2634,8 +2621,153 @@ app.get("/api/device/:id/report", async (req, res) => {
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Servidor SmartTempSystems ativo na porta " + PORT);
+// -------------------- ATUALIZAR CONFIG DISPOSITIVO --------------------
+app.post("/api/device/:id/config", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+    const {
+      temp_low_c,
+      temp_high_c,
+      hum_low,
+      hum_high,
+      hyst_c,
+      send_interval_s,
+      display_standby_min,
+      name,
+      location,
+    } = req.body;
+
+    const validationErrors = validateConfigNumbers({
+      temp_low_c,
+      temp_high_c,
+      hum_low,
+      hum_high,
+      hyst_c,
+      send_interval_s,
+      display_standby_min,
+    });
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ error: validationErrors.join(" | ") });
+    }
+
+    const { data: deviceRow, error: fetchError } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (fetchError) {
+      return res.status(500).json({ error: fetchError.message });
+    }
+
+    if (!deviceRow) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const currentConfig = deviceRow?.config || {};
+    const nextVersion = (deviceRow?.config_version || 0) + 1;
+
+    const updatedConfig = {
+      ...currentConfig,
+      ...(temp_low_c !== undefined ? { temp_low_c: Number(temp_low_c) } : {}),
+      ...(temp_high_c !== undefined ? { temp_high_c: Number(temp_high_c) } : {}),
+      ...(hum_low !== undefined ? { hum_low: Number(hum_low) } : {}),
+      ...(hum_high !== undefined ? { hum_high: Number(hum_high) } : {}),
+      ...(hyst_c !== undefined ? { hyst_c: Number(hyst_c) } : {}),
+      ...(send_interval_s !== undefined
+        ? { send_interval_s: Number(send_interval_s) }
+        : {}),
+      ...(display_standby_min !== undefined
+        ? { display_standby_min: Number(display_standby_min) }
+        : {}),
+      alert_state: currentConfig.alert_state || {
+        temp_active: false,
+        hum_active: false,
+        offline_active: false,
+      },
+    };
+
+    const payload = {
+      config: updatedConfig,
+      config_version: nextVersion,
+      updated_at: nowIso(),
+    };
+
+    if (name !== undefined) {
+      payload.name = sanitizeDeviceName(name, deviceId);
+    }
+
+    if (location !== undefined) {
+      payload.location = sanitizeLocation(location);
+    }
+
+    const { data: updatedRow, error } = await supabase
+      .from("devices")
+      .update(payload)
+      .eq("device_id", deviceId)
+      .select("*")
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({
+      message: "Configuração atualizada com sucesso",
+      config_version: updatedRow.config_version,
+      config: updatedRow.config,
+      name: updatedRow.name,
+      location: updatedRow.location,
+      updated_at: updatedRow.updated_at,
+    });
+  } catch (error) {
+    console.error("Erro em /api/device/:id/config [POST]:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
+  }
+});
+
+// -------------------- OBTER CONFIG DISPOSITIVO --------------------
+app.get("/api/device/:id/config", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const deviceId = req.params.id;
+
+    const { data, error } = await supabase
+      .from("devices")
+      .select("device_id,name,location,config,config_version,updated_at")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    const config = getDeviceConfig(data);
+
+    res.json({
+      device_id: deviceId,
+      name: data.name || deviceId,
+      location: data.location || "Localização por definir",
+      config_version: data.config_version || 1,
+      updated_at: data.updated_at || null,
+      config,
+    });
+  } catch (error) {
+    console.error("Erro em /api/device/:id/config [GET]:", error);
+    res.status(500).json({ error: "Erro interno no servidor" });
+  }
 });
 
 app.listen(PORT, "0.0.0.0", () => {
