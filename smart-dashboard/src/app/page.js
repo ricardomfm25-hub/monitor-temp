@@ -529,7 +529,7 @@ function getCommunicationHealth({
   const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
   const receivedReadings = sorted.length;
 
-  const detempo realryPct = Math.max(
+  const deliveryPct = Math.max(
     0,
     Math.min(100, Math.round((receivedReadings / expectedReadings) * 100))
   );
