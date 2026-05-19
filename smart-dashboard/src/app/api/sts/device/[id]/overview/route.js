@@ -1,15 +1,20 @@
-import { NextResponse } from "next/server";
-import { stsBackendFetch } from "@/lib/sts-backend";
+export const dynamic = "force-dynamic";
 
-function getDeviceIdFromRequest(request, context) {
-  const fromParams = context?.params?.id;
+function getBackendUrl() {
+  return process.env.STS_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+}
+
+async function getDeviceIdFromRequest(request, context) {
+  const params = await context.params;
+  const fromParams = params?.id;
+
   if (fromParams) return fromParams;
 
   const parts = request.nextUrl.pathname.split("/").filter(Boolean);
-  const deviceIndex = parts.findIndex((part) => part === "device");
+  const index = parts.findIndex((p) => p === "device");
 
-  if (deviceIndex >= 0 && parts[deviceIndex + 1]) {
-    return parts[deviceIndex + 1];
+  if (index >= 0 && parts[index + 1]) {
+    return parts[index + 1];
   }
 
   return null;
@@ -17,24 +22,33 @@ function getDeviceIdFromRequest(request, context) {
 
 export async function GET(request, context) {
   try {
-    const id = getDeviceIdFromRequest(request, context);
+    const deviceId = await getDeviceIdFromRequest(request, context);
 
-    if (!id) {
-      return NextResponse.json(
-        { error: "Device ID não encontrado na route." },
-        { status: 400 }
-      );
+    if (!deviceId) {
+      return Response.json({ error: "Device ID em falta." }, { status: 400 });
     }
 
-    const data = await stsBackendFetch(
-      `/api/dashboard/device/${encodeURIComponent(id)}`
-    );
+    const backendUrl = getBackendUrl();
 
-    return NextResponse.json(data);
+  const token = process.env.STS_BACKEND_API_TOKEN || "";
+
+const res = await fetch(
+ `${backendUrl}/api/dashboard/device/${encodeURIComponent(deviceId)}`,
+  {
+    cache: "no-store",
+    headers: token
+      ? {
+          Authorization: token,
+        }
+      : {},
+  }
+);
+
+    const data = await res.json().catch(() => null);
+
+    return Response.json(data ?? { error: "Resposta inválida do backend." }, { status: res.status });
   } catch (error) {
-    return NextResponse.json(
-      { error: error.message || "Erro ao obter overview do dispositivo." },
-      { status: 500 }
-    );
+    console.error("Erro na API overview:", error);
+    return Response.json({ error: "Erro interno ao carregar resumo." }, { status: 500 });
   }
 }
