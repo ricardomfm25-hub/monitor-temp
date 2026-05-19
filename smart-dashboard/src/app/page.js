@@ -1299,9 +1299,9 @@ function DeviceSelector({
     <section style={styles.card}>
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Parque de dispositivos</div>
+          <div style={styles.cardTitle}>Dispositivos monitorizados</div>
           <div style={styles.cardHint}>
-            Seleção inteligente do equipamento ativo
+            Seleção do equipamento em monitorização
           </div>
         </div>
 
@@ -2853,31 +2853,39 @@ async function downloadPdfReport() {
     <div>
       <div style={styles.cardTitle}>Histórico de alertas</div>
       <div style={styles.cardHint}>
-        Alertas reais registados para este dispositivo
+        Últimos eventos registados para este dispositivo
       </div>
     </div>
 
-    <button
-      type="button"
-      onClick={() => setAlertsCollapsed((prev) => !prev)}
-      style={styles.collapseButton}
-    >
-      {alertsCollapsed ? "Expandir" : "Minimizar"}
-    </button>
+    {alerts.length > 3 ? (
+      <button
+        type="button"
+        onClick={() => setAlertsCollapsed((prev) => !prev)}
+        style={styles.collapseButton}
+      >
+        {alertsCollapsed ? "Minimizar" : "Ver todos"}
+      </button>
+    ) : null}
   </div>
 
-  {alertsCollapsed ? null : !alerts.length ? (
+  {!alerts.length ? (
     <div style={styles.emptyState}>
       Sem alertas registados para este dispositivo.
     </div>
   ) : (
     <div style={styles.alertList}>
-      {alerts.map((item, index) => (
+      {(alertsCollapsed ? alerts : alerts.slice(0, 3)).map((item, index) => (
         <AlertRow
           key={item.id || `${item.sent_at || item.created_at}-${index}`}
           item={item}
         />
       ))}
+
+      {!alertsCollapsed && alerts.length > 3 ? (
+        <div style={styles.alertListHint}>
+          A mostrar os 3 alertas mais recentes de {alerts.length}.
+        </div>
+      ) : null}
     </div>
   )}
 </section>
@@ -3952,6 +3960,14 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
+  },
+
+  alertListHint: {
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontWeight: 700,
+    textAlign: "center",
+    padding: "4px 0",
   },
 
 collapseButton: {
