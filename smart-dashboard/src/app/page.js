@@ -941,7 +941,7 @@ function getOperationalInsights({
     });
 
     insights.push({
-      title: "Tempo real suspenso",
+      title: "Live suspenso",
       detail: "Últimos valores apenas como registo histórico.",
       tone: "warn",
     });
@@ -1299,7 +1299,7 @@ function DeviceSelector({
     <section style={styles.card}>
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Dispositivos monitorizados</div>
+          <div style={styles.cardTitle}>Central de dispositivos</div>
           <div style={styles.cardHint}>
             Seleção do equipamento em monitorização
           </div>
@@ -2587,7 +2587,7 @@ async function downloadPdfReport() {
                 label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
                 value={isDeviceOffline ? "-" : formatValue(device?.last_temperature, " °C")}
                 tone={currentTempTone}
-                accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
+                accentLabel={isDeviceOffline ? "Offline" : "Live"}
                 subvalue={
                   isDeviceOffline
                     ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
@@ -2600,7 +2600,7 @@ async function downloadPdfReport() {
                 label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
                 value={isDeviceOffline ? "-" : formatValue(device?.last_humidity, " %")}
                 tone={currentHumTone}
-                accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
+                accentLabel={isDeviceOffline ? "Offline" : "Live"}
                 subvalue={
                   isDeviceOffline
                     ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
