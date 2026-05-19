@@ -926,6 +926,30 @@ function getOperationalInsights({
 }) {
   const insights = [];
 
+  const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
+  const isOnline = device?.online === true;
+  const isLongOffline = !isOnline || lastSeenSeconds > 3600;
+
+  if (isLongOffline) {
+    insights.push({
+      title: "Comunicação interrompida",
+      detail:
+        lastSeenSeconds > 86400
+          ? `Dispositivo sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias. As leituras apresentadas são apenas o último registo conhecido.`
+          : "O dispositivo está offline ou sem comunicação recente.",
+      tone: "bad",
+    });
+
+    insights.push({
+      title: "Dados em tempo real indisponíveis",
+      detail:
+        "Temperatura, humidade e predição não representam o estado atual enquanto o dispositivo estiver offline.",
+      tone: "warn",
+    });
+
+    return insights.slice(0, 3);
+  }
+
   const temp = parseNumber(device?.last_temperature);
   const hum = parseNumber(device?.last_humidity);
   const tempLow = parseNumber(config?.temp_low_c);
@@ -933,21 +957,13 @@ function getOperationalInsights({
   const humLow = parseNumber(config?.hum_low);
   const humHigh = parseNumber(config?.hum_high);
 
-  if (
-    Number.isFinite(temp) &&
-    Number.isFinite(tempHigh) &&
-    temp > tempHigh
-  ) {
+  if (Number.isFinite(temp) && Number.isFinite(tempHigh) && temp > tempHigh) {
     insights.push({
       title: "Temperatura acima do limite",
       detail: `Valor atual ${formatValue(temp, " °C")} face ao máximo configurado de ${formatValue(tempHigh, " °C")}.`,
       tone: "bad",
     });
-  } else if (
-    Number.isFinite(temp) &&
-    Number.isFinite(tempLow) &&
-    temp < tempLow
-  ) {
+  } else if (Number.isFinite(temp) && Number.isFinite(tempLow) && temp < tempLow) {
     insights.push({
       title: "Temperatura abaixo do limite",
       detail: `Valor atual ${formatValue(temp, " °C")} face ao mínimo configurado de ${formatValue(tempLow, " °C")}.`,
@@ -955,21 +971,13 @@ function getOperationalInsights({
     });
   }
 
-  if (
-    Number.isFinite(hum) &&
-    Number.isFinite(humHigh) &&
-    hum > humHigh
-  ) {
+  if (Number.isFinite(hum) && Number.isFinite(humHigh) && hum > humHigh) {
     insights.push({
       title: "Humidade acima do limite",
       detail: `Valor atual ${formatValue(hum, " %", 0)} face ao máximo configurado de ${formatValue(humHigh, " %", 0)}.`,
       tone: "bad",
     });
-  } else if (
-    Number.isFinite(hum) &&
-    Number.isFinite(humLow) &&
-    hum < humLow
-  ) {
+  } else if (Number.isFinite(hum) && Number.isFinite(humLow) && hum < humLow) {
     insights.push({
       title: "Humidade abaixo do limite",
       detail: `Valor atual ${formatValue(hum, " %", 0)} face ao mínimo configurado de ${formatValue(humLow, " %", 0)}.`,
@@ -977,59 +985,43 @@ function getOperationalInsights({
     });
   }
 
-const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
-const isOnline = device?.online === true;
-const isLongOffline = !isOnline || lastSeenSeconds > 3600;
+  if (communicationHealth?.label === "Instável") {
+    insights.push({
+      title: "Comunicação instável",
+      detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
+      tone: "warn",
+    });
+  } else if (communicationHealth?.label === "Com falhas") {
+    insights.push({
+      title: "Pequenas falhas de comunicação",
+      detail: communicationHealth?.summary || "A comunicação continua aceitável.",
+      tone: "warn",
+    });
+  }
 
-if (isLongOffline) {
-  insights.push({
-    title: "Comunicação interrompida",
-    detail:
-      lastSeenSeconds > 86400
-        ? `Dispositivo sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias. As últimas leituras já não representam o estado atual.`
-        : "O dispositivo está offline ou sem comunicação recente.",
-    tone: "bad",
-  });
-} else if (communicationHealth?.label === "Instável") {
-  insights.push({
-    title: "Comunicação instável",
-    detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
-    tone: "warn",
-  });
-} else if (communicationHealth?.label === "Com falhas") {
-  insights.push({
-    title: "Pequenas falhas de comunicação",
-    detail: communicationHealth?.summary || "A comunicação continua aceitável.",
-    tone: "warn",
-  });
-}
+  if (predictiveStatus?.level === "high") {
+    insights.push({
+      title: "Risco preditivo elevado",
+      detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
+      tone: "bad",
+    });
+  } else if (predictiveStatus?.level === "medium") {
+    insights.push({
+      title: "Risco preditivo moderado",
+      detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
+      tone: "warn",
+    });
+  }
 
-if (!isLongOffline && predictiveStatus?.level === "high") {
-  insights.push({
-    title: "Risco preditivo elevado",
-    detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
-    tone: "bad",
-  });
-} else if (!isLongOffline && predictiveStatus?.level === "medium") {
-  insights.push({
-    title: "Risco preditivo moderado",
-    detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
-    tone: "warn",
-  });
-} else if (isLongOffline) {
-  insights.push({
-    title: "Predição indisponível",
-    detail: "Sem dados recentes suficientes para calcular uma tendência fiável.",
-    tone: "warn",
-  });
-}
+  if (!insights.length) {
+    insights.push({
+      title: "Operação dentro do esperado",
+      detail: "Sem desvios críticos detetados neste momento.",
+      tone: "good",
+    });
+  }
 
-if (!insights.length) {
-  insights.push({
-    title: "Operação dentro do esperado",
-    detail: "Sem desvios críticos detetados neste momento.",
-    tone: "good",
-  });
+  return insights.slice(0, 3);
 }
 
 function getDevicePriority(device) {
@@ -1485,6 +1477,14 @@ function AlertRow({ item }) {
 
 function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
+    unknown: {
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
+      badgeBg: "#162033",
+      badgeBorder: "transparent",
+      badgeColor: "#94a3b8",
+    },
     low: {
       border: "#223047",
       bg: "#111827",
@@ -1511,7 +1511,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
     },
   };
 
-  const selected = toneMap[prediction?.level] || toneMap.low;
+  const selected = toneMap[prediction?.level] || toneMap.unknown;
 
   return (
     <section
@@ -1555,7 +1555,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Baseado nas últimas leituras válidas antes de ficar offline.
+          Predição suspensa enquanto o dispositivo estiver offline.
         </div>
       ) : null}
     </section>
@@ -2023,6 +2023,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.status
                   ? String(overviewData.status).toUpperCase()
                   : baseDeviceData?.status,
+              online: overviewData?.online ?? baseDeviceData?.online ?? null,
+              last_seen_seconds:
+                overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
               communication_health: overviewData?.communication_health || null,
               predictive_status: overviewData?.predictive_status || null,
               alerts_24h: overviewData?.alerts_24h ?? 0,
@@ -2185,17 +2188,20 @@ const communicationHealth = useMemo(
   [readings, sendIntervalS, device?.last_seen, period]
 );
 
-  const predictiveStatus =
-    device?.predictive_status || {
-      level: "low",
-      title: "Risco baixo",
-      detail: "Sem tendência relevante nas últimas leituras",
-      chip: "Baixo",
-      source: "none",
-      source_label: "Sem variável crítica",
-      eta_minutes: null,
-      score: 0,
-    };
+  const isDeviceOffline = effectiveStatus === "OFFLINE";
+
+  const predictiveStatus = isDeviceOffline
+    ? {
+        level: "unknown",
+        title: "Predição indisponível",
+        detail: "Sem dados recentes suficientes para calcular uma tendência fiável.",
+        chip: "Sem dados",
+        source: "none",
+        source_label: "Dispositivo offline",
+        eta_minutes: null,
+        score: 0,
+      }
+    : device?.predictive_status || getPredictiveStatus(readings, config);
 
   const effectiveLastDelayMs =
     communicationHealth?.last_delay_ms !== null &&
@@ -2579,23 +2585,27 @@ async function downloadPdfReport() {
               }}
             >
               <MetricBox
-                label="Temperatura atual"
-                value={formatValue(device?.last_temperature, " °C")}
+                label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
+                value={isDeviceOffline ? "-" : formatValue(device?.last_temperature, " °C")}
                 tone={currentTempTone}
-                accentLabel="Tempo real"
+                accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
                 subvalue={
-                  tempLow !== null && tempHigh !== null
+                  isDeviceOffline
+                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")} · ${formatRelativeTime(device?.last_seen)}`
+                    : tempLow !== null && tempHigh !== null
                     ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
                     : "Sem limites definidos"
                 }
               />
               <MetricBox
-                label="Humidade atual"
-                value={formatValue(device?.last_humidity, " %")}
+                label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
+                value={isDeviceOffline ? "-" : formatValue(device?.last_humidity, " %")}
                 tone={currentHumTone}
-                accentLabel="Tempo real"
+                accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
                 subvalue={
-                  humLow !== null && humHigh !== null
+                  isDeviceOffline
+                    ? `Último registo: ${formatValue(device?.last_humidity, " %")} · ${formatRelativeTime(device?.last_seen)}`
+                    : humLow !== null && humHigh !== null
                     ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
                     : "Sem limites definidos"
                 }
@@ -2740,50 +2750,6 @@ async function downloadPdfReport() {
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Período de visualização</div>
-<section style={styles.card}>
-  <div style={styles.cardHeader}>
-    <div>
-      <div style={styles.cardTitle}>Relatório PDF</div>
-      <div style={styles.cardHint}>
-        Exportação do resumo profissional de leituras do dispositivo
-      </div>
-    </div>
-  </div>
-
-  <div
-    style={{
-      ...styles.reportRow,
-      gridTemplateColumns: isMobile
-        ? "1fr"
-        : "minmax(220px, 320px) auto",
-    }}
-  >
-    <div style={styles.field}>
-      <label style={styles.label}>Período do relatório</label>
-      <select
-        value={reportPeriod}
-        onChange={(e) => setReportPeriod(e.target.value)}
-        style={styles.configInput}
-      >
-        <option value="1h">1H</option>
-        <option value="6h">6H</option>
-        <option value="12h">12H</option>
-        <option value="24h">24H</option>
-        <option value="7d">7D</option>
-      </select>
-    </div>
-
-    <div style={styles.reportActionWrap}>
-      <button
-        style={styles.primaryButton}
-        onClick={downloadPdfReport}
-        disabled={!selectedDeviceId}
-      >
-        Descarregar PDF
-      </button>
-    </div>
-  </div>
-</section>
               <div style={styles.cardHint}>
                 Ajusta o intervalo temporal apresentado nos gráficos
               </div>
@@ -2803,6 +2769,51 @@ async function downloadPdfReport() {
                 {item.label}
               </button>
             ))}
+          </div>
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Relatório PDF</div>
+              <div style={styles.cardHint}>
+                Exportação do resumo profissional de leituras do dispositivo
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              ...styles.reportRow,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "minmax(220px, 320px) auto",
+            }}
+          >
+            <div style={styles.field}>
+              <label style={styles.label}>Período do relatório</label>
+              <select
+                value={reportPeriod}
+                onChange={(e) => setReportPeriod(e.target.value)}
+                style={styles.configInput}
+              >
+                <option value="1h">1H</option>
+                <option value="6h">6H</option>
+                <option value="12h">12H</option>
+                <option value="24h">24H</option>
+                <option value="7d">7D</option>
+              </select>
+            </div>
+
+            <div style={styles.reportActionWrap}>
+              <button
+                style={styles.primaryButton}
+                onClick={downloadPdfReport}
+                disabled={!selectedDeviceId}
+              >
+                Descarregar PDF
+              </button>
+            </div>
           </div>
         </section>
 
