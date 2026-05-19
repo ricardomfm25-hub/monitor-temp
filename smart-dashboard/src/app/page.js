@@ -1299,7 +1299,7 @@ function DeviceSelector({
     <section style={styles.card}>
       <div style={styles.cardHeader}>
         <div>
-          <div style={styles.cardTitle}>Central de dispositivos</div>
+          <div style={styles.cardTitle}>Dispositivos monitorizados</div>
           <div style={styles.cardHint}>
             Seleção do equipamento em monitorização
           </div>
@@ -2481,10 +2481,11 @@ async function downloadPdfReport() {
       <div style={styles.container}>
         <div style={styles.topBar}>
           <div>
-            <h1 style={styles.title}>SmartTempSystems</h1>
+            <h1 style={styles.title}>STS Cold</h1>
             <p style={styles.subtitle}>
-              Plataforma de monitorização inteligente para operação crítica
+              Monitorização inteligente para frio, conservação e operação crítica
             </p>
+            <div style={styles.versionBadge}>DASHBOARD · V2.1.0</div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -2521,6 +2522,29 @@ async function downloadPdfReport() {
             </button>
           </div>
         </div>
+
+        <section style={styles.systemNav}>
+          <div style={styles.systemNavItem}>
+            <span style={styles.systemNavLabel}>Overview</span>
+            <strong style={styles.systemNavValue}>Estado operacional</strong>
+          </div>
+          <div style={styles.systemNavItem}>
+            <span style={styles.systemNavLabel}>Devices</span>
+            <strong style={styles.systemNavValue}>{devices.length} monitorizados</strong>
+          </div>
+          <div style={styles.systemNavItem}>
+            <span style={styles.systemNavLabel}>Alerts</span>
+            <strong style={styles.systemNavValue}>{alerts.length} registos</strong>
+          </div>
+          <div style={styles.systemNavItem}>
+            <span style={styles.systemNavLabel}>Reports</span>
+            <strong style={styles.systemNavValue}>PDF ativo</strong>
+          </div>
+          <div style={styles.systemNavItem}>
+            <span style={styles.systemNavLabel}>Firmware</span>
+            <strong style={styles.systemNavValue}>Preparado V2.1</strong>
+          </div>
+        </section>
 
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
 
@@ -3006,170 +3030,6 @@ async function downloadPdfReport() {
           ) : null}
         </section>
 
-        {isSuperAdmin ? (
-          <section style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div>
-                <div style={styles.cardTitle}>Modo admin</div>
-                <div style={styles.cardHint}>
-                  Área reservada para gestão técnica por dispositivo
-                </div>
-              </div>
-            </div>
-
-            <div style={styles.adminPanel}>
-              <div style={styles.adminPanelTop}>
-                <div style={styles.adminActive}>Modo admin ativo</div>
-              </div>
-
-              <div
-                style={{
-                  ...styles.adminGrid,
-                  gridTemplateColumns: isMobile
-                    ? "1fr"
-                    : "repeat(auto-fit, minmax(180px, 1fr))",
-                }}
-              >
-                <SmallStat label="Config version" value={device?.config_version ?? "-"} />
-                <SmallStat label="Atualizada em" value={formatDateTime(device?.updated_at)} />
-                <SmallStat label="Last seen" value={formatDateTime(device?.last_seen)} />
-                <SmallStat label="Status raw" value={device?.status || "-"} />
-                <SmallStat label="Device ID" value={device?.device_id || selectedDeviceId || "-"} />
-                <SmallStat label="Nome" value={deviceDisplayName} />
-                <SmallStat label="Localização" value={deviceLocation} />
-                <SmallStat label="Última temp." value={formatValue(device?.last_temperature, " °C")} />
-                <SmallStat label="Última hum." value={formatValue(device?.last_humidity, " %")} />
-                <SmallStat label="Histerese" value={hystC !== null ? `${hystC} °C` : "-"} />
-                <SmallStat label="Envio" value={sendIntervalS !== null ? `${sendIntervalS}s` : "-"} />
-                <SmallStat
-                  label="Standby display"
-                  value={displayStandbyMin !== null ? `${displayStandbyMin} min` : "-"}
-                />
-              </div>
-
-              <div style={styles.subsection}>
-                <div style={styles.subsectionTitle}>Configurações técnicas</div>
-
-                <div
-                  style={{
-                    ...styles.formGrid,
-                    gridTemplateColumns: isMobile
-                      ? "1fr"
-                      : "repeat(4, minmax(0, 1fr))",
-                  }}
-                >
-                  <div style={styles.field}>
-                    <label style={styles.label}>Nome do dispositivo</label>
-                    <input
-                      type="text"
-                      value={adminForm.name}
-                      onChange={(e) =>
-                        setAdminForm((prev) => ({
-                          ...prev,
-                          name: e.target.value,
-                        }))
-                      }
-                      style={styles.configInput}
-                    />
-                  </div>
-
-                  <div style={styles.field}>
-                    <label style={styles.label}>Localização</label>
-                    <input
-                      type="text"
-                      value={adminForm.location}
-                      onChange={(e) =>
-                        setAdminForm((prev) => ({
-                          ...prev,
-                          location: e.target.value,
-                        }))
-                      }
-                      style={styles.configInput}
-                    />
-                  </div>
-
-                  <div style={styles.field}>
-                    <label style={styles.label}>Histerese (°C)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={adminForm.hyst_c}
-                      onChange={(e) =>
-                        setAdminForm((prev) => ({
-                          ...prev,
-                          hyst_c: e.target.value,
-                        }))
-                      }
-                      style={styles.configInput}
-                    />
-                  </div>
-
-                  <div style={styles.field}>
-                    <label style={styles.label}>Intervalo de envio (s)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={adminForm.send_interval_s}
-                      onChange={(e) =>
-                        setAdminForm((prev) => ({
-                          ...prev,
-                          send_interval_s: e.target.value,
-                        }))
-                      }
-                      style={styles.configInput}
-                    />
-                  </div>
-
-                  <div style={styles.field}>
-                    <label style={styles.label}>Standby display (min)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={adminForm.display_standby_min}
-                      onChange={(e) =>
-                        setAdminForm((prev) => ({
-                          ...prev,
-                          display_standby_min: e.target.value,
-                        }))
-                      }
-                      style={styles.configInput}
-                    />
-                  </div>
-                </div>
-
-                <div style={styles.actionsRow}>
-                  <button
-                    style={styles.primaryButton}
-                    onClick={saveAdminConfig}
-                    disabled={savingAdmin || !selectedDeviceId}
-                  >
-                    {savingAdmin ? "A guardar..." : "Guardar admin"}
-                  </button>
-
-                  {adminMessage ? (
-                    <span
-                      style={
-                        adminMessage.toLowerCase().includes("sucesso")
-                          ? styles.successText
-                          : styles.errorTextInline
-                      }
-                    >
-                      {adminMessage}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-
-              <div style={styles.rawConfigWrap}>
-                <div style={styles.rawConfigTitle}>Configuração raw</div>
-                <pre style={styles.rawConfig}>
-                  {JSON.stringify(device?.config || {}, null, 2)}
-                </pre>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
         {!loading && initialLoaded && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
             Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
@@ -3288,6 +3148,59 @@ const styles = {
     margin: "6px 0 0 0",
     color: "#94a3b8",
     fontSize: "14px",
+  },
+
+
+  versionBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: "10px",
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+  },
+
+  systemNav: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: "10px",
+    background: "rgba(15, 23, 42, 0.78)",
+    border: "1px solid #1f2937",
+    borderRadius: "22px",
+    padding: "12px",
+    backdropFilter: "blur(10px)",
+  },
+
+  systemNavItem: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "12px",
+    minWidth: 0,
+  },
+
+  systemNavLabel: {
+    display: "block",
+    color: "#7c8aa0",
+    fontSize: "11px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    marginBottom: "5px",
+  },
+
+  systemNavValue: {
+    display: "block",
+    color: "#f8fafc",
+    fontSize: "13px",
+    fontWeight: 900,
+    overflowWrap: "anywhere",
   },
 
   refreshingText: {
