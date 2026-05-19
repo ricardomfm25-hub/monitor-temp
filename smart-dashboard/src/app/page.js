@@ -935,16 +935,15 @@ function getOperationalInsights({
       title: "Comunicação interrompida",
       detail:
         lastSeenSeconds > 86400
-          ? `Dispositivo sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias. As leituras apresentadas são apenas o último registo conhecido.`
-          : "O dispositivo está offline ou sem comunicação recente.",
+          ? `Sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias.`
+          : "Sem comunicação recente.",
       tone: "bad",
     });
 
     insights.push({
-      title: "Dados em tempo real indisponíveis",
-      detail:
-        "Temperatura, humidade e predição não representam o estado atual enquanto o dispositivo estiver offline.",
-      tone: "warn",
+      title: "Tempo real indisponível",
+      detail: "Valores atuais suspensos até o dispositivo voltar online.",
+      tone: "bad",
     });
 
     return insights.slice(0, 3);
@@ -1478,12 +1477,12 @@ function AlertRow({ item }) {
 function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
     unknown: {
-      border: "#223047",
-      bg: "#111827",
-      value: "#f8fafc",
-      badgeBg: "#162033",
+      border: "#4b1f24",
+      bg: "#2a1316",
+      value: "#fecaca",
+      badgeBg: "#451a1f",
       badgeBorder: "transparent",
-      badgeColor: "#94a3b8",
+      badgeColor: "#fca5a5",
     },
     low: {
       border: "#223047",
@@ -1555,7 +1554,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Predição suspensa enquanto o dispositivo estiver offline.
+          Sem dados recentes para prever tendência.
         </div>
       ) : null}
     </section>
@@ -1579,15 +1578,15 @@ function OperationalInsightCard({ items }) {
           const toneStyles =
             item.tone === "bad"
               ? {
-                  border: "#223047",
-                  bg: "#0f172a",
-                  title: "#fca5a5",
+                  border: "#4b1f24",
+                  bg: "#2a1316",
+                  title: "#fecaca",
                 }
               : item.tone === "warn"
               ? {
-                  border: "#223047",
-                  bg: "#0f172a",
-                  title: "#fcd34d",
+                  border: "#4b1f24",
+                  bg: "#1f1417",
+                  title: "#fca5a5",
                 }
               : {
                   border: "#223047",
@@ -2591,7 +2590,7 @@ async function downloadPdfReport() {
                 accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
                 subvalue={
                   isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")} · ${formatRelativeTime(device?.last_seen)}`
+                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
                     : tempLow !== null && tempHigh !== null
                     ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
                     : "Sem limites definidos"
@@ -2604,7 +2603,7 @@ async function downloadPdfReport() {
                 accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
                 subvalue={
                   isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_humidity, " %")} · ${formatRelativeTime(device?.last_seen)}`
+                    ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
                     : humLow !== null && humHigh !== null
                     ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
                     : "Sem limites definidos"
@@ -2749,32 +2748,6 @@ async function downloadPdfReport() {
         <section style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Período de visualização</div>
-              <div style={styles.cardHint}>
-                Ajusta o intervalo temporal apresentado nos gráficos
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.periodRow}>
-            {PERIODS.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setPeriod(item.key)}
-                style={{
-                  ...styles.periodButton,
-                  ...(period === item.key ? styles.periodButtonActive : {}),
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
               <div style={styles.cardTitle}>Relatório PDF</div>
               <div style={styles.cardHint}>
                 Exportação do resumo profissional de leituras do dispositivo
@@ -2847,6 +2820,33 @@ async function downloadPdfReport() {
             isOffline={effectiveStatus === "OFFLINE"}
           />
         </section>
+        <section style={styles.card}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Período de visualização</div>
+              <div style={styles.cardHint}>
+                Ajusta o intervalo temporal apresentado nos gráficos
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.periodRow}>
+            {PERIODS.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => setPeriod(item.key)}
+                style={{
+                  ...styles.periodButton,
+                  ...(period === item.key ? styles.periodButtonActive : {}),
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+
 
 <section style={styles.card}>
   <div style={styles.cardHeader}>
