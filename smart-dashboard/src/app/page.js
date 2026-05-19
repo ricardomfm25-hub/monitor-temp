@@ -149,13 +149,13 @@ function getStatusInfo(status) {
   if (s.includes("offline")) {
     return {
       label: "OFFLINE",
-      color: "#94a3b8",
-      soft: "#162033",
-      border: "#334155",
-      glow: "0 0 0 1px rgba(148,163,184,0.10)",
+      color: "#ef4444",
+      soft: "#2a1316",
+      border: "#4b1f24",
+      glow: "0 0 0 1px rgba(239,68,68,0.12)",
       priority: 3,
-      dot: "#94a3b8",
-      panel: "#111827",
+      dot: "#ef4444",
+      panel: "#15131a",
     };
   }
 
@@ -941,9 +941,9 @@ function getOperationalInsights({
     });
 
     insights.push({
-      title: "Tempo real indisponível",
-      detail: "Valores atuais suspensos até o dispositivo voltar online.",
-      tone: "bad",
+      title: "Tempo real suspenso",
+      detail: "Últimos valores apenas como registo histórico.",
+      tone: "warn",
     });
 
     return insights.slice(0, 3);
@@ -1477,12 +1477,12 @@ function AlertRow({ item }) {
 function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
     unknown: {
-      border: "#4b1f24",
-      bg: "#2a1316",
-      value: "#fecaca",
-      badgeBg: "#451a1f",
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
+      badgeBg: "#162033",
       badgeBorder: "transparent",
-      badgeColor: "#fca5a5",
+      badgeColor: "#94a3b8",
     },
     low: {
       border: "#223047",
@@ -1536,25 +1536,25 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
             color: selected.badgeColor,
           }}
         >
-          {prediction?.chip || "Baixo"}
+          {prediction?.chip || "Sem dados"}
         </div>
       </div>
 
       <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
-        {prediction?.title || "Risco baixo"}
+        {prediction?.title || "Predição indisponível"}
       </div>
 
       <div style={styles.predictionMainDetail}>
-        {prediction?.detail || "Sem tendência relevante"}
+        {prediction?.detail || "Sem dados recentes para prever tendência."}
       </div>
 
       <div style={styles.predictionSourceLabel}>
-        {prediction?.source_label || "Sem variável crítica"}
+        {prediction?.source_label || "Sem dados recentes"}
       </div>
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Sem dados recentes para prever tendência.
+          Predição suspensa até voltar online.
         </div>
       ) : null}
     </section>
@@ -2193,8 +2193,8 @@ const communicationHealth = useMemo(
     ? {
         level: "unknown",
         title: "Predição indisponível",
-        detail: "Sem dados recentes suficientes para calcular uma tendência fiável.",
-        chip: "Sem dados",
+        detail: "Sem dados recentes para prever tendência.",
+        chip: "Suspensa",
         source: "none",
         source_label: "Dispositivo offline",
         eta_minutes: null,
