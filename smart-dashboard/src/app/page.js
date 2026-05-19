@@ -861,18 +861,31 @@ function getPredictiveStatus(readings, config) {
 
   const best = [tempSignal, humSignal].sort((a, b) => b.score - a.score)[0];
 
-  if (!best || best.score <= 0) {
-    return {
-      level: "low",
-      title: "Risco baixo",
-      detail: "Sem tendência relevante nas últimas leituras",
-      chip: "Baixo",
-      source: "none",
-      source_label: "Sem variável crítica",
-      eta_minutes: null,
-      score: 0,
-    };
-  }
+  if (!readings?.length) {
+  return {
+    level: "unknown",
+    title: "Predição indisponível",
+    detail: "Sem leituras recentes suficientes para calcular tendência.",
+    chip: "Sem dados",
+    source: "none",
+    source_label: "Sem dados recentes",
+    eta_minutes: null,
+    score: 0,
+  };
+}
+
+if (!best || best.score <= 0) {
+  return {
+    level: "low",
+    title: "Risco baixo",
+    detail: "Sem tendência relevante nas últimas leituras recentes.",
+    chip: "Baixo",
+    source: "none",
+    source_label: "Sem variável crítica",
+    eta_minutes: null,
+    score: 0,
+  };
+}
 
   const isTemperature = best.source === "temperature";
 
