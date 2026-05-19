@@ -197,6 +197,24 @@ export default function AdminPage() {
     [users, selectedClientId]
   );
 
+  const adminStats = useMemo(() => {
+    const activeUsers = nonAdminUsers.filter((u) => u.is_active !== false).length;
+    const inactiveUsers = Math.max(0, nonAdminUsers.length - activeUsers);
+    const assignedAccesses = deviceAccess.filter((row) => row.can_view).length;
+    const editableAccesses = deviceAccess.filter((row) => row.can_edit).length;
+    const activeRecipients = alertRecipients.filter((row) => row.is_active !== false).length;
+
+    return {
+      devices: devices.length,
+      users: nonAdminUsers.length,
+      activeUsers,
+      inactiveUsers,
+      assignedAccesses,
+      editableAccesses,
+      activeRecipients,
+    };
+  }, [devices, nonAdminUsers, deviceAccess, alertRecipients]);
+
   useEffect(() => {
     loadData({ showLoader: true });
   }, []);
@@ -792,9 +810,9 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>Admin Panel</h1>
+            <h1 style={styles.title}>STS Admin V2</h1>
             <p style={styles.subtitle}>
-              Gestão por dispositivo, clientes, alertas e configuração técnica
+              Gestão profissional de clientes, dispositivos, permissões e operação técnica
             </p>
           </div>
 
@@ -833,9 +851,18 @@ export default function AdminPage() {
           </div>
         ) : null}
 
+        <section style={styles.adminOverviewGrid}>
+          <SmallStat label="Dispositivos" value={adminStats.devices} />
+          <SmallStat label="Clientes ativos" value={adminStats.activeUsers} />
+          <SmallStat label="Clientes inativos" value={adminStats.inactiveUsers} />
+          <SmallStat label="Acessos atribuídos" value={adminStats.assignedAccesses} />
+          <SmallStat label="Com edição" value={adminStats.editableAccesses} />
+          <SmallStat label="Alertas ativos" value={adminStats.activeRecipients} />
+        </section>
+
         <div style={styles.topGrid}>
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Criar utilizador</div>
+            <div style={styles.cardTitle}>Criar cliente / utilizador</div>
 
             <div style={styles.formGrid}>
               <input
@@ -904,7 +931,7 @@ export default function AdminPage() {
           </section>
 
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Atribuir dispositivo</div>
+            <div style={styles.cardTitle}>Atribuir acesso ao dispositivo</div>
 
             <div style={styles.formGrid}>
               <select
@@ -955,7 +982,7 @@ export default function AdminPage() {
         </div>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Selecionar dispositivo</div>
+          <div style={styles.cardTitle}>Gestão do dispositivo</div>
 
           <div style={styles.devicePickerGrid}>
             <div style={styles.devicePickerLeft}>
@@ -972,7 +999,7 @@ export default function AdminPage() {
                 onChange={(e) => setSelectedDevice(e.target.value)}
                 style={styles.input}
               >
-                <option value="">Selecionar dispositivo</option>
+                <option value="">Gestão do dispositivo</option>
                 {filteredDevices.map((d) => (
                   <option key={d.device_id} value={d.device_id}>
                     {d.name ? `${d.name} (${d.device_id})` : d.device_id}
@@ -1061,7 +1088,7 @@ export default function AdminPage() {
         </section>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Cliente do dispositivo</div>
+          <div style={styles.cardTitle}>Clientes associados</div>
 
           {!selectedDevice ? (
             <div style={styles.emptyState}>
@@ -1547,7 +1574,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Configuração raw</div>
+            <div style={styles.cardTitle}>Configuração raw / auditoria</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
@@ -1615,6 +1642,12 @@ const styles = {
     fontSize: "13px",
     color: "#93c5fd",
     fontWeight: 700,
+  },
+
+  adminOverviewGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "12px",
   },
 
   topGrid: {
