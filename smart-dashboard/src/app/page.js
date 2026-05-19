@@ -964,49 +964,59 @@ function getOperationalInsights({
     });
   }
 
-  if (communicationHealth?.label === "Offline") {
-    insights.push({
-      title: "Comunicação interrompida",
-      detail: "O dispositivo deixou de comunicar dentro da janela esperada.",
-      tone: "bad",
-    });
-  } else if (communicationHealth?.label === "Instável") {
-    insights.push({
-      title: "Comunicação instável",
-      detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
-      tone: "warn",
-    });
-  } else if (communicationHealth?.label === "Com falhas") {
-    insights.push({
-      title: "Pequenas falhas de comunicação",
-      detail: communicationHealth?.summary || "A comunicação continua aceitável.",
-      tone: "warn",
-    });
-  }
+const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
+const isOnline = device?.online === true;
+const isLongOffline = !isOnline || lastSeenSeconds > 3600;
 
-  if (predictiveStatus?.level === "high") {
-    insights.push({
-      title: "Risco preditivo elevado",
-      detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
-      tone: "bad",
-    });
-  } else if (predictiveStatus?.level === "medium") {
-    insights.push({
-      title: "Risco preditivo moderado",
-      detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
-      tone: "warn",
-    });
-  }
+if (isLongOffline) {
+  insights.push({
+    title: "Comunicação interrompida",
+    detail:
+      lastSeenSeconds > 86400
+        ? `Dispositivo sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias. As últimas leituras já não representam o estado atual.`
+        : "O dispositivo está offline ou sem comunicação recente.",
+    tone: "bad",
+  });
+} else if (communicationHealth?.label === "Instável") {
+  insights.push({
+    title: "Comunicação instável",
+    detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
+    tone: "warn",
+  });
+} else if (communicationHealth?.label === "Com falhas") {
+  insights.push({
+    title: "Pequenas falhas de comunicação",
+    detail: communicationHealth?.summary || "A comunicação continua aceitável.",
+    tone: "warn",
+  });
+}
 
-  if (!insights.length) {
-    insights.push({
-      title: "Operação dentro do esperado",
-      detail: "Sem desvios críticos detetados neste momento.",
-      tone: "good",
-    });
-  }
+if (!isLongOffline && predictiveStatus?.level === "high") {
+  insights.push({
+    title: "Risco preditivo elevado",
+    detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
+    tone: "bad",
+  });
+} else if (!isLongOffline && predictiveStatus?.level === "medium") {
+  insights.push({
+    title: "Risco preditivo moderado",
+    detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
+    tone: "warn",
+  });
+} else if (isLongOffline) {
+  insights.push({
+    title: "Predição indisponível",
+    detail: "Sem dados recentes suficientes para calcular uma tendência fiável.",
+    tone: "warn",
+  });
+}
 
-  return insights.slice(0, 3);
+if (!insights.length) {
+  insights.push({
+    title: "Operação dentro do esperado",
+    detail: "Sem desvios críticos detetados neste momento.",
+    tone: "good",
+  });
 }
 
 function getDevicePriority(device) {
