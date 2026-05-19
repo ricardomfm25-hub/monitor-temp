@@ -197,24 +197,6 @@ export default function AdminPage() {
     [users, selectedClientId]
   );
 
-  const adminStats = useMemo(() => {
-    const activeUsers = nonAdminUsers.filter((u) => u.is_active !== false).length;
-    const inactiveUsers = Math.max(0, nonAdminUsers.length - activeUsers);
-    const assignedAccesses = deviceAccess.filter((row) => row.can_view).length;
-    const editableAccesses = deviceAccess.filter((row) => row.can_edit).length;
-    const activeRecipients = alertRecipients.filter((row) => row.is_active !== false).length;
-
-    return {
-      devices: devices.length,
-      users: nonAdminUsers.length,
-      activeUsers,
-      inactiveUsers,
-      assignedAccesses,
-      editableAccesses,
-      activeRecipients,
-    };
-  }, [devices, nonAdminUsers, deviceAccess, alertRecipients]);
-
   useEffect(() => {
     loadData({ showLoader: true });
   }, []);
@@ -810,9 +792,9 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2</h1>
+            <h1 style={styles.title}>STS Admin V2.1</h1>
             <p style={styles.subtitle}>
-              Gestão profissional de clientes, dispositivos, permissões e operação técnica
+              Centro de gestão para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
           </div>
 
@@ -851,18 +833,42 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        <section style={styles.adminOverviewGrid}>
-          <SmallStat label="Dispositivos" value={adminStats.devices} />
-          <SmallStat label="Clientes ativos" value={adminStats.activeUsers} />
-          <SmallStat label="Clientes inativos" value={adminStats.inactiveUsers} />
-          <SmallStat label="Acessos atribuídos" value={adminStats.assignedAccesses} />
-          <SmallStat label="Com edição" value={adminStats.editableAccesses} />
-          <SmallStat label="Alertas ativos" value={adminStats.activeRecipients} />
+
+        <section style={styles.workflowCard}>
+          <div>
+            <div style={styles.workflowTitle}>Fluxo recomendado</div>
+            <div style={styles.workflowHint}>
+              Usa esta página de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso, configurar alertas e validar parâmetros.
+            </div>
+          </div>
+
+          <div style={styles.workflowSteps}>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>1</span>
+              <strong style={styles.workflowStepTitle}>Cliente</strong>
+              <small style={styles.workflowStepText}>Criar ou escolher utilizador</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>2</span>
+              <strong style={styles.workflowStepTitle}>Dispositivo</strong>
+              <small style={styles.workflowStepText}>Selecionar equipamento ativo</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>3</span>
+              <strong style={styles.workflowStepTitle}>Acessos</strong>
+              <small style={styles.workflowStepText}>Permissões e alertas</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>4</span>
+              <strong style={styles.workflowStepTitle}>Configuração</strong>
+              <small style={styles.workflowStepText}>Limites e parâmetros técnicos</small>
+            </div>
+          </div>
         </section>
 
         <div style={styles.topGrid}>
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Criar cliente / utilizador</div>
+            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Criar cliente / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
 
             <div style={styles.formGrid}>
               <input
@@ -893,7 +899,7 @@ export default function AdminPage() {
 
               <input
                 type="text"
-                placeholder="Password inicial"
+                placeholder="Password temporária"
                 value={newUser.password}
                 onChange={(e) =>
                   setNewUser((prev) => ({
@@ -914,8 +920,8 @@ export default function AdminPage() {
                 }
                 style={styles.input}
               >
-                <option value="viewer">Viewer</option>
-                <option value="client_admin">Client Admin</option>
+                <option value="viewer">Só leitura</option>
+                <option value="client_admin">Gestor do cliente</option>
               </select>
             </div>
 
@@ -925,13 +931,13 @@ export default function AdminPage() {
                 style={styles.primaryButton}
                 disabled={creatingUser}
               >
-                {creatingUser ? "A criar..." : "Criar utilizador"}
+                {creatingUser ? "A criar..." : "Criar cliente"}
               </button>
             </div>
           </section>
 
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Atribuir acesso ao dispositivo</div>
+            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associar dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
 
             <div style={styles.formGrid}>
               <select
@@ -939,7 +945,7 @@ export default function AdminPage() {
                 onChange={(e) => setAccessUserId(e.target.value)}
                 style={styles.input}
               >
-                <option value="">Selecionar utilizador</option>
+                <option value="">Escolher cliente</option>
                 {nonAdminUsers.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.full_name} ({u.email})
@@ -966,7 +972,7 @@ export default function AdminPage() {
                 checked={canEdit}
                 onChange={() => setCanEdit((prev) => !prev)}
               />
-              <span>Permitir edição de configurações</span>
+              <span>Permitir edição na dashboard</span>
             </label>
 
             <div style={styles.actionsRow}>
@@ -975,14 +981,14 @@ export default function AdminPage() {
                 style={styles.primaryButton}
                 disabled={savingAccess || !selectedDevice}
               >
-                {savingAccess ? "A guardar..." : "Atribuir acesso"}
+                {savingAccess ? "A guardar..." : "Associar dispositivo"}
               </button>
             </div>
           </section>
         </div>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Gestão do dispositivo</div>
+          <div style={styles.sectionStep}>03</div><div style={styles.cardTitle}>Dispositivo em gestão</div><div style={styles.cardHint}>Escolhe o equipamento que queres configurar ou consultar.</div>
 
           <div style={styles.devicePickerGrid}>
             <div style={styles.devicePickerLeft}>
@@ -999,7 +1005,7 @@ export default function AdminPage() {
                 onChange={(e) => setSelectedDevice(e.target.value)}
                 style={styles.input}
               >
-                <option value="">Gestão do dispositivo</option>
+                <option value="">Escolher dispositivo</option>
                 {filteredDevices.map((d) => (
                   <option key={d.device_id} value={d.device_id}>
                     {d.name ? `${d.name} (${d.device_id})` : d.device_id}
@@ -1088,7 +1094,7 @@ export default function AdminPage() {
         </section>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Clientes associados</div>
+          <div style={styles.sectionStep}>04</div><div style={styles.cardTitle}>Clientes, permissões e alertas</div><div style={styles.cardHint}>Gere quem tem acesso, permissões e notificações deste dispositivo.</div>
 
           {!selectedDevice ? (
             <div style={styles.emptyState}>
@@ -1220,8 +1226,8 @@ export default function AdminPage() {
                           onChange={(e) => setSelectedClientRole(e.target.value)}
                           style={styles.input}
                         >
-                          <option value="viewer">Viewer</option>
-                          <option value="client_admin">Client Admin</option>
+                          <option value="viewer">Só leitura</option>
+                          <option value="client_admin">Gestor do cliente</option>
                         </select>
 
                         <button
@@ -1346,7 +1352,7 @@ export default function AdminPage() {
         </section>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Configuração do dispositivo</div>
+          <div style={styles.sectionStep}>05</div><div style={styles.cardTitle}>Configuração operacional</div><div style={styles.cardHint}>Define limites, localização e parâmetros de funcionamento.</div>
 
           {!selectedDeviceData ? (
             <div style={styles.emptyState}>
@@ -1541,7 +1547,7 @@ export default function AdminPage() {
                   style={styles.primaryButton}
                   disabled={savingDevice}
                 >
-                  {savingDevice ? "A guardar..." : "Guardar dispositivo"}
+                  {savingDevice ? "A guardar..." : "Guardar configuração"}
                 </button>
               </div>
             </>
@@ -1550,7 +1556,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Informação técnica do dispositivo</div>
+            <div style={styles.sectionStep}>06</div><div style={styles.cardTitle}>Diagnóstico técnico</div><div style={styles.cardHint}>Informação técnica rápida para suporte e validação.</div>
 
             <div style={styles.statsGrid}>
               <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
@@ -1574,7 +1580,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.cardTitle}>Configuração raw / auditoria</div>
+            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
@@ -1644,12 +1650,6 @@ const styles = {
     fontWeight: 700,
   },
 
-  adminOverviewGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-    gap: "12px",
-  },
-
   topGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
@@ -1710,6 +1710,101 @@ const styles = {
     border: "1px solid #1f2937",
     borderRadius: "20px",
     padding: "18px",
+  },
+
+
+  cardHint: {
+    marginTop: "4px",
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.4,
+    fontWeight: 600,
+  },
+
+  sectionStep: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "32px",
+    height: "32px",
+    borderRadius: "999px",
+    background: "#13203a",
+    color: "#93c5fd",
+    border: "1px solid #243b63",
+    fontSize: "12px",
+    fontWeight: 900,
+    marginBottom: "10px",
+  },
+
+  workflowCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(17,24,39,0.94))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(420px, 1.35fr)",
+    gap: "18px",
+    alignItems: "center",
+  },
+
+  workflowTitle: {
+    fontSize: "18px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.02em",
+  },
+
+  workflowHint: {
+    marginTop: "6px",
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.5,
+    fontWeight: 600,
+  },
+
+  workflowSteps: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "10px",
+  },
+
+
+  workflowNumber: {
+    width: "24px",
+    height: "24px",
+    borderRadius: "999px",
+    background: "#1d4ed8",
+    color: "#ffffff",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "11px",
+    fontWeight: 900,
+    marginBottom: "4px",
+  },
+
+  workflowStepTitle: {
+    color: "#f8fafc",
+    fontSize: "13px",
+    fontWeight: 900,
+  },
+
+  workflowStepText: {
+    color: "#94a3b8",
+    fontSize: "11px",
+    lineHeight: 1.35,
+    fontWeight: 700,
+  },
+
+  workflowStep: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "13px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+    minWidth: 0,
   },
 
   cardTitle: {
