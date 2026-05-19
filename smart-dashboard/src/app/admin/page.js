@@ -792,10 +792,11 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2.1</h1>
+            <h1 style={styles.title}>STS Admin V2.2.2</h1>
             <p style={styles.subtitle}>
-              Centro de gestão para clientes, dispositivos, acessos, alertas e configuração técnica
+              Centro de gestão para clientes, dispositivos, acessos e operação técnica
             </p>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.2</div>
           </div>
 
           <div style={styles.topActions}>
@@ -838,7 +839,7 @@ export default function AdminPage() {
           <div>
             <div style={styles.workflowTitle}>Fluxo recomendado</div>
             <div style={styles.workflowHint}>
-              Usa esta página de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso, configurar alertas e validar parâmetros.
+              Usa esta página de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso e validar estado. A configuração fica dentro do dispositivo selecionado.
             </div>
           </div>
 
@@ -860,8 +861,8 @@ export default function AdminPage() {
             </div>
             <div style={styles.workflowStep}>
               <span style={styles.workflowNumber}>4</span>
-              <strong style={styles.workflowStepTitle}>Configuração</strong>
-              <small style={styles.workflowStepText}>Limites e parâmetros técnicos</small>
+              <strong style={styles.workflowStepTitle}>Validação</strong>
+              <small style={styles.workflowStepText}>Confirmar estado e acesso</small>
             </div>
           </div>
         </section>
@@ -1352,7 +1353,8 @@ export default function AdminPage() {
         </section>
 
         <section style={styles.card}>
-          <div style={styles.sectionStep}>05</div><div style={styles.cardTitle}>Configuração operacional</div><div style={styles.cardHint}>Define limites, localização e parâmetros de funcionamento.</div>
+          <div style={styles.deviceOptionsBanner}>Configuração associada ao dispositivo selecionado</div>
+              <div style={styles.sectionStep}>⚙</div><div style={styles.cardTitle}>Opções do dispositivo selecionado</div><div style={styles.cardHint}>Configuração avançada do equipamento ativo. Usar apenas quando necessário.</div>
 
           {!selectedDeviceData ? (
             <div style={styles.emptyState}>
@@ -1622,6 +1624,38 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "6px",
+  },
+
+
+  versionBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: "10px",
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+  },
+
+  deviceOptionsBanner: {
+    display: "inline-flex",
+    alignItems: "center",
+    width: "fit-content",
+    border: "1px solid #334155",
+    background: "#0f172a",
+    color: "#cbd5e1",
+    borderRadius: "999px",
+    padding: "7px 11px",
+    fontSize: "11px",
+    fontWeight: 900,
+    marginBottom: "12px",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
   },
 
   title: {
