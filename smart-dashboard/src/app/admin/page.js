@@ -183,14 +183,15 @@ export default function AdminPage() {
     <main style={styles.page}>
       <div style={styles.container}>
         <div style={styles.header}>
-          <h1 style={styles.title}>Admin Panel</h1>
+          <h1 style={styles.title}>STS Admin V2.3</h1>
           <p style={styles.subtitle}>
             Gestão de utilizadores e acessos aos dispositivos
           </p>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3</div>
         </div>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Criar utilizador</div>
+          <div style={styles.cardTitle}>Clientes e utilizadores</div>
 
           <div style={styles.formGrid}>
             <input
@@ -253,13 +254,13 @@ export default function AdminPage() {
               style={styles.primaryButton}
               disabled={creatingUser}
             >
-              {creatingUser ? "A criar..." : "Criar utilizador"}
+              {creatingUser ? "A criar..." : "Clientes e utilizadores"}
             </button>
           </div>
         </section>
 
         <section style={styles.card}>
-          <div style={styles.cardTitle}>Atribuir dispositivo</div>
+          <div style={styles.cardTitle}>Associação de dispositivo</div>
 
           <div style={styles.formGrid}>
             <select
@@ -282,7 +283,7 @@ export default function AdminPage() {
               onChange={(e) => setSelectedDevice(e.target.value)}
               style={styles.input}
             >
-              <option value="">Selecionar dispositivo</option>
+              <option value="">Dispositivo selecionado</option>
               {devices.map((d) => (
                 <option key={d.device_id} value={d.device_id}>
                   {d.name ? `${d.name} (${d.device_id})` : d.device_id}
@@ -403,6 +404,76 @@ const styles = {
     gap: "6px",
   },
 
+
+  versionBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: "10px",
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+  },
+
+  v23Panel: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(360px, 1.2fr)",
+    gap: "18px",
+    alignItems: "center",
+  },
+
+  v23Eyebrow: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "8px",
+  },
+
+  v23Title: {
+    fontSize: "22px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.03em",
+    marginBottom: "8px",
+  },
+
+  v23Text: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    fontWeight: 700,
+  },
+
+  v23Grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "10px",
+  },
+
+  v23Item: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "13px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+    color: "#e5edf7",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
   title: {
     margin: 0,
     fontSize: "28px",
@@ -414,33 +485,6 @@ const styles = {
     margin: 0,
     color: "#94a3b8",
     fontSize: "14px",
-  },
-
-
-  readinessPanel: {
-    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
-    border: "1px solid #223047",
-    borderRadius: "24px",
-    padding: "20px",
-  },
-
-  readinessGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
-  },
-
-  readinessItem: {
-    background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "16px",
-    padding: "14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    color: "#e5edf7",
-    fontSize: "13px",
-    fontWeight: 800,
   },
 
   card: {
