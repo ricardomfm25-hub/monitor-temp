@@ -81,6 +81,8 @@ function TogglePill({ checked, onClick, label, disabled = false }) {
   );
 }
 
+const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
+
 function isHiddenSystemAdmin(user) {
   const email = String(user?.email || user?.user_email || user?.profile_email || "").toLowerCase();
   const role = String(user?.role || "").toLowerCase();
