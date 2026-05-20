@@ -1616,26 +1616,82 @@ function OperationalInsightCard({ items }) {
 }
 
 
-function SmartClientInsight({ communicationHealth, isOffline }) {
+
+function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summary24h }) {
+  const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 88;
+  const noReadings24h = (summary24h?.totalReadings ?? 0) === 0;
+
   let title = "Recomendação STS";
   let detail = "Evitar aberturas prolongadas ajuda a estabilizar a temperatura e reduzir consumo.";
+  let tag = "Boas práticas";
 
   if (isOffline) {
-    title = "Ação recomendada";
-    detail = "Verificar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
-  } else if (communicationHealth?.label === "Com falhas" || communicationHealth?.label === "Instável") {
+    title = "Verificação recomendada";
+    detail = "Confirmar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
+    tag = "Dispositivo offline";
+  } else if (noReadings24h) {
+    title = "Sem leituras recentes";
+    detail = "Não existem dados suficientes nas últimas 24h para avaliar a operação.";
+    tag = "Sem dados";
+  } else if (lowCoverage || communicationHealth?.label === "Com falhas" || communicationHealth?.label === "Instável") {
     title = "Atenção à comunicação";
     detail = "Falhas frequentes podem atrasar alertas. Confirma a cobertura Wi-Fi junto ao equipamento.";
+    tag = "Comunicação";
+  } else if (String(statusInfo?.label || "").toLowerCase().includes("normal")) {
+    title = "Operação estável";
+    detail = "A estabilidade térmica ajuda a preservar qualidade, reduzir desperdício e controlar consumo.";
+    tag = "Operação";
   }
 
   return (
     <section style={styles.smartInsightCard}>
-      <div style={styles.smartInsightKicker}>STS Insight</div>
+      <div style={styles.smartInsightTop}>
+        <div style={styles.smartInsightKicker}>STS Insight</div>
+        <div style={styles.smartInsightTag}>{tag}</div>
+      </div>
       <div style={styles.smartInsightTitle}>{title}</div>
       <div style={styles.smartInsightDetail}>{detail}</div>
     </section>
   );
 }
+
+function DeviceReadinessCard({ device, isOffline }) {
+  const firmwareVersion =
+    device?.firmware_version ||
+    device?.config?.firmware_version ||
+    "A definir";
+
+  const hardwareRevision =
+    device?.hardware_revision ||
+    device?.config?.hardware_revision ||
+    "A definir";
+
+  const sensorStatus =
+    device?.sensor_status ||
+    device?.config?.sensor_status ||
+    (isOffline ? "Indisponível" : "Operacional");
+
+  return (
+    <section style={styles.readinessCard}>
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Preparação V2</div>
+          <div style={styles.cardHint}>
+            Compatibilidade para novo firmware e hardware STS Cold
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.readinessGrid}>
+        <SmallStat label="Firmware" value={firmwareVersion} />
+        <SmallStat label="Hardware" value={hardwareRevision} />
+        <SmallStat label="Sensor" value={sensorStatus} />
+        <SmallStat label="Estado V2" value={isOffline ? "A aguardar dispositivo" : "Pronto para validação"} />
+      </div>
+    </section>
+  );
+}
+
 
 function DataChart({
   title,
@@ -2523,7 +2579,7 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · V2.2.2</div>
+            <div style={styles.versionBadge}>DASHBOARD · V2.3.0</div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -2713,10 +2769,17 @@ async function downloadPdfReport() {
         <SmartClientInsight
           communicationHealth={communicationHealth}
           isOffline={effectiveStatus === "OFFLINE"}
+          statusInfo={statusInfo}
+          summary24h={summary24h}
         />
 
         <UnifiedPredictionCard
           prediction={predictiveStatus}
+          isOffline={effectiveStatus === "OFFLINE"}
+        />
+
+        <DeviceReadinessCard
+          device={device}
           isOffline={effectiveStatus === "OFFLINE"}
         />
 
@@ -3355,6 +3418,71 @@ const styles = {
     color: "#cbd5e1",
     lineHeight: 1.5,
     fontWeight: 700,
+  },
+
+
+  smartInsightCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "18px 20px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.16)",
+  },
+
+  smartInsightTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "8px",
+    flexWrap: "wrap",
+  },
+
+  smartInsightKicker: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+  },
+
+  smartInsightTag: {
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "5px 9px",
+    fontSize: "10px",
+    fontWeight: 900,
+  },
+
+  smartInsightTitle: {
+    fontSize: "18px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.02em",
+    marginBottom: "6px",
+  },
+
+  smartInsightDetail: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    fontWeight: 700,
+  },
+
+  readinessCard: {
+    background: "rgba(17, 24, 39, 0.88)",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    overflow: "hidden",
+  },
+
+  readinessGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "12px",
   },
 
   card: {
