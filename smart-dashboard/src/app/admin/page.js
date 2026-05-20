@@ -222,7 +222,7 @@ export default function AdminPage() {
 
             <input
               type="text"
-              placeholder="Password inicial"
+              placeholder="Password temporária"
               value={newUser.password}
               onChange={(e) =>
                 setNewUser((prev) => ({
@@ -243,8 +243,8 @@ export default function AdminPage() {
               }
               style={styles.input}
             >
-              <option value="viewer">Viewer</option>
-              <option value="client_admin">Client Admin</option>
+              <option value="viewer">Só leitura</option>
+              <option value="client_admin">Gestor do cliente</option>
             </select>
           </div>
 
@@ -307,7 +307,7 @@ export default function AdminPage() {
               style={styles.primaryButton}
               disabled={savingAccess}
             >
-              {savingAccess ? "A guardar..." : "Atribuir acesso"}
+              {savingAccess ? "A guardar..." : "Associar dispositivo"}
             </button>
           </div>
         </section>
@@ -420,13 +420,13 @@ const styles = {
     letterSpacing: "0.04em",
   },
 
-  v23Panel: {
-    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+  v23CommandPanel: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.98), rgba(12,20,36,0.96))",
     border: "1px solid #223047",
     borderRadius: "24px",
     padding: "20px",
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) minmax(360px, 1.2fr)",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(420px, 1.3fr)",
     gap: "18px",
     alignItems: "center",
   },
@@ -457,7 +457,7 @@ const styles = {
 
   v23Grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: "10px",
   },
 
@@ -469,6 +469,33 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "5px",
+    color: "#e5edf7",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
+  v23DevicePanel: {
+    background: "rgba(17, 24, 39, 0.92)",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    overflow: "hidden",
+  },
+
+  v23ReadinessGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "12px",
+  },
+
+  v23ReadinessItem: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "7px",
     color: "#e5edf7",
     fontSize: "13px",
     fontWeight: 800,
