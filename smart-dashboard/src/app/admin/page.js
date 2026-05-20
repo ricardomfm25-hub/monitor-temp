@@ -416,6 +416,33 @@ const styles = {
     fontSize: "14px",
   },
 
+
+  readinessPanel: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+  },
+
+  readinessGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+  },
+
+  readinessItem: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    color: "#e5edf7",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
   card: {
     background: "#111827",
     border: "1px solid #1f2937",
