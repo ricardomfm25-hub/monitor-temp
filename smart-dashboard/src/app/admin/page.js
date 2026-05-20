@@ -81,6 +81,14 @@ function TogglePill({ checked, onClick, label, disabled = false }) {
   );
 }
 
+
+const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
+
+function isHiddenSystemAdmin(user) {
+  const email = String(user?.email || "").toLowerCase();
+  return HIDDEN_ADMIN_EMAILS.includes(email);
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -196,6 +204,9 @@ export default function AdminPage() {
     () => users.find((u) => u.id === selectedClientId) || null,
     [users, selectedClientId]
   );
+
+  const visibleUsers = (users || []).filter((user) => !isHiddenSystemAdmin(user));
+
 
   useEffect(() => {
     loadData({ showLoader: true });
@@ -792,8 +803,8 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2.3</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.3</div>
+            <h1 style={styles.title}>STS Admin V2.3.1</h1>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.1</div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
@@ -898,6 +909,17 @@ export default function AdminPage() {
               <strong>Estado e comunicação</strong>
             </div>
           </div>
+        </section>
+
+
+        <section style={styles.adminProtectionCard}>
+          <div>
+            <div style={styles.adminProtectionTitle}>Conta principal protegida</div>
+            <div style={styles.adminProtectionText}>
+              O super_admin principal mantém permissões totais e não aparece por defeito na atribuição inicial de clientes.
+            </div>
+          </div>
+          <div style={styles.adminProtectionBadge}>PROTEGIDO</div>
         </section>
 
 <div style={styles.topGrid}>
@@ -1673,6 +1695,52 @@ export default function AdminPage() {
 }
 
 const styles = {
+
+  systemAdminNote: {
+    marginTop: "8px",
+    color: "#94a3b8",
+    fontSize: "12px",
+    lineHeight: 1.4,
+    fontWeight: 700,
+  },
+
+  adminProtectionCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.94), rgba(19,32,58,0.84))",
+    border: "1px solid #243b63",
+    borderRadius: "22px",
+    padding: "16px 18px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+    flexWrap: "wrap",
+  },
+
+  adminProtectionTitle: {
+    color: "#f8fafc",
+    fontSize: "15px",
+    fontWeight: 900,
+    marginBottom: "4px",
+  },
+
+  adminProtectionText: {
+    color: "#94a3b8",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    fontWeight: 700,
+  },
+
+  adminProtectionBadge: {
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "7px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.05em",
+  },
+
 
   versionBadge: {
     display: "inline-flex",
