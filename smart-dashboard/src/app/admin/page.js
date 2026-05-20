@@ -81,12 +81,15 @@ function TogglePill({ checked, onClick, label, disabled = false }) {
   );
 }
 
-
-const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
-
 function isHiddenSystemAdmin(user) {
-  const email = String(user?.email || "").toLowerCase();
-  return HIDDEN_ADMIN_EMAILS.includes(email);
+  const email = String(user?.email || user?.user_email || user?.profile_email || "").toLowerCase();
+  const role = String(user?.role || "").toLowerCase();
+  const name = String(user?.full_name || user?.name || "").toLowerCase();
+
+  return (
+    HIDDEN_ADMIN_EMAILS.includes(email) ||
+    (role === "super_admin" && name.includes("ricardo"))
+  );
 }
 
 export default function AdminPage() {
