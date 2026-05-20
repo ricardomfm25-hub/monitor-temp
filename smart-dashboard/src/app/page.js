@@ -1568,7 +1568,7 @@ function OperationalInsightCard({ items }) {
         <div>
           <div style={styles.cardTitle}>Leitura operacional</div>
           <div style={styles.cardHint}>
-            Resumo direto sobre o estado do equipamento e impacto na operação
+            Leitura simples para decidir rapidamente o que precisa de atenção
           </div>
         </div>
       </div>
@@ -1611,6 +1611,28 @@ function OperationalInsightCard({ items }) {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+
+function SmartClientInsight({ communicationHealth, isOffline }) {
+  let title = "Recomendação STS";
+  let detail = "Evitar aberturas prolongadas ajuda a estabilizar a temperatura e reduzir consumo.";
+
+  if (isOffline) {
+    title = "Ação recomendada";
+    detail = "Verificar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
+  } else if (communicationHealth?.label === "Com falhas" || communicationHealth?.label === "Instável") {
+    title = "Atenção à comunicação";
+    detail = "Falhas frequentes podem atrasar alertas. Confirma a cobertura Wi-Fi junto ao equipamento.";
+  }
+
+  return (
+    <section style={styles.smartInsightCard}>
+      <div style={styles.smartInsightKicker}>STS Insight</div>
+      <div style={styles.smartInsightTitle}>{title}</div>
+      <div style={styles.smartInsightDetail}>{detail}</div>
     </section>
   );
 }
@@ -1793,10 +1815,20 @@ async function fetchJsonOrThrow(url, options = {}) {
     },
   });
 
-  const payload = await response.json();
+  const raw = await response.text();
+
+  let payload = null;
+  try {
+    payload = raw ? JSON.parse(raw) : null;
+  } catch {
+    payload = {
+      error: "Resposta inválida da API.",
+      details: raw?.slice?.(0, 300) || "",
+    };
+  }
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Erro inesperado.");
+    throw new Error(payload?.error || `Erro API ${response.status}.`);
   }
 
   return payload;
@@ -2000,7 +2032,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve([]),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`)
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`).catch((error) => {
+                console.warn("alerts:", error);
+                return [];
+              })
             : Promise.resolve([]),
         ]);
 
@@ -2485,7 +2520,7 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · V2.2.0</div>
+            <div style={styles.versionBadge}>DASHBOARD · V2.2.1</div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -2524,34 +2559,8 @@ async function downloadPdfReport() {
         </div>
 
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
-
-        <div
-          style={{
-            ...styles.dashboardShell,
-            gridTemplateColumns: isMobile
-              ? "1fr"
-              : styles.dashboardShell.gridTemplateColumns,
-          }}
-        >
-          <aside style={isMobile ? styles.sidebarMobile : styles.sidebar}>
-            <div style={styles.sidebarBrand}>
-              <div style={styles.sidebarProduct}>STS Cold</div>
-              <div style={styles.sidebarVersion}>V2.2</div>
-            </div>
-
-            <nav style={styles.sidebarNav}>
-              <a href="#overview" style={styles.sidebarLink}>Overview</a>
-              <a href="#devices" style={styles.sidebarLink}>Dispositivos</a>
-              <a href="#alerts" style={styles.sidebarLink}>Alertas</a>
-              <a href="#reports" style={styles.sidebarLink}>Relatórios</a>
-              <a href="#maintenance" style={styles.sidebarLink}>Manutenção</a>
-              <a href="#settings" style={styles.sidebarLink}>Configurações</a>
-            </nav>
-          </aside>
-
-          <div style={styles.dashboardMain}>
-            <div id="devices">
-        <DeviceSelector
+        <div id="devices">
+<DeviceSelector
           devices={devices}
           selectedDeviceId={selectedDeviceId}
           onSelect={(deviceId) => {
@@ -2697,6 +2706,11 @@ async function downloadPdfReport() {
 
 
         <OperationalInsightCard items={operationalInsights} />
+
+        <SmartClientInsight
+          communicationHealth={communicationHealth}
+          isOffline={effectiveStatus === "OFFLINE"}
+        />
 
         <UnifiedPredictionCard
           prediction={predictiveStatus}
@@ -3040,8 +3054,6 @@ async function downloadPdfReport() {
             Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
           </div>
         ) : null}
-          </div>
-        </div>
       </div>
     </main>
   );
@@ -3307,6 +3319,39 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
     fontSize: "14px",
+  },
+
+
+  smartInsightCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "18px 20px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.16)",
+  },
+
+  smartInsightKicker: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "8px",
+  },
+
+  smartInsightTitle: {
+    fontSize: "18px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.02em",
+    marginBottom: "6px",
+  },
+
+  smartInsightDetail: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    fontWeight: 700,
   },
 
   card: {
