@@ -2024,7 +2024,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve({ data: null, error: null }),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`)
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`).catch((error) => {
+                console.warn("overview:", error);
+                return null;
+              })
             : Promise.resolve(null),
 
           nextSelectedDeviceId
@@ -2520,7 +2523,7 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · V2.2.1</div>
+            <div style={styles.versionBadge}>DASHBOARD · V2.2.2</div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
