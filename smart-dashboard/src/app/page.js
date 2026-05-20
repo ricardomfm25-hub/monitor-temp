@@ -4207,7 +4207,7 @@ reportActionWrap: {
   },
 
   tooltipValue: {
-    fontSize: "13px",
+    fontSize: "12px",
     color: "#f8fafc",
   },
 
