@@ -51,26 +51,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // -------------------- HELPERS --------------------
 function getAuthToken(req) {
-  const raw =
-    req.headers["authorization"] ||
-    req.headers["x-api-token"] ||
-    req.query?.token ||
-    "";
-
-  const token = String(raw).trim();
-  if (token.toLowerCase().startsWith("bearer ")) {
-    return token.slice(7).trim();
-  }
-
-  return token;
+  return req.headers["authorization"];
 }
 
 function isAuthorized(req) {
-  if (!API_TOKEN) {
-    console.error("API_TOKEN nao configurado. Pedido rejeitado por seguranca.");
-    return false;
-  }
-
   return getAuthToken(req) === API_TOKEN;
 }
 
@@ -209,7 +193,6 @@ function getDeviceConfig(deviceRow) {
     hum_low: toNumberOrDefault(cfg.hum_low, 30),
     hum_high: toNumberOrDefault(cfg.hum_high, 60),
     hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
-    hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
     send_interval_s: toNumberOrDefault(cfg.send_interval_s, 30),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     alert_state: {
@@ -273,12 +256,8 @@ function getOfflineThresholdMs(sendIntervalS) {
   return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 6);
 }
 
-function getTemperatureAlertDirection(temperature, cfg, currentlyActive = false) {
-  const hyst = Number.isFinite(Number(cfg.hyst_c)) ? Number(cfg.hyst_c) : 0;
-  const highLimit = currentlyActive ? cfg.temp_high_c - hyst : cfg.temp_high_c;
-  const lowLimit = currentlyActive ? cfg.temp_low_c + hyst : cfg.temp_low_c;
-
-  if (temperature > highLimit) {
+function getTemperatureAlertDirection(temperature, cfg) {
+  if (temperature > cfg.temp_high_c) {
     return {
       breached: true,
       side: "high",
@@ -287,7 +266,7 @@ function getTemperatureAlertDirection(temperature, cfg, currentlyActive = false)
     };
   }
 
-  if (temperature < lowLimit) {
+  if (temperature < cfg.temp_low_c) {
     return {
       breached: true,
       side: "low",
@@ -304,12 +283,8 @@ function getTemperatureAlertDirection(temperature, cfg, currentlyActive = false)
   };
 }
 
-function getHumidityAlertDirection(humidity, cfg, currentlyActive = false) {
-  const hyst = Number.isFinite(Number(cfg.hyst_hum)) ? Number(cfg.hyst_hum) : 0;
-  const highLimit = currentlyActive ? cfg.hum_high - hyst : cfg.hum_high;
-  const lowLimit = currentlyActive ? cfg.hum_low + hyst : cfg.hum_low;
-
-  if (humidity > highLimit) {
+function getHumidityAlertDirection(humidity, cfg) {
+  if (humidity > cfg.hum_high) {
     return {
       breached: true,
       side: "high",
@@ -318,7 +293,7 @@ function getHumidityAlertDirection(humidity, cfg, currentlyActive = false) {
     };
   }
 
-  if (humidity < lowLimit) {
+  if (humidity < cfg.hum_low) {
     return {
       breached: true,
       side: "low",
@@ -335,20 +310,10 @@ function getHumidityAlertDirection(humidity, cfg, currentlyActive = false) {
   };
 }
 
-function recipientAllowsAlert(row, alertType) {
-  if (alertType === "temperature") return row.temp_alerts !== false;
-  if (alertType === "humidity") return row.humidity_alerts !== false;
-  if (alertType === "offline") return row.offline_alerts !== false;
-  if (alertType === "predictive") return row.predictive_alerts === true;
-  return true;
-}
-
-async function getDeviceAlertRecipients(deviceId, alertType = "system") {
+async function getDeviceAlertRecipients(deviceId) {
   const { data, error } = await supabase
     .from("device_alert_recipients")
-    .select(
-      "email, name, temp_alerts, humidity_alerts, offline_alerts, predictive_alerts"
-    )
+    .select("email, name")
     .eq("device_id", deviceId)
     .eq("is_active", true);
 
@@ -357,21 +322,13 @@ async function getDeviceAlertRecipients(deviceId, alertType = "system") {
     return [];
   }
 
-  const uniqueMap = new Map();
-
-  for (const row of data || []) {
-    if (!recipientAllowsAlert(row, alertType)) continue;
-
-    const email = String(row.email || "").trim().toLowerCase();
-    if (!email || uniqueMap.has(email)) continue;
-
-    uniqueMap.set(email, {
-      email,
+  const recipients = (data || [])
+    .map((row) => ({
+      email: String(row.email || "").trim(),
       name: String(row.name || "").trim() || undefined,
-    });
-  }
+    }))
+    .filter((row) => row.email);
 
-  const recipients = Array.from(uniqueMap.values());
   if (recipients.length > 0) return recipients;
 
   if (ALERT_TO_EMAIL) {
@@ -524,7 +481,7 @@ async function sendTemperatureTriggeredEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura fora do limite — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id, "temperature");
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
     to: recipients,
@@ -570,7 +527,7 @@ async function sendTemperatureResolvedEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Temperatura normalizada — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id, "temperature");
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
     to: recipients,
@@ -613,7 +570,7 @@ async function sendHumidityTriggeredEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade fora do limite — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id, "humidity");
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
     to: recipients,
@@ -659,7 +616,7 @@ async function sendHumidityResolvedEmail({
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Humidade normalizada — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id, "humidity");
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
     to: recipients,
@@ -697,7 +654,7 @@ async function sendOfflineTriggeredEmail({ device, cfg }) {
   const location = device?.location || "Localização por definir";
   const thresholdMs = getOfflineThresholdMs(cfg.send_interval_s);
   const subject = `[STS] Dispositivo offline — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
     to: recipients,
@@ -744,7 +701,7 @@ async function sendOnlineRecoveredEmail({ device }) {
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
   const subject = `[STS] Dispositivo novamente online — ${deviceName}`;
-  const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
+  const recipients = await getDeviceAlertRecipients(device.device_id);
 
   await sendEmail({
     to: recipients,
@@ -840,16 +797,8 @@ async function processTriggeredAndResolvedAlerts({
   cfg,
 }) {
   const alertState = cfg.alert_state;
-  const tempInfo = getTemperatureAlertDirection(
-    numericTemperature,
-    cfg,
-    alertState.temp_active
-  );
-  const humInfo = getHumidityAlertDirection(
-    numericHumidity,
-    cfg,
-    alertState.hum_active
-  );
+  const tempInfo = getTemperatureAlertDirection(numericTemperature, cfg);
+  const humInfo = getHumidityAlertDirection(numericHumidity, cfg);
 
   let nextAlertState = { ...alertState };
 
@@ -1336,13 +1285,7 @@ async function sendWeeklyReport() {
 
 // -------------------- ROOT --------------------
 app.get("/", (req, res) => {
-  res.json({
-    service: "SmartTempSystems",
-    product: "STS Cold",
-    version: "V2",
-    status: "active",
-    time: nowIso(),
-  });
+  res.send("Servidor SmartTempSystems ativo!");
 });
 
 // -------------------- WEEKLY REPORT --------------------
@@ -1506,17 +1449,10 @@ app.post("/api/temperature", async (req, res) => {
       last_humidity: numericHumidity,
     });
 
-    const appliedConfig = getDeviceConfig({ config: finalConfig });
-
     res.json({
       message: "OK",
-      device_id,
-      server_time: currentNowIso,
-      config_version: freshDeviceRow.config_version || 1,
-      applied_config: appliedConfig,
+      applied_config: getDeviceConfig({ config: finalConfig }),
       status: statusToApiLabel(computedStatus),
-      next_send_interval_s: appliedConfig.send_interval_s,
-      display_standby_min: appliedConfig.display_standby_min,
     });
   } catch (error) {
     console.error("Erro em /api/temperature:", error);
