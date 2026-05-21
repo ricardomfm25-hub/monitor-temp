@@ -137,6 +137,7 @@ export default function AdminPage() {
     hum_low: "",
     hum_high: "",
     hyst_c: "",
+    hyst_hum: "",
     send_interval_s: "",
     display_standby_min: "",
   });
@@ -220,24 +221,6 @@ export default function AdminPage() {
   );
 
   const visibleUsers = (users || []).filter((user) => !isProtectedSuperAdmin(user));
-  const selectedUserData = (users || []).find((user) => user.id === selectedUser) || null;
-  const selectedUserIsProtected = isProtectedSuperAdmin(selectedUserData);
-
-
-  useEffect(() => {
-    if (selectedUserData && selectedUserIsProtected) {
-      setSelectedUser("");
-    }
-  }, [selectedUserData, selectedUserIsProtected]);
-
-
-useEffect(() => {
-    if (selectedUserData && selectedUserIsProtected) {
-      setSelectedUser("");
-    }
-  }, [selectedUserData, selectedUserIsProtected]);
-
-
 
 
   useEffect(() => {
@@ -254,6 +237,7 @@ useEffect(() => {
         hum_low: "",
         hum_high: "",
         hyst_c: "",
+        hyst_hum: "",
         send_interval_s: "",
         display_standby_min: "",
       });
@@ -270,6 +254,7 @@ useEffect(() => {
       hum_low: toInputValue(config.hum_low),
       hum_high: toInputValue(config.hum_high),
       hyst_c: toInputValue(config.hyst_c),
+      hyst_hum: toInputValue(config.hyst_hum),
       send_interval_s: toInputValue(config.send_interval_s),
       display_standby_min: toInputValue(config.display_standby_min),
     });
@@ -720,6 +705,7 @@ useEffect(() => {
       hum_low: parseNumber(deviceForm.hum_low),
       hum_high: parseNumber(deviceForm.hum_high),
       hyst_c: parseNumber(deviceForm.hyst_c),
+      hyst_hum: parseNumber(deviceForm.hyst_hum),
       send_interval_s: parseNumber(deviceForm.send_interval_s),
       display_standby_min: parseNumber(deviceForm.display_standby_min),
     };
@@ -746,7 +732,7 @@ useEffect(() => {
       return;
     }
 
-    if (values.hyst_c < 0) {
+    if (values.hyst_c < 0 || values.hyst_hum < 0) {
       setMessage("A histerese não pode ser negativa.");
       setMessageType("error");
       return;
@@ -777,6 +763,7 @@ useEffect(() => {
         hum_low: values.hum_low,
         hum_high: values.hum_high,
         hyst_c: values.hyst_c,
+        hyst_hum: values.hyst_hum,
         send_interval_s: values.send_interval_s,
         display_standby_min: values.display_standby_min,
       };
@@ -836,7 +823,7 @@ useEffect(() => {
         <div style={styles.headerBar}>
           <div style={styles.header}>
             <h1 style={styles.title}>STS Admin V2.3.3</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.3.1</div>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.4</div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
@@ -1027,11 +1014,6 @@ useEffect(() => {
           <section style={styles.card}>
             <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associação de dispositivo</div>
 
-              {selectedUserIsProtected ? (
-                <div style={styles.protectedUserNotice}>
-                  Conta principal protegida. Este utilizador mantém permissões totais e não pode ser alterado/removido nesta página.
-                </div>
-              ) : null}
 <div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
 
             <div style={styles.formGrid}>
@@ -1642,6 +1624,25 @@ useEffect(() => {
                 </ConfigField>
 
                 <ConfigField
+                  label="Histerese humidade (%)"
+                  help="Margem para evitar alertas repetidos de humidade perto do limite."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Histerese humidade"
+                    value={deviceForm.hyst_hum}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hyst_hum: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
                   label="Intervalo de envio (s)"
                   help="Tempo entre cada envio de leitura do dispositivo para o backend."
                 >
@@ -1719,7 +1720,7 @@ useEffect(() => {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
+            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
