@@ -81,17 +81,26 @@ function TogglePill({ checked, onClick, label, disabled = false }) {
   );
 }
 
-const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
 
-function isHiddenSystemAdmin(user) {
-  const email = String(user?.email || user?.user_email || user?.profile_email || "").toLowerCase();
-  const role = String(user?.role || "").toLowerCase();
-  const name = String(user?.full_name || user?.name || "").toLowerCase();
+const PROTECTED_SUPER_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
+
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isProtectedSuperAdmin(user) {
+  const email = normalizeText(user?.email || user?.user_email || user?.profile_email);
+  const role = normalizeText(user?.role);
+  const name = normalizeText(user?.full_name || user?.name);
 
   return (
-    HIDDEN_ADMIN_EMAILS.includes(email) ||
+    PROTECTED_SUPER_ADMIN_EMAILS.includes(email) ||
     (role === "super_admin" && name.includes("ricardo"))
   );
+}
+
+function canManageUser(user) {
+  return !isProtectedSuperAdmin(user);
 }
 
 export default function AdminPage() {
@@ -210,7 +219,17 @@ export default function AdminPage() {
     [users, selectedClientId]
   );
 
-  const visibleUsers = (users || []).filter((user) => !isHiddenSystemAdmin(user));
+  const visibleUsers = (users || []).filter((user) => !isProtectedSuperAdmin(user));
+  const selectedUserData = (users || []).find((user) => user.id === selectedUser) || null;
+  const selectedUserIsProtected = isProtectedSuperAdmin(selectedUserData);
+
+  useEffect(() => {
+    if (selectedUserData && selectedUserIsProtected) {
+      setSelectedUser("");
+    }
+  }, [selectedUserData, selectedUserIsProtected]);
+
+
 
 
   useEffect(() => {
@@ -808,8 +827,8 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2.3.1</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.1.1</div>
+            <h1 style={styles.title}>STS Admin V2.3.2</h1>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.2.1</div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
@@ -998,7 +1017,14 @@ export default function AdminPage() {
           </section>
 
           <section style={styles.card}>
-            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associação de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
+            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associação de dispositivo</div>
+
+              {selectedUserIsProtected ? (
+                <div style={styles.protectedUserNotice}>
+                  Conta principal protegida. Este utilizador mantém permissões totais e não pode ser alterado/removido nesta página.
+                </div>
+              ) : null}
+<div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
 
             <div style={styles.formGrid}>
               <select
@@ -1700,6 +1726,19 @@ export default function AdminPage() {
 }
 
 const styles = {
+
+  protectedUserNotice: {
+    marginTop: "10px",
+    background: "#2a2112",
+    border: "1px solid #4b3a1d",
+    color: "#fcd34d",
+    borderRadius: "14px",
+    padding: "10px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    lineHeight: 1.4,
+  },
+
 
   systemAdminNote: {
     marginTop: "8px",

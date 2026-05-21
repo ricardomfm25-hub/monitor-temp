@@ -24,7 +24,7 @@ const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
-  version: "V2.3.1",
+  version: "V2.3.2",
   domain: "stsapp.pt",
 };
 
@@ -2562,7 +2562,7 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · V2.3.1</div>
+            <div style={styles.versionBadge}>DASHBOARD · V2.3.2</div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
