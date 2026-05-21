@@ -223,7 +223,15 @@ export default function AdminPage() {
   const selectedUserData = (users || []).find((user) => user.id === selectedUser) || null;
   const selectedUserIsProtected = isProtectedSuperAdmin(selectedUserData);
 
+
   useEffect(() => {
+    if (selectedUserData && selectedUserIsProtected) {
+      setSelectedUser("");
+    }
+  }, [selectedUserData, selectedUserIsProtected]);
+
+
+useEffect(() => {
     if (selectedUserData && selectedUserIsProtected) {
       setSelectedUser("");
     }
@@ -827,8 +835,8 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2.3.2</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.2.1</div>
+            <h1 style={styles.title}>STS Admin V2.3.3</h1>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.3.1</div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
