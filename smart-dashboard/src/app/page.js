@@ -20,6 +20,26 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
+
+const STS_PRODUCT = {
+  family: "STS",
+  product: "STS Cold",
+  version: "V2.3.1",
+  domain: "stsapp.pt",
+};
+
+const STS_STATES = {
+  ONLINE: "ONLINE",
+  WARNING: "WARNING",
+  ALERT: "ALERT",
+  CRITICAL: "CRITICAL",
+  OFFLINE: "OFFLINE",
+  SETUP: "SETUP",
+  MAINTENANCE: "MAINTENANCE",
+  SENSOR_FAIL: "SENSOR_FAIL",
+  RECOVERY: "RECOVERY",
+};
+
 const PERIODS = [
   { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
   { key: "6h", label: "6H", hours: 6, bucketMs: 15 * 60 * 1000, tickMs: 60 * 60 * 1000 },
@@ -1655,43 +1675,6 @@ function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summar
   );
 }
 
-function DeviceReadinessCard({ device, isOffline }) {
-  const firmwareVersion =
-    device?.firmware_version ||
-    device?.config?.firmware_version ||
-    "A definir";
-
-  const hardwareRevision =
-    device?.hardware_revision ||
-    device?.config?.hardware_revision ||
-    "A definir";
-
-  const sensorStatus =
-    device?.sensor_status ||
-    device?.config?.sensor_status ||
-    (isOffline ? "Indisponível" : "Operacional");
-
-  return (
-    <section style={styles.readinessCard}>
-      <div style={styles.cardHeader}>
-        <div>
-          <div style={styles.cardTitle}>Preparação V2</div>
-          <div style={styles.cardHint}>
-            Compatibilidade para novo firmware e hardware STS Cold
-          </div>
-        </div>
-      </div>
-
-      <div style={styles.readinessGrid}>
-        <SmallStat label="Firmware" value={firmwareVersion} />
-        <SmallStat label="Hardware" value={hardwareRevision} />
-        <SmallStat label="Sensor" value={sensorStatus} />
-        <SmallStat label="Estado V2" value={isOffline ? "A aguardar dispositivo" : "Pronto para validação"} />
-      </div>
-    </section>
-  );
-}
-
 
 function DataChart({
   title,
@@ -2579,7 +2562,7 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · V2.3.0</div>
+            <div style={styles.versionBadge}>DASHBOARD · V2.3.1</div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -2777,12 +2760,6 @@ async function downloadPdfReport() {
           prediction={predictiveStatus}
           isOffline={effectiveStatus === "OFFLINE"}
         />
-
-        <DeviceReadinessCard
-          device={device}
-          isOffline={effectiveStatus === "OFFLINE"}
-        />
-
         <section id="maintenance" style={styles.card}>
           <div style={styles.cardHeader}>
             <div>

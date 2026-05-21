@@ -55,6 +55,6 @@ export async function GET(request, context) {
     return Response.json(data, { status: res.status });
   } catch (error) {
     console.error("Erro na API overview:", error);
-    return Response.json({ error: "Erro interno ao carregar resumo." }, { status: 500 });
+    return Response.json({ error: "Erro interno ao carregar overview." }, { status: 500 });
   }
 }

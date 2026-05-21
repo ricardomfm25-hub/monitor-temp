@@ -55,6 +55,6 @@ export async function GET(request, context) {
     return Response.json(data, { status: res.status });
   } catch (error) {
     console.error("Erro na API alerts:", error);
-    return Response.json({ error: "Erro interno ao carregar alertas." }, { status: 500 });
+    return Response.json({ error: "Erro interno ao carregar alerts." }, { status: 500 });
   }
 }

@@ -777,7 +777,7 @@ export default function AdminPage() {
         )
       );
 
-      setMessage("Configuração do dispositivo guardada com sucesso.");
+      setMessage("Configuração operacional guardada com sucesso.");
       setMessageType("success");
     } catch (error) {
       setMessage(error?.message || "Erro ao guardar configuração do dispositivo.");
@@ -809,7 +809,7 @@ export default function AdminPage() {
         <div style={styles.headerBar}>
           <div style={styles.header}>
             <h1 style={styles.title}>STS Admin V2.3.1</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.1</div>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.1.1</div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
@@ -929,7 +929,7 @@ export default function AdminPage() {
 
 <div style={styles.topGrid}>
           <section style={styles.card}>
-            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Criar cliente / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
+            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Clientes e utilizadores / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
 
             <div style={styles.formGrid}>
               <input
@@ -992,7 +992,7 @@ export default function AdminPage() {
                 style={styles.primaryButton}
                 disabled={creatingUser}
               >
-                {creatingUser ? "A criar..." : "Criar cliente"}
+                {creatingUser ? "A criar..." : "Clientes e utilizadores"}
               </button>
             </div>
           </section>
@@ -1685,7 +1685,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
+            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
