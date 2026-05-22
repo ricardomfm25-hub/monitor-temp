@@ -81,26 +81,17 @@ function TogglePill({ checked, onClick, label, disabled = false }) {
   );
 }
 
+const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
 
-const PROTECTED_SUPER_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
-
-function normalizeText(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function isProtectedSuperAdmin(user) {
-  const email = normalizeText(user?.email || user?.user_email || user?.profile_email);
-  const role = normalizeText(user?.role);
-  const name = normalizeText(user?.full_name || user?.name);
+function isHiddenSystemAdmin(user) {
+  const email = String(user?.email || user?.user_email || user?.profile_email || "").toLowerCase();
+  const role = String(user?.role || "").toLowerCase();
+  const name = String(user?.full_name || user?.name || "").toLowerCase();
 
   return (
-    PROTECTED_SUPER_ADMIN_EMAILS.includes(email) ||
+    HIDDEN_ADMIN_EMAILS.includes(email) ||
     (role === "super_admin" && name.includes("ricardo"))
   );
-}
-
-function canManageUser(user) {
-  return !isProtectedSuperAdmin(user);
 }
 
 export default function AdminPage() {
@@ -137,7 +128,6 @@ export default function AdminPage() {
     hum_low: "",
     hum_high: "",
     hyst_c: "",
-    hyst_hum: "",
     send_interval_s: "",
     display_standby_min: "",
   });
@@ -146,6 +136,7 @@ export default function AdminPage() {
   const [messageType, setMessageType] = useState("success");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [accessState, setAccessState] = useState("checking");
 
   const [creatingUser, setCreatingUser] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
@@ -220,7 +211,7 @@ export default function AdminPage() {
     [users, selectedClientId]
   );
 
-  const visibleUsers = (users || []).filter((user) => !isProtectedSuperAdmin(user));
+  const visibleUsers = (users || []).filter((user) => !isHiddenSystemAdmin(user));
 
 
   useEffect(() => {
@@ -237,7 +228,6 @@ export default function AdminPage() {
         hum_low: "",
         hum_high: "",
         hyst_c: "",
-        hyst_hum: "",
         send_interval_s: "",
         display_standby_min: "",
       });
@@ -254,7 +244,6 @@ export default function AdminPage() {
       hum_low: toInputValue(config.hum_low),
       hum_high: toInputValue(config.hum_high),
       hyst_c: toInputValue(config.hyst_c),
-      hyst_hum: toInputValue(config.hyst_hum),
       send_interval_s: toInputValue(config.send_interval_s),
       display_standby_min: toInputValue(config.display_standby_min),
     });
@@ -273,6 +262,7 @@ export default function AdminPage() {
     else setRefreshing(true);
 
     setMessage("");
+    setAccessState("checking");
 
     try {
       const {
@@ -282,6 +272,7 @@ export default function AdminPage() {
 
       if (userError) throw userError;
       if (!user) {
+        setAccessState("signed_out");
         router.replace("/login");
         return;
       }
@@ -311,6 +302,7 @@ export default function AdminPage() {
       if (alertError) throw alertError;
 
       if (!profileData || profileData.role !== "super_admin") {
+        setAccessState("denied");
         router.replace("/");
         return;
       }
@@ -320,6 +312,7 @@ export default function AdminPage() {
       const safeAccesses = accessData || [];
 
       setProfile(profileData);
+      setAccessState("allowed");
       setUsers(safeUsers);
       setDevices(safeDevices);
       setDeviceAccess(safeAccesses);
@@ -339,7 +332,11 @@ export default function AdminPage() {
 
       const deviceUsers = safeAccesses
         .filter((row) => row.device_id === nextSelectedDevice)
-        .map((row) => row.user_id);
+        .map((row) => row.user_id)
+        .filter((userId) => {
+          const user = safeUsers.find((u) => u.id === userId);
+          return user && user.role !== "super_admin" && !isHiddenSystemAdmin(user);
+        });
 
       if (!selectedClientId && deviceUsers.length > 0) {
         setSelectedClientId(deviceUsers[0]);
@@ -367,6 +364,7 @@ export default function AdminPage() {
         setAccessUserId(firstUser?.id || "");
       }
     } catch (error) {
+      setAccessState("error");
       setMessage(error?.message || "Erro ao carregar dados de administração.");
       setMessageType("error");
     } finally {
@@ -705,7 +703,6 @@ export default function AdminPage() {
       hum_low: parseNumber(deviceForm.hum_low),
       hum_high: parseNumber(deviceForm.hum_high),
       hyst_c: parseNumber(deviceForm.hyst_c),
-      hyst_hum: parseNumber(deviceForm.hyst_hum),
       send_interval_s: parseNumber(deviceForm.send_interval_s),
       display_standby_min: parseNumber(deviceForm.display_standby_min),
     };
@@ -732,7 +729,7 @@ export default function AdminPage() {
       return;
     }
 
-    if (values.hyst_c < 0 || values.hyst_hum < 0) {
+    if (values.hyst_c < 0) {
       setMessage("A histerese não pode ser negativa.");
       setMessageType("error");
       return;
@@ -763,7 +760,6 @@ export default function AdminPage() {
         hum_low: values.hum_low,
         hum_high: values.hum_high,
         hyst_c: values.hyst_c,
-        hyst_hum: values.hyst_hum,
         send_interval_s: values.send_interval_s,
         display_standby_min: values.display_standby_min,
       };
@@ -814,7 +810,38 @@ export default function AdminPage() {
   }
 
   if (profile?.role !== "super_admin") {
-    return null;
+    const title =
+      accessState === "signed_out"
+        ? "SessÃ£o necessÃ¡ria"
+        : accessState === "error"
+        ? "NÃ£o foi possÃ­vel abrir a administraÃ§Ã£o"
+        : "Acesso restrito";
+    const description =
+      accessState === "signed_out"
+        ? "Estamos a encaminhar-te para o inÃ­cio de sessÃ£o."
+        : accessState === "error"
+        ? "O painel encontrou um problema ao validar a conta. Podes tentar novamente ou voltar Ã  dashboard."
+        : "Esta Ã¡rea estÃ¡ disponÃ­vel apenas para contas super_admin.";
+
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.card}>
+            <div style={styles.accessDeniedTitle}>{title}</div>
+            <div style={styles.accessDeniedText}>{description}</div>
+            {message ? <div style={styles.messageError}>{message}</div> : null}
+            <div style={styles.topActions}>
+              <button onClick={() => router.replace("/")} style={styles.secondaryButton}>
+                Voltar Ã  dashboard
+              </button>
+              <button onClick={() => loadData({ showLoader: true })} style={styles.secondaryButton}>
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -822,8 +849,8 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2.3.3</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.4</div>
+            <h1 style={styles.title}>STS Admin V2.3.1</h1>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.1.1</div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
@@ -1012,9 +1039,7 @@ export default function AdminPage() {
           </section>
 
           <section style={styles.card}>
-            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associação de dispositivo</div>
-
-<div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
+            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associação de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
 
             <div style={styles.formGrid}>
               <select
@@ -1624,25 +1649,6 @@ export default function AdminPage() {
                 </ConfigField>
 
                 <ConfigField
-                  label="Histerese humidade (%)"
-                  help="Margem para evitar alertas repetidos de humidade perto do limite."
-                >
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="Histerese humidade"
-                    value={deviceForm.hyst_hum}
-                    onChange={(e) =>
-                      setDeviceForm((prev) => ({
-                        ...prev,
-                        hyst_hum: e.target.value,
-                      }))
-                    }
-                    style={styles.input}
-                  />
-                </ConfigField>
-
-                <ConfigField
                   label="Intervalo de envio (s)"
                   help="Tempo entre cada envio de leitura do dispositivo para o backend."
                 >
@@ -1720,7 +1726,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
+            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
@@ -1735,19 +1741,6 @@ export default function AdminPage() {
 }
 
 const styles = {
-
-  protectedUserNotice: {
-    marginTop: "10px",
-    background: "#2a2112",
-    border: "1px solid #4b3a1d",
-    color: "#fcd34d",
-    borderRadius: "14px",
-    padding: "10px 12px",
-    fontSize: "12px",
-    fontWeight: 800,
-    lineHeight: 1.4,
-  },
-
 
   systemAdminNote: {
     marginTop: "8px",
@@ -2112,6 +2105,20 @@ const styles = {
     color: "#cbd5e1",
     fontSize: "14px",
     fontWeight: 700,
+  },
+
+  accessDeniedTitle: {
+    color: "#f8fafc",
+    fontSize: "22px",
+    fontWeight: 900,
+    marginBottom: "8px",
+  },
+
+  accessDeniedText: {
+    color: "#cbd5e1",
+    fontSize: "14px",
+    lineHeight: 1.6,
+    marginBottom: "14px",
   },
 
   messageSuccess: {
