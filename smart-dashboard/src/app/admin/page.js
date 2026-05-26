@@ -81,6 +81,19 @@ function TogglePill({ checked, onClick, label, disabled = false }) {
   );
 }
 
+const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
+
+function isHiddenSystemAdmin(user) {
+  const email = String(user?.email || user?.user_email || user?.profile_email || "").toLowerCase();
+  const role = String(user?.role || "").toLowerCase();
+  const name = String(user?.full_name || user?.name || "").toLowerCase();
+
+  return (
+    HIDDEN_ADMIN_EMAILS.includes(email) ||
+    (role === "super_admin" && name.includes("ricardo"))
+  );
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -123,6 +136,7 @@ export default function AdminPage() {
   const [messageType, setMessageType] = useState("success");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [accessState, setAccessState] = useState("checking");
 
   const [creatingUser, setCreatingUser] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
@@ -197,6 +211,9 @@ export default function AdminPage() {
     [users, selectedClientId]
   );
 
+  const visibleUsers = (users || []).filter((user) => !isHiddenSystemAdmin(user));
+
+
   useEffect(() => {
     loadData({ showLoader: true });
   }, []);
@@ -245,6 +262,7 @@ export default function AdminPage() {
     else setRefreshing(true);
 
     setMessage("");
+    setAccessState("checking");
 
     try {
       const {
@@ -254,6 +272,7 @@ export default function AdminPage() {
 
       if (userError) throw userError;
       if (!user) {
+        setAccessState("signed_out");
         router.replace("/login");
         return;
       }
@@ -283,6 +302,7 @@ export default function AdminPage() {
       if (alertError) throw alertError;
 
       if (!profileData || profileData.role !== "super_admin") {
+        setAccessState("denied");
         router.replace("/");
         return;
       }
@@ -292,6 +312,7 @@ export default function AdminPage() {
       const safeAccesses = accessData || [];
 
       setProfile(profileData);
+      setAccessState("allowed");
       setUsers(safeUsers);
       setDevices(safeDevices);
       setDeviceAccess(safeAccesses);
@@ -311,7 +332,11 @@ export default function AdminPage() {
 
       const deviceUsers = safeAccesses
         .filter((row) => row.device_id === nextSelectedDevice)
-        .map((row) => row.user_id);
+        .map((row) => row.user_id)
+        .filter((userId) => {
+          const user = safeUsers.find((u) => u.id === userId);
+          return user && user.role !== "super_admin" && !isHiddenSystemAdmin(user);
+        });
 
       if (!selectedClientId && deviceUsers.length > 0) {
         setSelectedClientId(deviceUsers[0]);
@@ -339,6 +364,7 @@ export default function AdminPage() {
         setAccessUserId(firstUser?.id || "");
       }
     } catch (error) {
+      setAccessState("error");
       setMessage(error?.message || "Erro ao carregar dados de administração.");
       setMessageType("error");
     } finally {
@@ -761,7 +787,7 @@ export default function AdminPage() {
         )
       );
 
-      setMessage("Configuração do dispositivo guardada com sucesso.");
+      setMessage("Configuração operacional guardada com sucesso.");
       setMessageType("success");
     } catch (error) {
       setMessage(error?.message || "Erro ao guardar configuração do dispositivo.");
@@ -784,7 +810,38 @@ export default function AdminPage() {
   }
 
   if (profile?.role !== "super_admin") {
-    return null;
+    const title =
+      accessState === "signed_out"
+        ? "SessÃ£o necessÃ¡ria"
+        : accessState === "error"
+        ? "NÃ£o foi possÃ­vel abrir a administraÃ§Ã£o"
+        : "Acesso restrito";
+    const description =
+      accessState === "signed_out"
+        ? "Estamos a encaminhar-te para o inÃ­cio de sessÃ£o."
+        : accessState === "error"
+        ? "O painel encontrou um problema ao validar a conta. Podes tentar novamente ou voltar Ã  dashboard."
+        : "Esta Ã¡rea estÃ¡ disponÃ­vel apenas para contas super_admin.";
+
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.card}>
+            <div style={styles.accessDeniedTitle}>{title}</div>
+            <div style={styles.accessDeniedText}>{description}</div>
+            {message ? <div style={styles.messageError}>{message}</div> : null}
+            <div style={styles.topActions}>
+              <button onClick={() => router.replace("/")} style={styles.secondaryButton}>
+                Voltar Ã  dashboard
+              </button>
+              <button onClick={() => loadData({ showLoader: true })} style={styles.secondaryButton}>
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -792,11 +849,11 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin V2.2.2</h1>
+            <h1 style={styles.title}>STS Admin V2.3.1</h1>
+            <div style={styles.versionBadge}>ADMIN PAGE · V2.3.1.1</div>
             <p style={styles.subtitle}>
-              Centro de gestão para clientes, dispositivos, acessos e operação técnica
+              Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
-            <div style={styles.versionBadge}>ADMIN PAGE · V2.2</div>
           </div>
 
           <div style={styles.topActions}>
@@ -839,7 +896,7 @@ export default function AdminPage() {
           <div>
             <div style={styles.workflowTitle}>Fluxo recomendado</div>
             <div style={styles.workflowHint}>
-              Usa esta página de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso e validar estado. A configuração fica dentro do dispositivo selecionado.
+              Usa esta página de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso, configurar alertas e validar parâmetros.
             </div>
           </div>
 
@@ -861,15 +918,59 @@ export default function AdminPage() {
             </div>
             <div style={styles.workflowStep}>
               <span style={styles.workflowNumber}>4</span>
-              <strong style={styles.workflowStepTitle}>Validação</strong>
-              <small style={styles.workflowStepText}>Confirmar estado e acesso</small>
+              <strong style={styles.workflowStepTitle}>Configuração</strong>
+              <small style={styles.workflowStepText}>Limites e parâmetros técnicos</small>
             </div>
           </div>
         </section>
 
-        <div style={styles.topGrid}>
+        
+        <section style={styles.commandCenter}>
+          <div>
+            <div style={styles.commandEyebrow}>STS Cold Admin</div>
+            <div style={styles.commandTitle}>Centro técnico operacional</div>
+            <div style={styles.commandText}>
+              Gestão centralizada de clientes, dispositivos, acessos, firmware, onboarding e diagnóstico.
+            </div>
+          </div>
+
+          <div style={styles.commandGrid}>
+            <div style={styles.commandItem}>
+              <span>Clientes</span>
+              <strong>Gestão e permissões</strong>
+            </div>
+
+            <div style={styles.commandItem}>
+              <span>Dispositivos</span>
+              <strong>Associação inteligente</strong>
+            </div>
+
+            <div style={styles.commandItem}>
+              <span>Firmware</span>
+              <strong>Preparado para OTA</strong>
+            </div>
+
+            <div style={styles.commandItem}>
+              <span>Diagnóstico</span>
+              <strong>Estado e comunicação</strong>
+            </div>
+          </div>
+        </section>
+
+
+        <section style={styles.adminProtectionCard}>
+          <div>
+            <div style={styles.adminProtectionTitle}>Conta principal protegida</div>
+            <div style={styles.adminProtectionText}>
+              O super_admin principal mantém permissões totais e não aparece por defeito na atribuição inicial de clientes.
+            </div>
+          </div>
+          <div style={styles.adminProtectionBadge}>PROTEGIDO</div>
+        </section>
+
+<div style={styles.topGrid}>
           <section style={styles.card}>
-            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Criar cliente / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
+            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Clientes e utilizadores / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
 
             <div style={styles.formGrid}>
               <input
@@ -932,13 +1033,13 @@ export default function AdminPage() {
                 style={styles.primaryButton}
                 disabled={creatingUser}
               >
-                {creatingUser ? "A criar..." : "Criar cliente"}
+                {creatingUser ? "A criar..." : "Clientes e utilizadores"}
               </button>
             </div>
           </section>
 
           <section style={styles.card}>
-            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associar dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
+            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Associação de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
 
             <div style={styles.formGrid}>
               <select
@@ -982,7 +1083,7 @@ export default function AdminPage() {
                 style={styles.primaryButton}
                 disabled={savingAccess || !selectedDevice}
               >
-                {savingAccess ? "A guardar..." : "Associar dispositivo"}
+                {savingAccess ? "A guardar..." : "Associação de dispositivo"}
               </button>
             </div>
           </section>
@@ -1353,8 +1454,51 @@ export default function AdminPage() {
         </section>
 
         <section style={styles.card}>
-          <div style={styles.deviceOptionsBanner}>Configuração associada ao dispositivo selecionado</div>
-              <div style={styles.sectionStep}>⚙</div><div style={styles.cardTitle}>Opções do dispositivo selecionado</div><div style={styles.cardHint}>Configuração avançada do equipamento ativo. Usar apenas quando necessário.</div>
+          <div style={styles.sectionStep}>05</div>
+        <section style={styles.v2Panel}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Firmware, hardware e onboarding</div>
+              <div style={styles.cardHint}>
+                Preparação técnica da nova geração STS Cold.
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.v2Grid}>
+            <div style={styles.v2Item}>
+              <span>Firmware</span>
+              <strong>A definir</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Hardware</span>
+              <strong>Revisão futura</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>QR Pairing</span>
+              <strong>Preparado</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Diagnóstico</span>
+              <strong>Sensor e comunicação</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>OTA</span>
+              <strong>Estrutura preparada</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Estado V2</span>
+              <strong>Pronto para evolução</strong>
+            </div>
+          </div>
+        </section>
+
+<div style={styles.cardTitle}>Configuração operacional</div><div style={styles.cardHint}>Define limites, localização e parâmetros de funcionamento.</div>
 
           {!selectedDeviceData ? (
             <div style={styles.emptyState}>
@@ -1558,7 +1702,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.sectionStep}>06</div><div style={styles.cardTitle}>Diagnóstico técnico</div><div style={styles.cardHint}>Informação técnica rápida para suporte e validação.</div>
+            <div style={styles.sectionStep}>06</div><div style={styles.cardTitle}>Diagnóstico e suporte</div><div style={styles.cardHint}>Informação técnica rápida para suporte e validação.</div>
 
             <div style={styles.statsGrid}>
               <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
@@ -1582,7 +1726,7 @@ export default function AdminPage() {
 
         {selectedDeviceData ? (
           <section style={styles.card}>
-            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
+            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>Configuração raw / debug / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
@@ -1597,6 +1741,147 @@ export default function AdminPage() {
 }
 
 const styles = {
+
+  systemAdminNote: {
+    marginTop: "8px",
+    color: "#94a3b8",
+    fontSize: "12px",
+    lineHeight: 1.4,
+    fontWeight: 700,
+  },
+
+  adminProtectionCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.94), rgba(19,32,58,0.84))",
+    border: "1px solid #243b63",
+    borderRadius: "22px",
+    padding: "16px 18px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+    flexWrap: "wrap",
+  },
+
+  adminProtectionTitle: {
+    color: "#f8fafc",
+    fontSize: "15px",
+    fontWeight: 900,
+    marginBottom: "4px",
+  },
+
+  adminProtectionText: {
+    color: "#94a3b8",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    fontWeight: 700,
+  },
+
+  adminProtectionBadge: {
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "7px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.05em",
+  },
+
+
+  versionBadge: {
+    display: "inline-flex",
+    marginTop: "10px",
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+  },
+
+  commandCenter: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "22px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0,1fr) minmax(340px,1fr)",
+    gap: "18px",
+    alignItems: "center",
+  },
+
+  commandEyebrow: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "8px",
+  },
+
+  commandTitle: {
+    fontSize: "24px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    marginBottom: "8px",
+    letterSpacing: "-0.03em",
+  },
+
+  commandText: {
+    fontSize: "13px",
+    lineHeight: 1.5,
+    color: "#cbd5e1",
+    fontWeight: 700,
+  },
+
+  commandGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+    gap: "10px",
+  },
+
+  commandItem: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    color: "#e5edf7",
+    fontWeight: 800,
+    fontSize: "13px",
+  },
+
+  v2Panel: {
+    background: "rgba(17,24,39,0.92)",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    marginBottom: "20px",
+  },
+
+  v2Grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+    gap: "12px",
+  },
+
+  v2Item: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    color: "#e5edf7",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
   page: {
     minHeight: "100vh",
     background: "#0b1220",
@@ -1624,38 +1909,6 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "6px",
-  },
-
-
-  versionBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: "10px",
-    border: "1px solid #243b63",
-    background: "#13203a",
-    color: "#93c5fd",
-    borderRadius: "999px",
-    padding: "6px 10px",
-    fontSize: "11px",
-    fontWeight: 900,
-    letterSpacing: "0.04em",
-  },
-
-  deviceOptionsBanner: {
-    display: "inline-flex",
-    alignItems: "center",
-    width: "fit-content",
-    border: "1px solid #334155",
-    background: "#0f172a",
-    color: "#cbd5e1",
-    borderRadius: "999px",
-    padding: "7px 11px",
-    fontSize: "11px",
-    fontWeight: 900,
-    marginBottom: "12px",
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
   },
 
   title: {
@@ -1852,6 +2105,20 @@ const styles = {
     color: "#cbd5e1",
     fontSize: "14px",
     fontWeight: 700,
+  },
+
+  accessDeniedTitle: {
+    color: "#f8fafc",
+    fontSize: "22px",
+    fontWeight: 900,
+    marginBottom: "8px",
+  },
+
+  accessDeniedText: {
+    color: "#cbd5e1",
+    fontSize: "14px",
+    lineHeight: 1.6,
+    marginBottom: "14px",
   },
 
   messageSuccess: {

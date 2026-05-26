@@ -20,6 +20,26 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
+
+const STS_PRODUCT = {
+  family: "STS",
+  product: "STS Cold",
+  version: "V2.3.1",
+  domain: "stsapp.pt",
+};
+
+const STS_STATES = {
+  ONLINE: "ONLINE",
+  WARNING: "WARNING",
+  ALERT: "ALERT",
+  CRITICAL: "CRITICAL",
+  OFFLINE: "OFFLINE",
+  SETUP: "SETUP",
+  MAINTENANCE: "MAINTENANCE",
+  SENSOR_FAIL: "SENSOR_FAIL",
+  RECOVERY: "RECOVERY",
+};
+
 const PERIODS = [
   { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
   { key: "6h", label: "6H", hours: 6, bucketMs: 15 * 60 * 1000, tickMs: 60 * 60 * 1000 },
@@ -544,7 +564,7 @@ function getCommunicationHealth({
       label: "Sem dados",
       tone: "neutral",
       summary: "Sem leituras suficientes para avaliar.",
-      detempo realry_pct: detempo realryPct,
+      delivery_pct: deliveryPct,
       regularity_pct: 0,
       expected_readings: expectedReadings,
       received_readings: receivedReadings,
@@ -586,7 +606,7 @@ function getCommunicationHealth({
 
   const regularityPct = Math.max(
     0,
-    Math.min(100, Math.round(detempo realryPct - penalty))
+    Math.min(100, Math.round(deliveryPct - penalty))
   );
 
   let label = "Estável";
@@ -600,7 +620,7 @@ function getCommunicationHealth({
     tone = "bad";
     summary = "Sem comunicação recente do dispositivo.";
   } else if (
-    detempo realryPct >= 98 &&
+    deliveryPct >= 98 &&
     relevantGapCount <= 1 &&
     severeGapCount === 0
   ) {
@@ -608,14 +628,14 @@ function getCommunicationHealth({
     tone = "good";
     summary = "Cobertura muito alta e comunicação muito consistente.";
   } else if (
-    detempo realryPct >= 94 &&
+    deliveryPct >= 94 &&
     relevantGapCount <= 5 &&
     severeGapCount <= 1
   ) {
     label = "Estável";
     tone = "good";
     summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-  } else if (detempo realryPct >= 88 && severeGapCount <= 2) {
+  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
     label = "Com falhas";
     tone = "warn";
     summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
@@ -630,7 +650,7 @@ function getCommunicationHealth({
     label,
     tone,
     summary,
-    detempo realry_pct: detempo realryPct,
+    delivery_pct: deliveryPct,
     regularity_pct: regularityPct,
     expected_readings: expectedReadings,
     received_readings: receivedReadings,
@@ -932,17 +952,17 @@ function getOperationalInsights({
 
   if (isLongOffline) {
     insights.push({
-      title: "Dispositivo sem comunicação",
+      title: "Comunicação interrompida",
       detail:
         lastSeenSeconds > 86400
           ? `Sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias.`
-          : "Sem comunicação recente.",
+          : "Sem comunicação recente com o equipamento.",
       tone: "bad",
     });
 
     insights.push({
       title: "Tempo real suspenso",
-      detail: "Últimos valores apenas como registo histórico.",
+      detail: "Últimos valores disponíveis apenas como histórico.",
       tone: "warn",
     });
 
@@ -1282,9 +1302,1307 @@ function DeviceSelector({
 
   if (!orderedDevices.length) {
     return (
-        {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
+      <section style={styles.card}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={styles.cardTitle}>Dispositivo</div>
+            <div style={styles.cardHint}>Nenhum dispositivo disponível</div>
+          </div>
+        </div>
 
-        <DeviceSelector
+        <div style={styles.emptyState}>Nenhum dispositivo encontrado.</div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Dispositivos monitorizados</div>
+          <div style={styles.cardHint}>
+            Seleção do equipamento em monitorização
+          </div>
+        </div>
+
+        <div style={styles.selectorSummaryPills}>
+          <span style={styles.selectorSummaryPill}>{stats.all} total</span>
+          <span style={styles.selectorSummaryPill}>{stats.normal} normal</span>
+          <span style={styles.selectorSummaryPill}>{stats.alerts} alerta</span>
+          <span style={styles.selectorSummaryPill}>{stats.offline} offline</span>
+        </div>
+      </div>
+
+      <div ref={wrapRef} style={styles.selectorWrap}>
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          style={styles.selectorMainButton}
+        >
+          <div style={styles.selectorMainLeft}>
+            <div
+              style={{
+                ...styles.selectorStatusDot,
+                background: selectedStatusInfo.dot,
+                boxShadow: `0 0 10px ${selectedStatusInfo.dot}`,
+              }}
+            />
+            <div style={styles.selectorMainText}>
+              <div style={styles.selectorMainName}>
+                {selectedDevice?.name || selectedDevice?.device_id || "Selecionar dispositivo"}
+              </div>
+              <div style={styles.selectorMainMeta}>
+                {selectedDevice?.location || "Localização por definir"} ·{" "}
+                {formatValue(selectedDevice?.last_temperature, " °C")} ·{" "}
+                {formatValue(selectedDevice?.last_humidity, " %")}
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.selectorMainRight}>
+            <div
+              style={{
+                ...styles.selectorMainStatus,
+                color: selectedStatusInfo.color,
+                background: selectedStatusInfo.soft,
+                borderColor: "transparent",
+              }}
+            >
+              {selectedStatusInfo.label}
+            </div>
+
+            <div
+              style={{
+                ...styles.selectorChevron,
+                transform: open ? "rotate(180deg)" : "rotate(0deg)",
+              }}
+            >
+              ▼
+            </div>
+          </div>
+        </button>
+
+        {open ? (
+          <div
+            style={{
+              ...styles.selectorDropdown,
+              maxHeight: isMobile ? "420px" : "360px",
+            }}
+          >
+            {orderedDevices.map((item) => {
+              const info = getStatusInfo(
+                getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s))
+              );
+              const active = item.device_id === selectedDeviceId;
+
+              return (
+                <button
+                  key={item.device_id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(item.device_id);
+                    setOpen(false);
+                  }}
+                  style={{
+                    ...styles.selectorOption,
+                    ...(active ? styles.selectorOptionActive : {}),
+                  }}
+                >
+                  <div style={styles.selectorOptionLeft}>
+                    <div
+                      style={{
+                        ...styles.selectorOptionDot,
+                        background: info.dot,
+                      }}
+                    />
+                    <div style={styles.selectorOptionText}>
+                      <div style={styles.selectorOptionName}>
+                        {item?.name || item?.device_id}
+                      </div>
+                      <div style={styles.selectorOptionMeta}>
+                        {item?.location || "Localização por definir"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={styles.selectorOptionRight}>
+                    <div style={styles.selectorOptionTemp}>
+                      {formatValue(item?.last_temperature, " °C")}
+                    </div>
+                    <div
+                      style={{
+                        ...styles.selectorOptionStatus,
+                        color: info.color,
+                        background: info.soft,
+                        borderColor: "transparent",
+                      }}
+                    >
+                      {info.label}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function AlertRow({ item }) {
+  const levelInfo = getAlertLevelInfo(item?.level);
+
+  const typeMap = {
+    temperature: "Temperatura",
+    humidity: "Humidade",
+    offline: "Ligação",
+    system: "Sistema",
+  };
+
+  const eventType =
+    typeMap[String(item?.type || "").toLowerCase()] || "Evento";
+
+  return (
+    <div style={styles.alertRow}>
+      <div style={styles.alertRowTop}>
+        <div style={styles.alertRowTitle}>{eventType}</div>
+        <span
+          style={{
+            ...styles.alertBadge,
+            color: levelInfo.color,
+            background: levelInfo.bg,
+            borderColor: "transparent",
+          }}
+        >
+          {levelInfo.label}
+        </span>
+      </div>
+
+      <div style={styles.alertRowMeta}>
+        <span>{formatDateTime(item?.sent_at || item?.created_at)}</span>
+
+        {item?.temperature !== null && item?.temperature !== undefined ? (
+          <span>Temp: {formatValue(item.temperature, " °C")}</span>
+        ) : null}
+
+        {item?.humidity !== null && item?.humidity !== undefined ? (
+          <span>Hum: {formatValue(item.humidity, " %", 0)}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function UnifiedPredictionCard({ prediction, isOffline }) {
+  const toneMap = {
+    unknown: {
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
+      badgeBg: "#162033",
+      badgeBorder: "transparent",
+      badgeColor: "#94a3b8",
+    },
+    low: {
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
+      badgeBg: "#132219",
+      badgeBorder: "transparent",
+      badgeColor: "#22c55e",
+    },
+    medium: {
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
+      badgeBg: "#2a2112",
+      badgeBorder: "transparent",
+      badgeColor: "#f59e0b",
+    },
+    high: {
+      border: "#223047",
+      bg: "#111827",
+      value: "#f8fafc",
+      badgeBg: "#2a1316",
+      badgeBorder: "transparent",
+      badgeColor: "#ef4444",
+    },
+  };
+
+  const selected = toneMap[prediction?.level] || toneMap.unknown;
+
+  return (
+    <section
+      style={{
+        ...styles.card,
+        borderColor: selected.border,
+        background: selected.bg,
+      }}
+    >
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Tendência de risco</div>
+          <div style={styles.cardHint}>
+            Leitura preditiva resumida do comportamento recente
+          </div>
+        </div>
+
+        <div
+          style={{
+            ...styles.healthBadge,
+            background: selected.badgeBg,
+            borderColor: selected.badgeBorder,
+            color: selected.badgeColor,
+          }}
+        >
+          {prediction?.chip || "Sem dados"}
+        </div>
+      </div>
+
+      <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
+        {prediction?.title || "Predição indisponível"}
+      </div>
+
+      <div style={styles.predictionMainDetail}>
+        {prediction?.detail || "Sem dados recentes para prever tendência."}
+      </div>
+
+      <div style={styles.predictionSourceLabel}>
+        {prediction?.source_label || "Sem dados recentes"}
+      </div>
+
+      {isOffline ? (
+        <div style={styles.predictionOfflineNoteGlobal}>
+          Predição suspensa até voltar online.
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OperationalInsightCard({ items }) {
+  return (
+    <section style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div>
+          <div style={styles.cardTitle}>Leitura operacional</div>
+          <div style={styles.cardHint}>
+            Leitura simples para decidir rapidamente o que precisa de atenção
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.insightGrid}>
+        {items.map((item, index) => {
+          const toneStyles =
+            item.tone === "bad"
+              ? {
+                  border: "#4b1f24",
+                  bg: "#2a1316",
+                  title: "#fecaca",
+                }
+              : item.tone === "warn"
+              ? {
+                  border: "#4b1f24",
+                  bg: "#1f1417",
+                  title: "#fca5a5",
+                }
+              : {
+                  border: "#223047",
+                  bg: "#0f172a",
+                  title: "#86efac",
+                };
+
+          return (
+            <div
+              key={`${item.title}-${index}`}
+              style={{
+                ...styles.insightCard,
+                borderColor: toneStyles.border,
+                background: toneStyles.bg,
+              }}
+            >
+              <div style={{ ...styles.insightTitle, color: toneStyles.title }}>
+                {item.title}
+              </div>
+              <div style={styles.insightDetail}>{item.detail}</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+
+
+function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summary24h }) {
+  const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 88;
+  const noReadings24h = (summary24h?.totalReadings ?? 0) === 0;
+
+  let title = "Recomendação STS";
+  let detail = "Evitar aberturas prolongadas ajuda a estabilizar a temperatura e reduzir consumo.";
+  let tag = "Boas práticas";
+
+  if (isOffline) {
+    title = "Verificação recomendada";
+    detail = "Confirmar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
+    tag = "Dispositivo offline";
+  } else if (noReadings24h) {
+    title = "Sem leituras recentes";
+    detail = "Não existem dados suficientes nas últimas 24h para avaliar a operação.";
+    tag = "Sem dados";
+  } else if (lowCoverage || communicationHealth?.label === "Com falhas" || communicationHealth?.label === "Instável") {
+    title = "Atenção à comunicação";
+    detail = "Falhas frequentes podem atrasar alertas. Confirma a cobertura Wi-Fi junto ao equipamento.";
+    tag = "Comunicação";
+  } else if (String(statusInfo?.label || "").toLowerCase().includes("normal")) {
+    title = "Operação estável";
+    detail = "A estabilidade térmica ajuda a preservar qualidade, reduzir desperdício e controlar consumo.";
+    tag = "Operação";
+  }
+
+  return (
+    <section style={styles.smartInsightCard}>
+      <div style={styles.smartInsightTop}>
+        <div style={styles.smartInsightKicker}>STS Insight</div>
+        <div style={styles.smartInsightTag}>{tag}</div>
+      </div>
+      <div style={styles.smartInsightTitle}>{title}</div>
+      <div style={styles.smartInsightDetail}>{detail}</div>
+    </section>
+  );
+}
+
+
+function DataChart({
+  title,
+  data,
+  dataKey,
+  unit,
+  minThreshold,
+  maxThreshold,
+  isMobile,
+  periodKey,
+  isOffline,
+}) {
+  const { min, max } = getSeriesMinMax(data, dataKey);
+  const yDomain = getChartDomain(data, dataKey, [minThreshold, maxThreshold]);
+  const { minPoint, maxPoint } = getReferencePoints(data, dataKey);
+  const yTicks =
+    dataKey === "temperature" ? getNiceTemperatureTicks(yDomain) : undefined;
+
+  const valueDigits = dataKey === "humidity" ? 0 : 1;
+  const yTickFormatter =
+    dataKey === "humidity"
+      ? (value) => `${Math.round(Number(value))}`
+      : (value) => `${Number(value).toFixed(1)}`;
+
+  const timeWindow = getPeriodWindow(periodKey);
+  const xTicks = getXAxisTicks(periodKey);
+  const hasData = data.some((item) => parseNumber(item?.[dataKey]) !== null);
+
+  return (
+    <div style={styles.chartCard}>
+      <div style={styles.chartHeader}>
+        <div>
+          <div style={styles.chartTitle}>{title}</div>
+          <div style={styles.chartSubtitle}>
+            Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
+          </div>
+          <div style={styles.chartHint}>
+            Intervalo exibido: {periodKey.toUpperCase()}
+          </div>
+          {isOffline ? (
+            <div style={styles.chartOfflineHint}>
+              Dispositivo offline · histórico preservado até à última leitura válida
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div style={styles.emptyChartState}>Sem leituras neste período.</div>
+      ) : (
+        <div style={styles.chartWrap}>
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
+            <LineChart
+              data={data}
+              margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
+            >
+              <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
+
+              <XAxis
+                type="number"
+                dataKey="timestamp"
+                domain={[timeWindow.start, timeWindow.end]}
+                ticks={xTicks}
+                scale="time"
+                tickFormatter={(value) => formatShortTime(value, periodKey)}
+                stroke="#7c8aa0"
+                tick={{ fontSize: 12 }}
+                tickMargin={8}
+                minTickGap={24}
+              />
+
+              <YAxis
+                stroke="#7c8aa0"
+                tick={{ fontSize: 12 }}
+                domain={yDomain}
+                ticks={yTicks}
+                width={64}
+                tickMargin={8}
+                allowDecimals={dataKey === "temperature"}
+                tickFormatter={yTickFormatter}
+              />
+
+              <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
+
+              {minThreshold !== null && minThreshold !== undefined && (
+                <ReferenceLine
+                  y={Number(minThreshold)}
+                  stroke="#f59e0b"
+                  strokeDasharray="6 6"
+                />
+              )}
+
+              {maxThreshold !== null && maxThreshold !== undefined && (
+                <ReferenceLine
+                  y={Number(maxThreshold)}
+                  stroke="#ef4444"
+                  strokeDasharray="6 6"
+                />
+              )}
+
+              <Line
+                type="linear"
+                dataKey={dataKey}
+                stroke="#3b82f6"
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 4 }}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+
+              {minPoint && (
+                <ReferenceDot
+                  x={minPoint.timestamp}
+                  y={minPoint.value}
+                  r={4}
+                  fill="#facc15"
+                  stroke="none"
+                  label={{
+                    value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
+                    position: "bottom",
+                    fill: "#facc15",
+                    fontSize: 12,
+                  }}
+                />
+              )}
+
+              {maxPoint && (
+                <ReferenceDot
+                  x={maxPoint.timestamp}
+                  y={maxPoint.value}
+                  r={4}
+                  fill="#fb7185"
+                  stroke="none"
+                  label={{
+                    value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
+                    position: "top",
+                    fill: "#fb7185",
+                    fontSize: 12,
+                  }}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BootScreen() {
+  return (
+    <main style={styles.bootPage}>
+      <div style={styles.bootWrap}>
+        <div style={styles.bootCircle}>
+          <div style={styles.bootSpinner} />
+          <div style={styles.bootCenter}>
+            <div style={styles.bootLogo}>STS</div>
+          </div>
+        </div>
+
+        <div style={styles.bootText}>
+          A sincronizar dados mais recentes...
+        </div>
+      </div>
+    </main>
+  );
+}
+
+async function fetchJsonOrThrow(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const raw = await response.text();
+
+  let payload = null;
+  try {
+    payload = raw ? JSON.parse(raw) : null;
+  } catch {
+    payload = {
+      error: "Resposta inválida da API.",
+      details: raw?.slice?.(0, 300) || "",
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error || `Erro API ${response.status}.`);
+  }
+
+  return payload;
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+
+  const [period, setPeriod] = useState("24h");
+const [reportPeriod, setReportPeriod] = useState("24h");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [savingClient, setSavingClient] = useState(false);
+  const [savingAdmin, setSavingAdmin] = useState(false);
+  const [deviceOverview, setDeviceOverview] = useState(null);
+const [alertsCollapsed, setAlertsCollapsed] = useState(false);
+
+  const [profile, setProfile] = useState(null);
+  const [devicePermissions, setDevicePermissions] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
+  const [device, setDevice] = useState(null);
+  const [readings, setReadings] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+
+  const [clientForm, setClientForm] = useState({
+    temp_low_c: "",
+    temp_high_c: "",
+    hum_low: "",
+    hum_high: "",
+  });
+
+  const [adminForm, setAdminForm] = useState({
+    name: "",
+    location: "",
+    hyst_c: "",
+    send_interval_s: "",
+    display_standby_min: "",
+  });
+
+  const [clientMessage, setClientMessage] = useState("");
+  const [adminMessage, setAdminMessage] = useState("");
+  const [pageError, setPageError] = useState("");
+
+  const [isMobile, setIsMobile] = useState(false);
+
+  const requestInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  const isSuperAdmin = profile?.role === "super_admin";
+  const isClientAdmin = profile?.role === "client_admin";
+
+  const canEditSelectedDevice = useMemo(() => {
+    const access = devicePermissions.find(
+      (item) => item.device_id === selectedDeviceId
+    );
+
+    if (isSuperAdmin) return true;
+    if (isClientAdmin) return Boolean(access?.can_edit);
+
+    return Boolean(access?.can_edit);
+  }, [devicePermissions, isSuperAdmin, isClientAdmin, selectedDeviceId]);
+
+  const chartReadings = useMemo(
+    () => buildTimeSeries(readings, period),
+    [readings, period]
+  );
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 768);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(DEVICE_STORAGE_KEY, selectedDeviceId);
+  }, [selectedDeviceId]);
+
+  const loadData = useCallback(
+    async ({ silent = false, syncForms = true } = {}) => {
+      if (requestInFlightRef.current) return;
+
+      requestInFlightRef.current = true;
+      setPageError("");
+
+      if (!silent && mountedRef.current) {
+        if (!initialLoaded) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
+        }
+      }
+
+      try {
+        const {
+          data: { user },
+          error: sessionError,
+        } = await supabase.auth.getUser();
+
+        if (sessionError) throw sessionError;
+        if (!user) {
+          router.replace("/login");
+          return;
+        }
+
+        const [profileResponse, permissionsResponse] = await Promise.all([
+          supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+          supabase
+            .from("device_access")
+            .select("device_id, can_view, can_edit")
+            .eq("user_id", user.id),
+        ]);
+
+        if (profileResponse.error) {
+          console.warn("profile:", JSON.stringify(profileResponse.error, null, 2));
+          throw new Error("Não foi possível carregar o perfil do utilizador.");
+        }
+
+        if (permissionsResponse.error) {
+          console.warn("permissions:", JSON.stringify(permissionsResponse.error, null, 2));
+          throw new Error("Não foi possível carregar as permissões do utilizador.");
+        }
+
+        const profileData = profileResponse.data || null;
+        const permissionsData = permissionsResponse.data || [];
+
+        if (!profileData) {
+          throw new Error("O utilizador autenticado não tem perfil criado em public.profiles.");
+        }
+
+        if (!profileData.is_active) {
+          throw new Error("O teu utilizador está inativo.");
+        }
+
+        let devicesQuery = supabase
+          .from("devices")
+          .select("*")
+          .order("device_id", { ascending: true });
+
+        if (profileData.role !== "super_admin") {
+          const allowedDeviceIds = permissionsData
+            .filter((item) => item.can_view)
+            .map((item) => item.device_id);
+
+          if (!allowedDeviceIds.length) {
+            if (!mountedRef.current) return;
+
+            setProfile(profileData);
+            setDevicePermissions(permissionsData);
+            setDevices([]);
+            setInitialLoaded(true);
+            return;
+          }
+
+          devicesQuery = devicesQuery.in("device_id", allowedDeviceIds);
+        }
+
+        const { data: devicesData, error: devicesError } = await devicesQuery;
+
+        if (devicesError) {
+          console.warn("devices list:", JSON.stringify(devicesError, null, 2));
+          throw new Error("Não foi possível carregar a lista de dispositivos.");
+        }
+
+        const safeDevices = devicesData || [];
+        const nextSelectedDeviceId = getBestInitialDeviceId(safeDevices, selectedDeviceId);
+
+        const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.all([
+          nextSelectedDeviceId
+            ? supabase
+                .from("devices")
+                .select("*")
+                .eq("device_id", nextSelectedDeviceId)
+                .limit(1)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
+
+          nextSelectedDeviceId
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`).catch((error) => {
+                console.warn("overview:", error);
+                return null;
+              })
+            : Promise.resolve(null),
+
+          nextSelectedDeviceId
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
+            : Promise.resolve([]),
+
+          nextSelectedDeviceId
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`).catch((error) => {
+                console.warn("alerts:", error);
+                return [];
+              })
+            : Promise.resolve([]),
+        ]);
+
+        if (deviceResponse?.error) {
+          console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
+          throw new Error("Não foi possível carregar o dispositivo selecionado.");
+        }
+
+        const baseDeviceData = deviceResponse?.data || null;
+
+        const deviceData = baseDeviceData
+          ? {
+              ...baseDeviceData,
+              last_temperature:
+                overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
+              last_humidity:
+                overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+              status:
+                overviewData?.status
+                  ? String(overviewData.status).toUpperCase()
+                  : baseDeviceData?.status,
+              online: overviewData?.online ?? baseDeviceData?.online ?? null,
+              last_seen_seconds:
+                overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
+              communication_health: overviewData?.communication_health || null,
+              predictive_status: overviewData?.predictive_status || null,
+              alerts_24h: overviewData?.alerts_24h ?? 0,
+              total_readings_24h: overviewData?.total_readings_24h ?? 0,
+              last_seen:
+                baseDeviceData?.last_seen ||
+                (overviewData?.last_seen_seconds !== null &&
+                overviewData?.last_seen_seconds !== undefined
+                  ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
+                  : baseDeviceData?.last_seen),
+            }
+          : null;
+
+        const readingsData = (historyRows || [])
+          .map((item) => {
+            const timestamp = new Date(item.created_at).getTime();
+
+            return {
+              ...item,
+              temperature: parseNumber(item.temperature),
+              humidity: parseNumber(item.humidity),
+              timestamp: Number.isFinite(timestamp) ? timestamp : null,
+            };
+          })
+          .filter((item) => Number.isFinite(item.timestamp));
+
+        if (!mountedRef.current) return;
+
+        if (nextSelectedDeviceId && nextSelectedDeviceId !== selectedDeviceId) {
+          setSelectedDeviceId(nextSelectedDeviceId);
+        }
+
+        setProfile(profileData);
+        setDevicePermissions(permissionsData);
+        setDevices(safeDevices);
+        setDevice(deviceData);
+        setDeviceOverview(overviewData || null);
+        setReadings(readingsData);
+        setAlerts(alertsRows || []);
+
+        if (syncForms && deviceData) {
+          const deviceConfig = deviceData?.config ?? {};
+
+          setClientForm({
+            temp_low_c: toInputValue(deviceConfig?.temp_low_c),
+            temp_high_c: toInputValue(deviceConfig?.temp_high_c),
+            hum_low: toInputValue(deviceConfig?.hum_low),
+            hum_high: toInputValue(deviceConfig?.hum_high),
+          });
+
+          setAdminForm({
+            name: deviceData?.name || "",
+            location: deviceData?.location || "",
+            hyst_c: toInputValue(deviceConfig?.hyst_c),
+            send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            display_standby_min: toInputValue(deviceConfig?.display_standby_min),
+          });
+        }
+
+        setInitialLoaded(true);
+      } catch (error) {
+        console.warn("loadData:", error);
+        if (mountedRef.current) {
+          setPageError(
+            error?.message || "Ocorreu um erro ao carregar os dados."
+          );
+        }
+      } finally {
+        requestInFlightRef.current = false;
+        if (mountedRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [selectedDeviceId, supabase, router, initialLoaded]
+  );
+
+  useEffect(() => {
+    loadData({ syncForms: true });
+
+    const interval = setInterval(() => {
+      loadData({ silent: true, syncForms: false });
+    }, AUTO_REFRESH_MS);
+
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+
+    const channel = supabase
+      .channel(`sts-live-${selectedDeviceId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "readings",
+          filter: `device_id=eq.${selectedDeviceId}`,
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "devices",
+          filter: `device_id=eq.${selectedDeviceId}`,
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "alerts",
+          filter: `device_id=eq.${selectedDeviceId}`,
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedDeviceId, loadData, supabase]);
+
+  const config = device?.config ?? {};
+
+  const tempLow = parseNumber(config?.temp_low_c);
+  const tempHigh = parseNumber(config?.temp_high_c);
+  const humLow = parseNumber(config?.hum_low);
+  const humHigh = parseNumber(config?.hum_high);
+  const hystC = parseNumber(config?.hyst_c);
+  const sendIntervalS = parseNumber(config?.send_interval_s);
+  const displayStandbyMin = parseNumber(config?.display_standby_min);
+
+  const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
+  const statusInfo = getStatusInfo(effectiveStatus);
+  const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
+  const deviceLocation = device?.location || "Localização por definir";
+
+const communicationHealth = useMemo(
+  () =>
+    getCommunicationHealth({
+      rawReadings: readings,
+      sendIntervalS,
+      deviceLastSeen: device?.last_seen,
+      periodKey: period,
+    }),
+  [readings, sendIntervalS, device?.last_seen, period]
+);
+
+  const isDeviceOffline = effectiveStatus === "OFFLINE";
+
+  const predictiveStatus = isDeviceOffline
+    ? {
+        level: "unknown",
+        title: "Predição indisponível",
+        detail: "Sem dados recentes para prever tendência.",
+        chip: "Suspensa",
+        source: "none",
+        source_label: "Dispositivo offline",
+        eta_minutes: null,
+        score: 0,
+      }
+    : device?.predictive_status || getPredictiveStatus(readings, config);
+
+  const effectiveLastDelayMs =
+    communicationHealth?.last_delay_ms !== null &&
+    communicationHealth?.last_delay_ms !== undefined
+      ? communicationHealth.last_delay_ms
+      : device?.last_seen
+      ? Date.now() - new Date(device.last_seen).getTime()
+      : null;
+
+  const operationalInsights = useMemo(
+    () =>
+      getOperationalInsights({
+        device,
+        config,
+        communicationHealth,
+        predictiveStatus,
+      }),
+    [device, config, communicationHealth, predictiveStatus]
+  );
+
+  const currentTempTone =
+    effectiveStatus === "OFFLINE"
+      ? "neutral"
+      : tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh
+      ? "bad"
+      : tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow
+      ? "warn"
+      : "neutral";
+
+  const currentHumTone =
+    effectiveStatus === "OFFLINE"
+      ? "neutral"
+      : humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh
+      ? "bad"
+      : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
+      ? "warn"
+      : "neutral";
+
+  const summary24h = useMemo(() => {
+    const { start, end } = getPeriodWindow("24h");
+
+    const scoped = readings
+      .filter((item) => Number.isFinite(item?.timestamp))
+      .filter((item) => item.timestamp >= start && item.timestamp <= end);
+
+    const temps = scoped
+      .map((item) => parseNumber(item.temperature))
+      .filter((v) => v !== null);
+
+    const hums = scoped
+      .map((item) => parseNumber(item.humidity))
+      .filter((v) => v !== null);
+
+    const avg = (arr, digits = 1) =>
+      arr.length
+        ? Number((arr.reduce((sum, v) => sum + v, 0) / arr.length).toFixed(digits))
+        : null;
+
+    return {
+      tempMin: temps.length ? Math.min(...temps) : null,
+      tempMax: temps.length ? Math.max(...temps) : null,
+      tempAvg: avg(temps, 1),
+      humMin: hums.length ? Math.min(...hums) : null,
+      humMax: hums.length ? Math.max(...hums) : null,
+      humAvg: avg(hums, 0),
+      totalReadings: scoped.length,
+    };
+  }, [readings]);
+
+  async function saveClientConfig() {
+    if (!device || !selectedDeviceId || !canEditSelectedDevice) return;
+
+    setSavingClient(true);
+    setClientMessage("");
+
+    const newTempLow = parseNumber(clientForm.temp_low_c);
+    const newTempHigh = parseNumber(clientForm.temp_high_c);
+    const newHumLow = parseNumber(clientForm.hum_low);
+    const newHumHigh = parseNumber(clientForm.hum_high);
+
+    if (
+      newTempLow === null ||
+      newTempHigh === null ||
+      newHumLow === null ||
+      newHumHigh === null
+    ) {
+      setClientMessage("Preenche todos os campos do cliente com valores válidos.");
+      setSavingClient(false);
+      return;
+    }
+
+    if (newTempLow >= newTempHigh) {
+      setClientMessage("A temperatura mínima deve ser inferior à máxima.");
+      setSavingClient(false);
+      return;
+    }
+
+    if (newHumLow >= newHumHigh) {
+      setClientMessage("A humidade mínima deve ser inferior à máxima.");
+      setSavingClient(false);
+      return;
+    }
+
+    let data;
+
+    try {
+      data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+        method: "POST",
+        body: JSON.stringify({
+          temp_low_c: newTempLow,
+          temp_high_c: newTempHigh,
+          hum_low: newHumLow,
+          hum_high: newHumHigh,
+        }),
+      });
+    } catch (error) {
+      setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
+      setSavingClient(false);
+      return;
+    }
+
+    const refreshedConfig = data?.config || {};
+
+    const nextDevice = {
+      ...device,
+      config: refreshedConfig,
+      config_version: data?.config_version ?? device?.config_version,
+      name: data?.name ?? device?.name,
+      location: data?.location ?? device?.location,
+      updated_at: data?.updated_at ?? device?.updated_at,
+    };
+
+    setDevice(nextDevice);
+    setDevices((prev) =>
+      prev.map((item) =>
+        item.device_id === selectedDeviceId
+          ? {
+              ...item,
+              ...nextDevice,
+            }
+          : item
+      )
+    );
+
+    setClientForm({
+      temp_low_c: toInputValue(refreshedConfig?.temp_low_c),
+      temp_high_c: toInputValue(refreshedConfig?.temp_high_c),
+      hum_low: toInputValue(refreshedConfig?.hum_low),
+      hum_high: toInputValue(refreshedConfig?.hum_high),
+    });
+
+    setClientMessage("Configurações do cliente guardadas com sucesso.");
+    setSavingClient(false);
+  }
+
+  async function saveAdminConfig() {
+    if (!device || !selectedDeviceId || !isSuperAdmin) return;
+
+    setSavingAdmin(true);
+    setAdminMessage("");
+
+    const newHyst = parseNumber(adminForm.hyst_c);
+    const newSendInterval = parseNumber(adminForm.send_interval_s);
+    const newDisplayStandby = parseNumber(adminForm.display_standby_min);
+
+    if (
+      newHyst === null ||
+      newSendInterval === null ||
+      newDisplayStandby === null
+    ) {
+      setAdminMessage("Preenche todos os campos admin com valores válidos.");
+      setSavingAdmin(false);
+      return;
+    }
+
+    if (newSendInterval < 5) {
+      setAdminMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+      setSavingAdmin(false);
+      return;
+    }
+
+    let data;
+
+    try {
+      data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
+          location: adminForm.location.trim() || "Localização por definir",
+          hyst_c: newHyst,
+          send_interval_s: newSendInterval,
+          display_standby_min: newDisplayStandby,
+        }),
+      });
+    } catch (error) {
+      setAdminMessage(error?.message || "Erro ao guardar configurações admin.");
+      setSavingAdmin(false);
+      return;
+    }
+
+    const refreshedConfig = data?.config || {};
+
+    const nextDevice = {
+      ...device,
+      config: refreshedConfig,
+      config_version: data?.config_version ?? device?.config_version,
+      name: data?.name ?? device?.name,
+      location: data?.location ?? device?.location,
+      updated_at: data?.updated_at ?? device?.updated_at,
+    };
+
+    setDevice(nextDevice);
+    setDevices((prev) =>
+      prev.map((item) =>
+        item.device_id === selectedDeviceId
+          ? {
+              ...item,
+              ...nextDevice,
+            }
+          : item
+      )
+    );
+
+    setAdminForm({
+      name: nextDevice?.name || "",
+      location: nextDevice?.location || "",
+      hyst_c: toInputValue(refreshedConfig?.hyst_c),
+      send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
+    });
+
+    setAdminMessage("Configurações admin guardadas com sucesso.");
+    setSavingAdmin(false);
+  }
+
+async function downloadPdfReport() {
+  if (!selectedDeviceId) return;
+
+  try {
+    const response = await fetch(
+      `/api/sts/device/${selectedDeviceId}/report?period=${reportPeriod}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.error || "Não foi possível gerar o PDF.");
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selectedDeviceId}_relatorio_${reportPeriod}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    setPageError(error?.message || "Erro ao descarregar relatório PDF.");
+  }
+}
+
+  const hasDevices = devices.length > 0;
+  const hasReadings = readings.length > 0;
+
+  if (loading && !initialLoaded) {
+    return <BootScreen />;
+  }
+
+  return (
+    <main style={styles.page}>
+      <div style={styles.container}>
+        <div style={styles.topBar}>
+          <div>
+            <h1 style={styles.title}>STS Cold</h1>
+            <p style={styles.subtitle}>
+              Monitorização inteligente para frio, conservação e operação crítica
+            </p>
+            <div style={styles.versionBadge}>DASHBOARD · V2.3.1</div>
+          </div>
+
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            {refreshing ? (
+              <div style={styles.refreshingText}>A atualizar...</div>
+            ) : null}
+
+            <button
+              onClick={async () => {
+                await loadData({ syncForms: true });
+              }}
+              style={styles.refreshButton}
+            >
+              Atualizar
+            </button>
+
+            {isSuperAdmin ? (
+              <button
+                onClick={() => router.push("/admin")}
+                style={styles.refreshButton}
+              >
+                Admin
+              </button>
+            ) : null}
+
+            <button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                router.replace("/login");
+              }}
+              style={styles.refreshButton}
+            >
+              Sair
+            </button>
+          </div>
+        </div>
+
+        {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
+        <div id="devices">
+<DeviceSelector
           devices={devices}
           selectedDeviceId={selectedDeviceId}
           onSelect={(deviceId) => {
@@ -1296,8 +2614,10 @@ function DeviceSelector({
           }}
           isMobile={isMobile}
         />
+            </div>
 
         <section
+          id="overview"
           style={{
             ...styles.heroCard,
             background: `linear-gradient(180deg, ${statusInfo.panel} 0%, #0f172a 100%)`,
@@ -1429,17 +2749,23 @@ function DeviceSelector({
 
         <OperationalInsightCard items={operationalInsights} />
 
+        <SmartClientInsight
+          communicationHealth={communicationHealth}
+          isOffline={effectiveStatus === "OFFLINE"}
+          statusInfo={statusInfo}
+          summary24h={summary24h}
+        />
+
         <UnifiedPredictionCard
           prediction={predictiveStatus}
           isOffline={effectiveStatus === "OFFLINE"}
         />
-
-        <section style={styles.card}>
+        <section id="maintenance" style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Saúde da comunicação</div>
               <div style={styles.cardHint}>
-                Estado real da regularidade e entrega das leituras do dispositivo
+                Qualidade da ligação e regularidade das leituras
               </div>
             </div>
           </div>
@@ -1480,12 +2806,12 @@ function DeviceSelector({
 
             <HealthStatCard
               label="Cobertura de leituras"
-              value={`${communicationHealth.detempo realry_pct ?? 0}%`}
+              value={`${communicationHealth.delivery_pct ?? 0}%`}
               hint={`${communicationHealth.received_readings}/${communicationHealth.expected_readings} leituras esperadas`}
               tone={
-                (communicationHealth.detempo realry_pct ?? 0) < 88
+                (communicationHealth.delivery_pct ?? 0) < 88
                   ? "bad"
-                  : (communicationHealth.detempo realry_pct ?? 0) < 94
+                  : (communicationHealth.delivery_pct ?? 0) < 94
                   ? "warn"
                   : "good"
               }
@@ -1505,7 +2831,7 @@ function DeviceSelector({
           </div>
         </section>
 
-        <section style={styles.card}>
+        <section id="reports" style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Relatório PDF</div>
@@ -1608,7 +2934,7 @@ function DeviceSelector({
 
 
 
-<section style={styles.card}>
+<section id="alerts" style={styles.card}>
   <div style={styles.cardHeader}>
     <div>
       <div style={styles.cardTitle}>Histórico de alertas</div>
@@ -1650,7 +2976,7 @@ function DeviceSelector({
   )}
 </section>
 
-        <section style={styles.card}>
+        <section id="settings" style={styles.card}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Configurações operacionais</div>
@@ -1863,6 +3189,88 @@ const styles = {
     overflowX: "hidden",
   },
 
+
+  dashboardShell: {
+    display: "grid",
+    gridTemplateColumns: "230px minmax(0, 1fr)",
+    gap: "18px",
+    alignItems: "start",
+  },
+
+  dashboardMain: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "18px",
+    minWidth: 0,
+  },
+
+  sidebar: {
+    position: "sticky",
+    top: "18px",
+    background: "rgba(15, 23, 42, 0.94)",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    backdropFilter: "blur(10px)",
+  },
+
+  sidebarMobile: {
+    background: "rgba(15, 23, 42, 0.94)",
+    border: "1px solid #223047",
+    borderRadius: "20px",
+    padding: "12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    overflowX: "auto",
+  },
+
+  sidebarBrand: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    paddingBottom: "10px",
+    borderBottom: "1px solid #223047",
+  },
+
+  sidebarProduct: {
+    color: "#f8fafc",
+    fontSize: "15px",
+    fontWeight: 900,
+    letterSpacing: "-0.02em",
+  },
+
+  sidebarVersion: {
+    color: "#93c5fd",
+    background: "#13203a",
+    border: "1px solid #243b63",
+    borderRadius: "999px",
+    padding: "4px 8px",
+    fontSize: "10px",
+    fontWeight: 900,
+  },
+
+  sidebarNav: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+
+  sidebarLink: {
+    textDecoration: "none",
+    color: "#cbd5e1",
+    background: "#0f172a",
+    border: "1px solid #1f2b3d",
+    borderRadius: "14px",
+    padding: "11px 12px",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
   topBar: {
     display: "flex",
     alignItems: "center",
@@ -1954,6 +3362,104 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
     fontSize: "14px",
+  },
+
+
+  smartInsightCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "18px 20px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.16)",
+  },
+
+  smartInsightKicker: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "8px",
+  },
+
+  smartInsightTitle: {
+    fontSize: "18px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.02em",
+    marginBottom: "6px",
+  },
+
+  smartInsightDetail: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    fontWeight: 700,
+  },
+
+
+  smartInsightCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "18px 20px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.16)",
+  },
+
+  smartInsightTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    marginBottom: "8px",
+    flexWrap: "wrap",
+  },
+
+  smartInsightKicker: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+  },
+
+  smartInsightTag: {
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "5px 9px",
+    fontSize: "10px",
+    fontWeight: 900,
+  },
+
+  smartInsightTitle: {
+    fontSize: "18px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.02em",
+    marginBottom: "6px",
+  },
+
+  smartInsightDetail: {
+    fontSize: "13px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    fontWeight: 700,
+  },
+
+  readinessCard: {
+    background: "rgba(17, 24, 39, 0.88)",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    overflow: "hidden",
+  },
+
+  readinessGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "12px",
   },
 
   card: {
@@ -2854,7 +4360,7 @@ reportActionWrap: {
   },
 
   tooltipValue: {
-    fontSize: "13px",
+    fontSize: "12px",
     color: "#f8fafc",
   },
 
