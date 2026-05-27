@@ -980,7 +980,7 @@ function getOperationalInsights({
     insights.push({
       title: "Temperatura acima do limite",
       detail: `Valor atual ${formatValue(temp, " °C")} face ao máximo configurado de ${formatValue(tempHigh, " °C")}.`,
-      tone: "bad",
+      tone: "warn",
     });
   } else if (Number.isFinite(temp) && Number.isFinite(tempLow) && temp < tempLow) {
     insights.push({
@@ -994,7 +994,7 @@ function getOperationalInsights({
     insights.push({
       title: "Humidade acima do limite",
       detail: `Valor atual ${formatValue(hum, " %", 0)} face ao máximo configurado de ${formatValue(humHigh, " %", 0)}.`,
-      tone: "bad",
+      tone: "warn",
     });
   } else if (Number.isFinite(hum) && Number.isFinite(humLow) && hum < humLow) {
     insights.push({
@@ -1155,9 +1155,9 @@ function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
           <span
             style={{
               ...styles.miniChip,
-              color: selected.accent,
+              color: "#94a3b8",
               borderColor: "transparent",
-              background: selected.chipBg,
+              background: "#111827",
             }}
           >
             {accentLabel}
@@ -1165,17 +1165,26 @@ function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
         ) : null}
       </div>
 
-      <div style={{ ...styles.metricValue, color: selected.value }}>{value}</div>
+      <div
+        style={{
+          ...styles.metricValue,
+          color: tone === "warn" || tone === "bad" ? selected.accent : selected.value,
+        }}
+      >
+        {value}
+      </div>
       {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
     </div>
   );
 }
 
-function InfoItem({ label, value }) {
+function InfoItem({ label, value, valueColor }) {
   return (
     <div style={styles.infoItem}>
       <span style={styles.infoLabel}>{label}</span>
-      <span style={styles.infoValue}>{value}</span>
+      <span style={{ ...styles.infoValue, color: valueColor || styles.infoValue.color }}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -1604,9 +1613,9 @@ function OperationalInsightCard({ items }) {
                 }
               : item.tone === "warn"
               ? {
-                  border: "#4b1f24",
-                  bg: "#1f1417",
-                  title: "#fca5a5",
+                  border: "#4b3a1d",
+                  bg: "#2a2112",
+                  title: "#f59e0b",
                 }
               : {
                   border: "#223047",
@@ -2302,7 +2311,7 @@ const communicationHealth = useMemo(
     effectiveStatus === "OFFLINE"
       ? "neutral"
       : tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh
-      ? "bad"
+      ? "warn"
       : tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow
       ? "warn"
       : "neutral";
@@ -2311,10 +2320,15 @@ const communicationHealth = useMemo(
     effectiveStatus === "OFFLINE"
       ? "neutral"
       : humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh
-      ? "bad"
+      ? "warn"
       : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
       ? "warn"
       : "neutral";
+
+  const currentTempValue = formatValue(device?.last_temperature, " °C");
+  const currentHumValue = formatValue(device?.last_humidity, " %");
+  const currentTempAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
+  const currentHumAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
 
   const summary24h = useMemo(() => {
     const { start, end } = getPeriodWindow("24h");
@@ -2665,9 +2679,9 @@ async function downloadPdfReport() {
             >
               <MetricBox
                 label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
-                value={isDeviceOffline ? "-" : formatValue(device?.last_temperature, " °C")}
+                value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
-                accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
+                accentLabel={currentTempAccentLabel}
                 subvalue={
                   isDeviceOffline
                     ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
@@ -2678,9 +2692,9 @@ async function downloadPdfReport() {
               />
               <MetricBox
                 label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
-                value={isDeviceOffline ? "-" : formatValue(device?.last_humidity, " %")}
+                value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
-                accentLabel={isDeviceOffline ? "Offline" : "Tempo real"}
+                accentLabel={currentHumAccentLabel}
                 subvalue={
                   isDeviceOffline
                     ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
@@ -2706,6 +2720,7 @@ async function downloadPdfReport() {
               <InfoItem
                 label="Estado operacional"
                 value={statusInfo.label}
+                valueColor={statusInfo.color}
               />
             </div>
           </div>
