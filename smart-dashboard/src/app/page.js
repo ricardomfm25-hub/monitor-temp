@@ -24,9 +24,10 @@ const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
-  version: "V2.3.1",
+  version: "V2.3.2",
   domain: "stsapp.pt",
 };
+const STS_LOGO_SRC = "/sts-logo.png";
 
 const STS_STATES = {
   ONLINE: "ONLINE",
@@ -2092,8 +2093,13 @@ function BootScreen() {
         <div style={styles.bootCircle}>
           <div style={styles.bootSpinner} />
           <div style={styles.bootCenter}>
-            <div style={styles.bootLogo}>STS</div>
+            <img src={STS_LOGO_SRC} alt="STS" style={styles.bootLogoImage} />
           </div>
+        </div>
+
+        <div style={styles.bootSystemLine}>
+          <span style={styles.bootSystemDot} />
+          Núcleo STS ativo
         </div>
 
         <div style={styles.bootText}>
@@ -2836,12 +2842,15 @@ async function downloadPdfReport() {
     <main style={styles.page}>
       <div style={styles.container}>
         <div style={styles.topBar}>
-          <div>
+          <div style={styles.brandLockup}>
+            <img src={STS_LOGO_SRC} alt="STS" style={styles.headerLogo} />
+            <div>
             <h1 style={styles.title}>STS Cold</h1>
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · V2.3.1</div>
+            <div style={styles.versionBadge}>DASHBOARD · {STS_PRODUCT.version}</div>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -3386,7 +3395,7 @@ const styles = {
   bootPage: {
     minHeight: "100vh",
     background:
-      "radial-gradient(circle at top, #162235 0%, #0b1220 45%, #060c16 100%)",
+      "radial-gradient(circle at 50% 20%, rgba(14,165,233,0.18) 0%, rgba(15,23,42,0.98) 32%, #060c16 100%)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -3399,13 +3408,19 @@ const styles = {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: "20px",
+    gap: "14px",
+    padding: "30px",
+    border: "1px solid rgba(103,232,249,0.18)",
+    borderRadius: "28px",
+    background: "linear-gradient(135deg, rgba(15,23,42,0.72), rgba(8,13,24,0.52))",
+    boxShadow: "0 28px 70px rgba(0,0,0,0.34)",
+    backdropFilter: "blur(14px)",
   },
 
   bootCircle: {
     position: "relative",
-    width: "220px",
-    height: "220px",
+    width: "240px",
+    height: "240px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -3415,23 +3430,24 @@ const styles = {
     position: "absolute",
     inset: 0,
     borderRadius: "999px",
-    border: "2px solid rgba(59,130,246,0.14)",
-    borderTop: "2px solid rgba(96,165,250,0.95)",
-    borderRight: "2px solid rgba(59,130,246,0.45)",
-    boxShadow: "0 0 36px rgba(37,99,235,0.12)",
-    animation: "spin 1.25s linear infinite",
+    border: "1px solid rgba(59,130,246,0.12)",
+    borderTop: "2px solid rgba(103,232,249,0.92)",
+    borderRight: "2px solid rgba(245,158,11,0.58)",
+    boxShadow: "0 0 42px rgba(14,165,233,0.16)",
+    animation: "spin 1.15s linear infinite",
   },
 
   bootCenter: {
-    width: "148px",
-    height: "148px",
-    borderRadius: "999px",
-    background: "rgba(15, 23, 42, 0.96)",
-    border: "1px solid #223149",
+    width: "164px",
+    height: "124px",
+    borderRadius: "22px",
+    background: "rgba(15, 23, 42, 0.76)",
+    border: "1px solid rgba(103,232,249,0.20)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "0 0 30px rgba(37,99,235,0.10)",
+    boxShadow: "0 0 34px rgba(14,165,233,0.12)",
+    overflow: "hidden",
   },
 
   bootLogo: {
@@ -3439,6 +3455,33 @@ const styles = {
     fontWeight: 900,
     letterSpacing: "0.12em",
     color: "#f8fafc",
+  },
+
+  bootLogoImage: {
+    width: "138px",
+    height: "86px",
+    objectFit: "contain",
+    filter: "drop-shadow(0 10px 24px rgba(14,165,233,0.28))",
+  },
+
+  bootSystemLine: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    color: "#67e8f9",
+    fontSize: "11px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+  },
+
+  bootSystemDot: {
+    width: "7px",
+    height: "7px",
+    borderRadius: "999px",
+    background: "#22c55e",
+    boxShadow: "0 0 18px rgba(34,197,94,0.72)",
   },
 
   bootText: {
@@ -3457,6 +3500,7 @@ const styles = {
     padding: "24px 16px 40px",
     color: "#e5edf7",
     overflowX: "hidden",
+    scrollBehavior: "smooth",
   },
 
   container: {
@@ -3549,6 +3593,7 @@ const styles = {
     padding: "11px 12px",
     fontSize: "13px",
     fontWeight: 800,
+    transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
   },
 
   topBar: {
@@ -3559,12 +3604,31 @@ const styles = {
     flexWrap: "wrap",
   },
 
+  brandLockup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    minWidth: 0,
+  },
+
+  headerLogo: {
+    width: "118px",
+    height: "64px",
+    objectFit: "contain",
+    borderRadius: "16px",
+    background: "rgba(15,23,42,0.52)",
+    border: "1px solid rgba(103,232,249,0.14)",
+    boxShadow: "0 14px 34px rgba(14,165,233,0.10)",
+    padding: "4px",
+    flexShrink: 0,
+  },
+
   title: {
     margin: 0,
     fontSize: "30px",
     lineHeight: 1.1,
     fontWeight: 900,
-    letterSpacing: "-0.03em",
+    letterSpacing: 0,
     color: "#f8fafc",
   },
 
@@ -3642,6 +3706,7 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
     fontSize: "14px",
+    transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
   },
 
   smartInsightCard: {
@@ -3723,6 +3788,7 @@ const styles = {
     padding: "20px",
     overflow: "visible",
     backdropFilter: "blur(10px)",
+    transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease",
   },
 
   cardHeader: {
@@ -4064,6 +4130,7 @@ const styles = {
     borderRadius: "20px",
     padding: "18px",
     minWidth: 0,
+    transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease",
   },
 
   metricTopRow: {
@@ -4397,6 +4464,7 @@ const styles = {
     cursor: "pointer",
     fontWeight: 800,
     minWidth: "64px",
+    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease",
   },
 
   periodButtonActive: {
@@ -4549,6 +4617,7 @@ reportActionWrap: {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
+    transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
   },
 
   readOnlyBadge: {
