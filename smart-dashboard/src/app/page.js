@@ -2848,7 +2848,7 @@ async function downloadPdfReport() {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <div style={styles.topActions}>
             {refreshing ? (
               <div style={styles.refreshingText}>A atualizar...</div>
             ) : null}
@@ -3563,20 +3563,22 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "16px",
+    gap: "20px",
     flexWrap: "wrap",
+    padding: "2px 0 4px",
   },
 
   brandLockup: {
     display: "flex",
     alignItems: "center",
-    gap: "14px",
+    gap: "13px",
     minWidth: 0,
+    flex: "1 1 420px",
   },
 
   headerLogo: {
-    width: "108px",
-    height: "54px",
+    width: "112px",
+    height: "50px",
     objectFit: "contain",
     borderRadius: "10px",
     background: "transparent",
@@ -3588,17 +3590,27 @@ const styles = {
 
   title: {
     margin: 0,
-    fontSize: "30px",
-    lineHeight: 1.1,
+    fontSize: "28px",
+    lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
     color: "#f8fafc",
   },
 
   subtitle: {
-    margin: "6px 0 0 0",
+    margin: "5px 0 0 0",
     color: "#94a3b8",
     fontSize: "14px",
+    lineHeight: 1.35,
+  },
+
+  topActions: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flex: "0 1 auto",
   },
 
 
@@ -3665,10 +3677,11 @@ const styles = {
     background: "#121a2b",
     color: "#e5edf7",
     borderRadius: "14px",
-    padding: "11px 16px",
+    padding: "9px 14px",
     cursor: "pointer",
     fontWeight: 700,
     fontSize: "14px",
+    minHeight: "38px",
     transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
   },
 
