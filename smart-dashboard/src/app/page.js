@@ -233,6 +233,15 @@ function getStatusInfo(status) {
 function getAlertLevelInfo(level) {
   const s = String(level || "").toLowerCase();
 
+  if (s.includes("ack") || s.includes("acknowledged")) {
+    return {
+      label: "ACK",
+      color: "#60a5fa",
+      bg: "#172554",
+      border: "#1d4ed8",
+    };
+  }
+
   if (s.includes("alarm") || s.includes("critical")) {
     return {
       label: "ALARME",
@@ -248,6 +257,15 @@ function getAlertLevelInfo(level) {
       color: "#f59e0b",
       bg: "#2a2112",
       border: "#4b3a1d",
+    };
+  }
+
+  if (s.includes("normal") || s.includes("recover") || s.includes("resolved")) {
+    return {
+      label: "NORMALIZADO",
+      color: "#22c55e",
+      bg: "#132219",
+      border: "#1f3b2a",
     };
   }
 
@@ -1043,6 +1061,227 @@ function getOperationalInsights({
   return insights.slice(0, 3);
 }
 
+function normalizeAlertRows(payload) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.alerts)
+    ? payload.alerts
+    : Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.events)
+    ? payload.events
+    : [];
+
+  return rows.map(normalizeAlertEvent);
+}
+
+function normalizeAlertType(value) {
+  const s = String(value || "").toLowerCase();
+  if (s.includes("hum")) return "humidity";
+  if (s.includes("temp")) return "temperature";
+  if (s.includes("offline") || s.includes("wifi") || s.includes("connection")) return "offline";
+  if (s.includes("system") || s.includes("ack")) return "system";
+  return value || "system";
+}
+
+function normalizeAlertLevel(value) {
+  const s = String(value || "").toLowerCase();
+  if (s.includes("ack")) return "ack";
+  if (s.includes("normal") || s.includes("recover") || s.includes("resolved")) return "normal";
+  if (s.includes("alarm") || s.includes("critical")) return "alarm";
+  if (s.includes("alert") || s.includes("high") || s.includes("low")) return "alert";
+  return value || "alert";
+}
+
+function normalizeAlertState(value) {
+  const s = String(value || "").toLowerCase();
+  if (s.includes("high") || s.includes("above") || s.includes("max") || s.includes("alta")) {
+    return "high";
+  }
+  if (s.includes("low") || s.includes("below") || s.includes("min") || s.includes("baixa")) {
+    return "low";
+  }
+  return null;
+}
+
+function normalizeAlertEvent(item) {
+  if (!item) return item;
+  const eventDescriptor =
+    item.event_type ||
+    item.event ||
+    item.kind ||
+    item.reason ||
+    item.title ||
+    item.type ||
+    "";
+  const levelDescriptor = [
+    item.level,
+    item.severity,
+    item.status,
+    eventDescriptor,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    ...item,
+    type: normalizeAlertType(item.type || item.metric || item.variable || eventDescriptor),
+    level: normalizeAlertLevel(levelDescriptor),
+    state: item.state || item.direction || normalizeAlertState(`${eventDescriptor} ${item.status || ""}`),
+    created_at: item.created_at || item.timestamp || item.sent_at,
+    sent_at: item.sent_at || item.created_at || item.timestamp || null,
+    temperature: parseNumber(item.temperature ?? item.temp ?? item.value_temperature),
+    humidity: parseNumber(item.humidity ?? item.hum ?? item.value_humidity),
+  };
+}
+
+function getReadingAlertState(reading, config, key) {
+  const value = parseNumber(reading?.[key]);
+  const low =
+    key === "temperature"
+      ? parseNumber(config?.temp_low_c)
+      : parseNumber(config?.hum_low);
+  const high =
+    key === "temperature"
+      ? parseNumber(config?.temp_high_c)
+      : parseNumber(config?.hum_high);
+
+  if (value === null) return null;
+  if (high !== null && value >= high) return "high";
+  if (low !== null && value <= low) return "low";
+  return null;
+}
+
+function buildDerivedAlertEvent(reading, type, level, state, source) {
+  return {
+    id: `derived-${type}-${level}-${state || "state"}-${reading?.created_at || reading?.timestamp}`,
+    type,
+    level,
+    state,
+    source,
+    created_at: reading?.created_at || new Date(reading.timestamp).toISOString(),
+    sent_at: reading?.sent_at || reading?.created_at || null,
+    temperature: parseNumber(reading?.temperature),
+    humidity: parseNumber(reading?.humidity),
+    derived: true,
+  };
+}
+
+function buildCurrentReadingFromDevice(device) {
+  if (!device) return null;
+  const timestamp = device?.last_seen ? new Date(device.last_seen).getTime() : Date.now();
+
+  return {
+    created_at: device?.last_seen || new Date(timestamp).toISOString(),
+    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+    temperature: parseNumber(device?.last_temperature),
+    humidity: parseNumber(device?.last_humidity),
+    device_status: device?.status,
+    alarm_ack: String(device?.status || "").toLowerCase().includes("ack"),
+    current_snapshot: true,
+  };
+}
+
+function deriveAlertEventsFromReadings(readings, config) {
+  const ordered = [...(readings || [])]
+    .filter((item) => Number.isFinite(item?.timestamp))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const events = [];
+  const activeState = {
+    temperature: null,
+    humidity: null,
+  };
+  let ackActive = false;
+
+  ordered.forEach((reading) => {
+    ["temperature", "humidity"].forEach((type) => {
+      const nextState = getReadingAlertState(reading, config, type);
+      const previousState = activeState[type];
+
+      if (nextState && nextState !== previousState) {
+        events.push(buildDerivedAlertEvent(reading, type, "alert", nextState, "reading"));
+      }
+
+      if (!nextState && previousState) {
+        events.push(buildDerivedAlertEvent(reading, type, "normal", previousState, "reading"));
+      }
+
+      activeState[type] = nextState;
+    });
+
+    const readingAck =
+      reading?.alarm_ack === true ||
+      String(reading?.alarm_ack || "").toLowerCase() === "true" ||
+      String(reading?.device_status || reading?.status || "").toLowerCase().includes("ack");
+
+    if (readingAck && !ackActive) {
+      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status"));
+    }
+
+    ackActive = readingAck;
+  });
+
+  return events;
+}
+
+function deriveCurrentAlertEvents(device, config, existingEvents) {
+  const reading = buildCurrentReadingFromDevice(device);
+  if (!reading) return [];
+
+  const events = [];
+
+  ["temperature", "humidity"].forEach((type) => {
+    const currentState = getReadingAlertState(reading, config, type);
+    if (!currentState) return;
+
+    const latestForType = [...(existingEvents || [])]
+      .filter((item) => String(item?.type || "").toLowerCase() === type)
+      .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))[0];
+    const alreadyOpen =
+      String(latestForType?.level || "").toLowerCase() === "alert" &&
+      String(latestForType?.state || "").toLowerCase() === currentState;
+
+    if (!alreadyOpen) {
+      events.push(buildDerivedAlertEvent(reading, type, "alert", currentState, "current_state"));
+    }
+  });
+
+  return events;
+}
+
+function getAlertTimestamp(item) {
+  const ts = new Date(item?.sent_at || item?.created_at).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function getAlertDedupeKey(item) {
+  const bucket = Math.floor(getAlertTimestamp(item) / 120000);
+  return [
+    String(item?.type || "system").toLowerCase(),
+    String(item?.level || "").toLowerCase(),
+    String(item?.state || item?.direction || "").toLowerCase(),
+    bucket,
+  ].join("|");
+}
+
+function mergeAlertEvents(backendAlerts, derivedAlerts) {
+  const merged = [];
+  const seen = new Set();
+
+  [...normalizeAlertRows(backendAlerts), ...(derivedAlerts || [])]
+    .filter(Boolean)
+    .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
+    .forEach((item) => {
+      const key = getAlertDedupeKey(item);
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(item);
+    });
+
+  return merged;
+}
+
 function getDevicePriority(device) {
   return getStatusInfo(
     getEffectiveStatus(device, parseNumber(device?.config?.send_interval_s))
@@ -1469,8 +1708,14 @@ function AlertRow({ item }) {
     system: "Sistema",
   };
 
-  const eventType =
-    typeMap[String(item?.type || "").toLowerCase()] || "Evento";
+  const typeLabel = typeMap[String(item?.type || "").toLowerCase()] || "Evento";
+  const stateLabel =
+    item?.state === "high"
+      ? "acima do limite"
+      : item?.state === "low"
+      ? "abaixo do limite"
+      : "";
+  const eventType = stateLabel ? `${typeLabel} ${stateLabel}` : typeLabel;
 
   return (
     <div style={styles.alertRow}>
@@ -1498,6 +1743,8 @@ function AlertRow({ item }) {
         {item?.humidity !== null && item?.humidity !== undefined ? (
           <span>Hum: {formatValue(item.humidity, " %", 0)}</span>
         ) : null}
+
+        {item?.derived ? <span>Reconstruído pela leitura</span> : null}
       </div>
     </div>
   );
@@ -1506,33 +1753,33 @@ function AlertRow({ item }) {
 function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
     unknown: {
-      border: "#223047",
-      bg: "#111827",
+      border: "#243042",
+      bg: "linear-gradient(135deg, rgba(11,18,32,0.98), rgba(15,23,42,0.96))",
       value: "#f8fafc",
       badgeBg: "#162033",
       badgeBorder: "transparent",
       badgeColor: "#94a3b8",
     },
     low: {
-      border: "#223047",
-      bg: "#111827",
-      value: "#f8fafc",
+      border: "#24513a",
+      bg: "linear-gradient(135deg, rgba(10,24,22,0.98), rgba(15,23,42,0.96))",
+      value: "#d1fae5",
       badgeBg: "#132219",
       badgeBorder: "transparent",
       badgeColor: "#22c55e",
     },
     medium: {
-      border: "#223047",
-      bg: "#111827",
-      value: "#f8fafc",
+      border: "#4b3a1d",
+      bg: "linear-gradient(135deg, rgba(28,24,15,0.98), rgba(15,23,42,0.96))",
+      value: "#fde68a",
       badgeBg: "#2a2112",
       badgeBorder: "transparent",
       badgeColor: "#f59e0b",
     },
     high: {
-      border: "#223047",
-      bg: "#111827",
-      value: "#f8fafc",
+      border: "#4b1f24",
+      bg: "linear-gradient(135deg, rgba(32,14,18,0.98), rgba(15,23,42,0.96))",
+      value: "#fecaca",
       badgeBg: "#2a1316",
       badgeBorder: "transparent",
       badgeColor: "#ef4444",
@@ -1544,15 +1791,16 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
   return (
     <section
       style={{
-        ...styles.card,
+        ...styles.smartSurfaceCard,
         borderColor: selected.border,
         background: selected.bg,
       }}
     >
-      <div style={styles.cardHeader}>
+      <div style={styles.smartSurfaceHeader}>
         <div>
+          <div style={styles.smartSurfaceEyebrow}>Análise preditiva</div>
           <div style={styles.cardTitle}>Tendência de risco</div>
-          <div style={styles.cardHint}>
+          <div style={styles.smartSurfaceHint}>
             Leitura preditiva resumida do comportamento recente
           </div>
         </div>
@@ -1568,6 +1816,8 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
           {prediction?.chip || "Sem dados"}
         </div>
       </div>
+
+      <div style={styles.smartSignalLine} />
 
       <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
         {prediction?.title || "Predição indisponível"}
@@ -1678,6 +1928,7 @@ function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summar
         <div style={styles.smartInsightKicker}>STS Insight</div>
         <div style={styles.smartInsightTag}>{tag}</div>
       </div>
+      <div style={styles.smartInsightLine} />
       <div style={styles.smartInsightTitle}>{title}</div>
       <div style={styles.smartInsightDetail}>{detail}</div>
     </section>
@@ -2137,6 +2388,20 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           })
           .filter((item) => Number.isFinite(item.timestamp));
 
+        const derivedAlerts = deriveAlertEventsFromReadings(
+          readingsData,
+          deviceData?.config ?? {}
+        );
+        const currentAlerts = deriveCurrentAlertEvents(
+          deviceData,
+          deviceData?.config ?? {},
+          [...normalizeAlertRows(alertsRows), ...derivedAlerts]
+        );
+        const alertsData = mergeAlertEvents(alertsRows, [
+          ...derivedAlerts,
+          ...currentAlerts,
+        ]);
+
         if (!mountedRef.current) return;
 
         if (nextSelectedDeviceId && nextSelectedDeviceId !== selectedDeviceId) {
@@ -2149,7 +2414,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         setDevice(deviceData);
         setDeviceOverview(overviewData || null);
         setReadings(readingsData);
-        setAlerts(alertsRows || []);
+        setAlerts(alertsData);
 
         if (syncForms && deviceData) {
           const deviceConfig = deviceData?.config ?? {};
@@ -2775,7 +3040,7 @@ async function downloadPdfReport() {
           prediction={predictiveStatus}
           isOffline={effectiveStatus === "OFFLINE"}
         />
-        <section id="maintenance" style={styles.card}>
+        <section id="maintenance" style={{ ...styles.card, order: 21 }}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Saúde da comunicação</div>
@@ -2846,7 +3111,7 @@ async function downloadPdfReport() {
           </div>
         </section>
 
-        <section id="reports" style={styles.card}>
+        <section id="reports" style={{ ...styles.card, order: 22 }}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Relatório PDF</div>
@@ -2949,7 +3214,7 @@ async function downloadPdfReport() {
 
 
 
-<section id="alerts" style={styles.card}>
+<section id="alerts" style={{ ...styles.card, order: 20 }}>
   <div style={styles.cardHeader}>
     <div>
       <div style={styles.cardTitle}>Histórico de alertas</div>
@@ -2991,7 +3256,7 @@ async function downloadPdfReport() {
   )}
 </section>
 
-        <section id="settings" style={styles.card}>
+        <section id="settings" style={{ ...styles.card, order: 23 }}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Configurações operacionais</div>
@@ -3379,46 +3644,13 @@ const styles = {
     fontSize: "14px",
   },
 
-
   smartInsightCard: {
-    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
-    border: "1px solid #223047",
-    borderRadius: "24px",
+    background: "linear-gradient(135deg, rgba(9,21,29,0.98), rgba(15,23,42,0.96))",
+    border: "1px solid #24515c",
+    borderRadius: "20px",
     padding: "18px 20px",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.16)",
-  },
-
-  smartInsightKicker: {
-    fontSize: "11px",
-    fontWeight: 900,
-    color: "#93c5fd",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    marginBottom: "8px",
-  },
-
-  smartInsightTitle: {
-    fontSize: "18px",
-    fontWeight: 900,
-    color: "#f8fafc",
-    letterSpacing: "-0.02em",
-    marginBottom: "6px",
-  },
-
-  smartInsightDetail: {
-    fontSize: "13px",
-    color: "#cbd5e1",
-    lineHeight: 1.5,
-    fontWeight: 700,
-  },
-
-
-  smartInsightCard: {
-    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
-    border: "1px solid #223047",
-    borderRadius: "24px",
-    padding: "18px 20px",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.16)",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.18)",
+    overflow: "hidden",
   },
 
   smartInsightTop: {
@@ -3433,26 +3665,33 @@ const styles = {
   smartInsightKicker: {
     fontSize: "11px",
     fontWeight: 900,
-    color: "#93c5fd",
+    color: "#67e8f9",
     textTransform: "uppercase",
     letterSpacing: "0.12em",
   },
 
   smartInsightTag: {
-    border: "1px solid #243b63",
-    background: "#13203a",
-    color: "#93c5fd",
+    border: "1px solid #24515c",
+    background: "rgba(8,47,73,0.35)",
+    color: "#67e8f9",
     borderRadius: "999px",
     padding: "5px 9px",
     fontSize: "10px",
     fontWeight: 900,
   },
 
+  smartInsightLine: {
+    height: "1px",
+    width: "100%",
+    background: "linear-gradient(90deg, rgba(103,232,249,0.58), rgba(34,197,94,0.16), rgba(148,163,184,0))",
+    marginBottom: "12px",
+  },
+
   smartInsightTitle: {
     fontSize: "18px",
     fontWeight: 900,
     color: "#f8fafc",
-    letterSpacing: "-0.02em",
+    letterSpacing: 0,
     marginBottom: "6px",
   },
 
@@ -3968,7 +4207,7 @@ const styles = {
     fontSize: "30px",
     lineHeight: 1.05,
     fontWeight: 900,
-    letterSpacing: "-0.03em",
+    letterSpacing: 0,
     marginBottom: "10px",
   },
 
@@ -3989,6 +4228,46 @@ const styles = {
     marginTop: "14px",
     fontSize: "12px",
     color: "#94a3b8",
+  },
+
+  smartSurfaceCard: {
+    border: "1px solid #243042",
+    borderRadius: "20px",
+    padding: "18px 20px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.18)",
+    overflow: "hidden",
+  },
+
+  smartSurfaceHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "14px",
+    marginBottom: "14px",
+    flexWrap: "wrap",
+  },
+
+  smartSurfaceEyebrow: {
+    fontSize: "10px",
+    fontWeight: 900,
+    color: "#67e8f9",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "5px",
+  },
+
+  smartSurfaceHint: {
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.45,
+    fontWeight: 700,
+  },
+
+  smartSignalLine: {
+    height: "1px",
+    width: "100%",
+    background: "linear-gradient(90deg, rgba(103,232,249,0.58), rgba(34,197,94,0.16), rgba(148,163,184,0))",
+    marginBottom: "16px",
   },
 
   healthSummaryBanner: {
