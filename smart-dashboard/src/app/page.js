@@ -27,7 +27,7 @@ const STS_PRODUCT = {
   version: "V2.3.2",
   domain: "stsapp.pt",
 };
-const STS_LOGO_SRC = "/sts-logo.png";
+const STS_LOGO_SRC = "/sts-logo-v232.png";
 
 const STS_STATES = {
   ONLINE: "ONLINE",
@@ -2097,11 +2097,6 @@ function BootScreen() {
           </div>
         </div>
 
-        <div style={styles.bootSystemLine}>
-          <span style={styles.bootSystemDot} />
-          Núcleo STS ativo
-        </div>
-
         <div style={styles.bootText}>
           A sincronizar dados mais recentes...
         </div>
@@ -3395,7 +3390,7 @@ const styles = {
   bootPage: {
     minHeight: "100vh",
     background:
-      "radial-gradient(circle at 50% 20%, rgba(14,165,233,0.18) 0%, rgba(15,23,42,0.98) 32%, #060c16 100%)",
+      "radial-gradient(circle at 50% 18%, rgba(14,165,233,0.10) 0%, rgba(15,23,42,0.98) 34%, #060c16 100%)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -3408,19 +3403,14 @@ const styles = {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: "14px",
-    padding: "30px",
-    border: "1px solid rgba(103,232,249,0.18)",
-    borderRadius: "28px",
-    background: "linear-gradient(135deg, rgba(15,23,42,0.72), rgba(8,13,24,0.52))",
-    boxShadow: "0 28px 70px rgba(0,0,0,0.34)",
-    backdropFilter: "blur(14px)",
+    gap: "18px",
+    padding: "24px",
   },
 
   bootCircle: {
     position: "relative",
-    width: "240px",
-    height: "240px",
+    width: "210px",
+    height: "210px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -3430,67 +3420,40 @@ const styles = {
     position: "absolute",
     inset: 0,
     borderRadius: "999px",
-    border: "1px solid rgba(59,130,246,0.12)",
-    borderTop: "2px solid rgba(103,232,249,0.92)",
-    borderRight: "2px solid rgba(245,158,11,0.58)",
-    boxShadow: "0 0 42px rgba(14,165,233,0.16)",
-    animation: "spin 1.15s linear infinite",
+    border: "1px solid rgba(148,163,184,0.12)",
+    borderTop: "1px solid rgba(103,232,249,0.72)",
+    borderRight: "1px solid rgba(245,158,11,0.38)",
+    boxShadow: "0 0 28px rgba(14,165,233,0.08)",
+    animation: "spin 1.4s linear infinite",
   },
 
   bootCenter: {
-    width: "164px",
-    height: "124px",
-    borderRadius: "22px",
-    background: "rgba(15, 23, 42, 0.76)",
-    border: "1px solid rgba(103,232,249,0.20)",
+    width: "158px",
+    height: "104px",
+    borderRadius: "18px",
+    background: "transparent",
+    border: "none",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "0 0 34px rgba(14,165,233,0.12)",
+    boxShadow: "none",
     overflow: "hidden",
   },
 
-  bootLogo: {
-    fontSize: "36px",
-    fontWeight: 900,
-    letterSpacing: "0.12em",
-    color: "#f8fafc",
-  },
-
   bootLogoImage: {
-    width: "138px",
-    height: "86px",
+    width: "148px",
+    height: "92px",
     objectFit: "contain",
-    filter: "drop-shadow(0 10px 24px rgba(14,165,233,0.28))",
-  },
-
-  bootSystemLine: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    color: "#67e8f9",
-    fontSize: "11px",
-    fontWeight: 900,
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-  },
-
-  bootSystemDot: {
-    width: "7px",
-    height: "7px",
-    borderRadius: "999px",
-    background: "#22c55e",
-    boxShadow: "0 0 18px rgba(34,197,94,0.72)",
+    filter: "drop-shadow(0 8px 18px rgba(0,0,0,0.22))",
   },
 
   bootText: {
-    fontSize: "13px",
+    fontSize: "12px",
     lineHeight: 1.4,
-    color: "#9fb0c6",
+    color: "#94a3b8",
     fontWeight: 700,
     textAlign: "center",
-    letterSpacing: "0.02em",
+    letterSpacing: 0,
   },
 
   page: {
@@ -3607,19 +3570,19 @@ const styles = {
   brandLockup: {
     display: "flex",
     alignItems: "center",
-    gap: "16px",
+    gap: "14px",
     minWidth: 0,
   },
 
   headerLogo: {
-    width: "118px",
-    height: "64px",
+    width: "108px",
+    height: "54px",
     objectFit: "contain",
-    borderRadius: "16px",
-    background: "rgba(15,23,42,0.52)",
-    border: "1px solid rgba(103,232,249,0.14)",
-    boxShadow: "0 14px 34px rgba(14,165,233,0.10)",
-    padding: "4px",
+    borderRadius: "10px",
+    background: "transparent",
+    border: "none",
+    boxShadow: "none",
+    padding: 0,
     flexShrink: 0,
   },
 
@@ -3643,15 +3606,15 @@ const styles = {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: "10px",
-    border: "1px solid #243b63",
-    background: "#13203a",
-    color: "#93c5fd",
+    marginTop: "8px",
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "rgba(15,23,42,0.42)",
+    color: "#94a3b8",
     borderRadius: "999px",
-    padding: "6px 10px",
-    fontSize: "11px",
+    padding: "5px 9px",
+    fontSize: "10px",
     fontWeight: 900,
-    letterSpacing: "0.04em",
+    letterSpacing: "0.03em",
   },
 
   systemNav: {
