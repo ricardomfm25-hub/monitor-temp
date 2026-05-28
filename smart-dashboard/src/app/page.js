@@ -24,10 +24,10 @@ const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
-  version: "V2.3.2",
+  version: "V2.3.3",
   domain: "stsapp.pt",
 };
-const STS_LOGO_SRC = "/sts-logo-v232.png";
+const STS_LOGO_SRC = "/sts-logo.png";
 
 const STS_STATES = {
   ONLINE: "ONLINE",
