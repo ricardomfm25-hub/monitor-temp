@@ -2840,7 +2840,7 @@ async function downloadPdfReport() {
           <div style={styles.brandLockup}>
             <img src={STS_LOGO_SRC} alt="STS" style={styles.headerLogo} />
             <div>
-            <h1 style={styles.title}>STS Cold</h1>
+            <h1 style={styles.title}>Cold</h1>
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
