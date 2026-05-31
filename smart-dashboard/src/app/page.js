@@ -24,7 +24,7 @@ const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
-  version: "V2.3.3",
+  version: "V2.3.4",
   domain: "stsapp.pt",
 };
 const STS_LOGO_SRC = "/sts-logo.png";
@@ -3044,7 +3044,7 @@ async function downloadPdfReport() {
           prediction={predictiveStatus}
           isOffline={effectiveStatus === "OFFLINE"}
         />
-        <section id="maintenance" style={{ ...styles.card, order: 21 }}>
+        <section id="maintenance" style={{ ...styles.card, order: 20 }}>
           <div style={styles.cardHeader}>
             <div>
               <div style={styles.cardTitle}>Saúde da comunicação</div>
@@ -3218,7 +3218,7 @@ async function downloadPdfReport() {
 
 
 
-<section id="alerts" style={{ ...styles.card, order: 20 }}>
+<section id="alerts" style={{ ...styles.card, order: 21 }}>
   <div style={styles.cardHeader}>
     <div>
       <div style={styles.cardTitle}>Histórico de alertas</div>
