@@ -1,4 +1,7 @@
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+import { createClient } from "@/utils/supabase/server";
 
 function getBackendUrl() {
   return process.env.STS_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -20,12 +23,62 @@ async function getDeviceIdFromRequest(request, context) {
   return null;
 }
 
+async function requireDeviceAccess(supabase, deviceId) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { ok: false, status: 401, error: "Sessão inválida ou expirada." };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, role, is_active")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    return { ok: false, status: 500, error: "Erro ao validar perfil." };
+  }
+
+  if (!profile || !profile.is_active) {
+    return { ok: false, status: 403, error: "Utilizador sem acesso ativo." };
+  }
+
+  if (profile.role === "super_admin") return { ok: true };
+
+  const { data: access, error: accessError } = await supabase
+    .from("device_access")
+    .select("can_view")
+    .eq("user_id", user.id)
+    .eq("device_id", deviceId)
+    .maybeSingle();
+
+  if (accessError) {
+    return { ok: false, status: 500, error: "Erro ao validar acesso." };
+  }
+
+  if (!access?.can_view) {
+    return { ok: false, status: 403, error: "Sem permissão para este dispositivo." };
+  }
+
+  return { ok: true };
+}
+
 export async function GET(request, context) {
   try {
+    const supabase = await createClient();
     const deviceId = await getDeviceIdFromRequest(request, context);
 
     if (!deviceId) {
       return Response.json({ error: "Device ID em falta." }, { status: 400 });
+    }
+
+    const access = await requireDeviceAccess(supabase, deviceId);
+    if (!access.ok) {
+      return Response.json({ error: access.error }, { status: access.status });
     }
 
     const period = request.nextUrl.searchParams.get("period") || "24h";
@@ -33,7 +86,7 @@ export async function GET(request, context) {
     const token = getBackendToken();
 
     const res = await fetch(
-      `${backendUrl}/api/dashboard/device/${encodeURIComponent(deviceId)}/report?period=${encodeURIComponent(period)}`,
+      `${backendUrl}/api/device/${encodeURIComponent(deviceId)}/report?period=${encodeURIComponent(period)}`,
       {
         cache: "no-store",
         headers: token ? { Authorization: token } : {},

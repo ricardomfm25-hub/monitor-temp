@@ -1,10 +1,10 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
 
-const STS_SYSTEM_VERSION = "V2.4.26";
+const STS_SYSTEM_VERSION = "V2.4.28";
 const STS_ADMIN_VERSION = STS_SYSTEM_VERSION;
 
 function toInputValue(value) {
@@ -220,53 +220,7 @@ export default function AdminPage() {
 
   const visibleUsers = (users || []).filter((user) => !isHiddenSystemAdmin(user));
 
-
-  useEffect(() => {
-    loadData({ showLoader: true });
-  }, []);
-
-  useEffect(() => {
-    if (!selectedDeviceData) {
-      setDeviceForm({
-        name: "",
-        location: "",
-        temp_low_c: "",
-        temp_high_c: "",
-        hum_low: "",
-        hum_high: "",
-        hyst_c: "",
-        send_interval_s: "",
-        display_standby_min: "",
-      });
-      return;
-    }
-
-    const config = selectedDeviceData.config || {};
-
-    setDeviceForm({
-      name: selectedDeviceData.name || "",
-      location: selectedDeviceData.location || "",
-      temp_low_c: toInputValue(config.temp_low_c),
-      temp_high_c: toInputValue(config.temp_high_c),
-      hum_low: toInputValue(config.hum_low),
-      hum_high: toInputValue(config.hum_high),
-      hyst_c: toInputValue(config.hyst_c),
-      send_interval_s: toInputValue(config.send_interval_s),
-      display_standby_min: toInputValue(config.display_standby_min),
-    });
-  }, [selectedDeviceData]);
-
-  useEffect(() => {
-    setPasswordDraft("");
-    setShowPasswordTools(false);
-    if (!selectedClient) {
-      setSelectedClientRole("viewer");
-      return;
-    }
-    setSelectedClientRole(selectedClient.role || "viewer");
-  }, [selectedClient]);
-
-  async function loadData({ showLoader = false } = {}) {
+  const loadData = useCallback(async ({ showLoader = false } = {}) => {
     if (showLoader) setLoading(true);
     else setRefreshing(true);
 
@@ -380,7 +334,52 @@ export default function AdminPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, [accessUserId, router, selectedClientId, selectedDevice, supabase]);
+
+  useEffect(() => {
+    loadData({ showLoader: true });
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedDeviceData) {
+      setDeviceForm({
+        name: "",
+        location: "",
+        temp_low_c: "",
+        temp_high_c: "",
+        hum_low: "",
+        hum_high: "",
+        hyst_c: "",
+        send_interval_s: "",
+        display_standby_min: "",
+      });
+      return;
+    }
+
+    const config = selectedDeviceData.config || {};
+
+    setDeviceForm({
+      name: selectedDeviceData.name || "",
+      location: selectedDeviceData.location || "",
+      temp_low_c: toInputValue(config.temp_low_c),
+      temp_high_c: toInputValue(config.temp_high_c),
+      hum_low: toInputValue(config.hum_low),
+      hum_high: toInputValue(config.hum_high),
+      hyst_c: toInputValue(config.hyst_c),
+      send_interval_s: toInputValue(config.send_interval_s),
+      display_standby_min: toInputValue(config.display_standby_min),
+    });
+  }, [selectedDeviceData]);
+
+  useEffect(() => {
+    setPasswordDraft("");
+    setShowPasswordTools(false);
+    if (!selectedClient) {
+      setSelectedClientRole("viewer");
+      return;
+    }
+    setSelectedClientRole(selectedClient.role || "viewer");
+  }, [selectedClient]);
 
   function getUserAlertRow(userId, deviceId) {
     return (

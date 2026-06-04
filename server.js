@@ -2659,7 +2659,7 @@ app.get("/api/dashboard/device/:id/summary", async (req, res) => {
 });
 
 // -------------------- PDF REPORT --------------------
-app.get("/api/device/:id/report", async (req, res) => {
+app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (req, res) => {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Não autorizado" });
   }

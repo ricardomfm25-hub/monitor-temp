@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import {
@@ -20,7 +21,7 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
-const STS_SYSTEM_VERSION = "V2.4.26";
+const STS_SYSTEM_VERSION = "V2.4.28";
 
 const STS_PRODUCT = {
   family: "STS",
@@ -2428,7 +2429,14 @@ function BootScreen() {
         <div style={styles.bootCircle}>
           <div style={styles.bootSpinner} />
           <div style={styles.bootCenter}>
-            <img src={STS_LOGO_SRC} alt="STS" style={styles.bootLogoImage} />
+            <Image
+              src={STS_LOGO_SRC}
+              alt="STS"
+              width={148}
+              height={92}
+              priority
+              style={styles.bootLogoImage}
+            />
           </div>
         </div>
 
@@ -2864,7 +2872,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     };
   }, [selectedDeviceId, loadData, supabase]);
 
-  const config = device?.config ?? {};
+  const config = useMemo(() => device?.config ?? {}, [device?.config]);
 
   const tempLow = parseNumber(config?.temp_low_c);
   const tempHigh = parseNumber(config?.temp_high_c);
@@ -2892,18 +2900,24 @@ const communicationHealth = useMemo(
 
   const isDeviceOffline = effectiveStatus === "OFFLINE";
 
-  const predictiveStatus = isDeviceOffline
-    ? {
-        level: "unknown",
-        title: "Predição indisponível",
-        detail: "Sem dados recentes para prever tendência.",
-        chip: "Suspensa",
-        source: "none",
-        source_label: "Dispositivo offline",
-        eta_minutes: null,
-        score: 0,
-      }
-    : device?.predictive_status || getPredictiveStatus(readings, config);
+  const predictiveStatus = useMemo(
+    () =>
+      isDeviceOffline
+        ? {
+            level: "unknown",
+            title: "Predição indisponível",
+            detail: "Sem dados recentes para prever tendência.",
+            cause: "Dispositivo offline.",
+            action: "Confirmar alimentação, Wi-Fi e comunicação.",
+            chip: "Suspensa",
+            source: "none",
+            source_label: "Dispositivo offline",
+            eta_minutes: null,
+            score: 0,
+          }
+        : device?.predictive_status || getPredictiveStatus(readings, config),
+    [config, device?.predictive_status, isDeviceOffline, readings]
+  );
 
   const effectiveLastDelayMs =
     communicationHealth?.last_delay_ms !== null &&
@@ -3189,7 +3203,14 @@ async function downloadPdfReport() {
       <div style={styles.container}>
         <div style={styles.topBar}>
           <div style={styles.brandLockup}>
-            <img src={STS_LOGO_SRC} alt="STS" style={styles.headerLogo} />
+            <Image
+              src={STS_LOGO_SRC}
+              alt="STS"
+              width={112}
+              height={50}
+              priority
+              style={styles.headerLogo}
+            />
             <div>
             <h1 style={styles.title}>Cold</h1>
             <p style={styles.subtitle}>
