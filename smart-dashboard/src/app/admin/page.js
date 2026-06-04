@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
 
-const STS_SYSTEM_VERSION = "V2.4.25";
+const STS_SYSTEM_VERSION = "V2.4.26";
 const STS_ADMIN_VERSION = STS_SYSTEM_VERSION;
 
 function toInputValue(value) {

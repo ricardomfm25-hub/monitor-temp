@@ -20,7 +20,7 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
-const STS_SYSTEM_VERSION = "V2.4.25";
+const STS_SYSTEM_VERSION = "V2.4.26";
 
 const STS_PRODUCT = {
   family: "STS",
@@ -1195,6 +1195,7 @@ function deriveAlertEventsFromReadings(readings, config) {
     humidity: null,
   };
   let ackActive = false;
+  let lastAckCount = null;
 
   ordered.forEach((reading) => {
     ["temperature", "humidity"].forEach((type) => {
@@ -1212,15 +1213,24 @@ function deriveAlertEventsFromReadings(readings, config) {
       activeState[type] = nextState;
     });
 
+    const readingAckCount = parseNumber(reading?.alarm_ack_count);
     const readingAck =
       reading?.alarm_ack === true ||
       String(reading?.alarm_ack || "").toLowerCase() === "true" ||
       String(reading?.device_status || reading?.status || "").toLowerCase().includes("ack");
 
-    if (readingAck && !ackActive) {
+    if (
+      readingAckCount !== null &&
+      readingAck &&
+      ((lastAckCount === null && readingAckCount > 0) ||
+        (lastAckCount !== null && readingAckCount > lastAckCount))
+    ) {
+      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status"));
+    } else if (readingAckCount === null && readingAck && !ackActive) {
       events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status"));
     }
 
+    if (readingAckCount !== null) lastAckCount = readingAckCount;
     ackActive = readingAck;
   });
 
@@ -1702,6 +1712,7 @@ function DeviceSelector({
 
 function AlertRow({ item }) {
   const levelInfo = getAlertLevelInfo(item?.level);
+  const isAck = String(item?.level || "").toLowerCase().includes("ack");
 
   const typeMap = {
     temperature: "Temperatura",
@@ -1717,10 +1728,20 @@ function AlertRow({ item }) {
       : item?.state === "low"
       ? "abaixo do limite"
       : "";
-  const eventType = stateLabel ? `${typeLabel} ${stateLabel}` : typeLabel;
+  const eventType = isAck
+    ? "ACK confirmado"
+    : stateLabel
+    ? `${typeLabel} ${stateLabel}`
+    : typeLabel;
 
   return (
-    <div style={styles.alertRow}>
+    <div
+      style={{
+        ...styles.alertRow,
+        background: `linear-gradient(90deg, ${levelInfo.bg}88 0%, rgba(15,23,42,0.82) 100%)`,
+        borderColor: levelInfo.border,
+      }}
+    >
       <div style={styles.alertRowTop}>
         <div style={styles.alertRowTitle}>{eventType}</div>
         <span
@@ -3128,51 +3149,6 @@ async function downloadPdfReport() {
               hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
               tone={communicationHealth.tone}
               badge={communicationHealth.label}
-            />
-
-            <HealthStatCard
-              label="Seq. confirmada"
-              value={formatValue(device?.telemetry_seq, "", 0)}
-              hint="Ultima sequencia reportada pelo dispositivo"
-              tone="neutral"
-            />
-
-            <HealthStatCard
-              label="Buffer pendente"
-              value={formatValue(device?.buffer_count, "", 0)}
-              hint="Leituras guardadas para reenvio"
-              tone={Number(device?.buffer_count || 0) > 0 ? "warn" : "good"}
-            />
-
-            <HealthStatCard
-              label="Envios falhados"
-              value={formatValue(device?.post_fail_count, "", 0)}
-              hint={`Confirmados: ${formatValue(device?.post_ok_count, "", 0)}`}
-              tone={Number(device?.post_fail_count || 0) > 0 ? "warn" : "good"}
-            />
-
-            <HealthStatCard
-              label="Reinicios"
-              value={formatValue(device?.boot_count, "", 0)}
-              hint={`Ultima causa: ${device?.reset_reason || "-"}`}
-              tone={
-                String(device?.reset_reason || "").includes("watchdog") ||
-                String(device?.reset_reason || "").includes("brownout") ||
-                String(device?.reset_reason || "").includes("panic")
-                  ? "warn"
-                  : "neutral"
-              }
-            />
-
-            <HealthStatCard
-              label="Hora"
-              value={device?.clock_synced === false ? "Pendente" : "Sincronizada"}
-              hint={`Ultimo acerto: ${
-                device?.clock_sync_age_s !== null && device?.clock_sync_age_s !== undefined
-                  ? formatDurationCompact(Number(device.clock_sync_age_s) * 1000)
-                  : "-"
-              }`}
-              tone={device?.clock_synced === false ? "warn" : "good"}
             />
           </div>
         </section>
