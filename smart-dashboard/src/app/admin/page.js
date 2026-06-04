@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -123,6 +123,7 @@ export default function AdminPage() {
   const [accessUserId, setAccessUserId] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [passwordDraft, setPasswordDraft] = useState("");
+  const [showPasswordTools, setShowPasswordTools] = useState(false);
 
   const [deviceForm, setDeviceForm] = useState({
     name: "",
@@ -257,6 +258,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     setPasswordDraft("");
+    setShowPasswordTools(false);
     if (!selectedClient) {
       setSelectedClientRole("viewer");
       return;
@@ -372,7 +374,7 @@ export default function AdminPage() {
       }
     } catch (error) {
       setAccessState("error");
-      setMessage(error?.message || "Erro ao carregar dados de administraÃ§Ã£o.");
+      setMessage(error?.message || "Erro ao carregar dados de administração.");
       setMessageType("error");
     } finally {
       setLoading(false);
@@ -453,7 +455,7 @@ export default function AdminPage() {
     }
 
     if (!["viewer", "client_admin"].includes(selectedClientRole)) {
-      setMessage("Role invÃ¡lido.");
+      setMessage("Role inválido.");
       setMessageType("error");
       return;
     }
@@ -545,7 +547,7 @@ export default function AdminPage() {
       setMessageType("success");
       await loadData();
     } catch (error) {
-      setMessage(error?.message || "Erro ao atualizar permissao de password.");
+      setMessage(error?.message || "Erro ao atualizar permissão de password.");
       setMessageType("error");
     } finally {
       setSavingPasswordPermission(false);
@@ -608,7 +610,7 @@ export default function AdminPage() {
     }
 
     const confirmed = window.confirm(
-      `Remover totalmente o utilizador "${selectedClient.full_name}"?\n\nEsta aÃ§Ã£o vai apagar:\n- login\n- perfil\n- acessos a dispositivos\n- preferÃªncias de alertas\n\nNÃ£o pode ser revertida.`
+      `Remover totalmente o utilizador "${selectedClient.full_name}"?\n\nEsta ação vai apagar:\n- login\n- perfil\n- acessos a dispositivos\n- preferências de alertas\n\nNão pode ser revertida.`
     );
 
     if (!confirmed) return;
@@ -689,7 +691,7 @@ export default function AdminPage() {
 
       if (error) throw error;
 
-      setMessage("Acesso atribuÃ­do com sucesso.");
+      setMessage("Acesso atribuído com sucesso.");
       setMessageType("success");
       setSelectedClientId(accessUserId);
       await loadData();
@@ -771,7 +773,7 @@ export default function AdminPage() {
       }
 
       await loadData();
-      setMessage("PreferÃªncia de alertas atualizada.");
+      setMessage("Preferência de alertas atualizada.");
       setMessageType("success");
     } catch (error) {
       setMessage(error?.message || "Erro ao atualizar alertas.");
@@ -803,25 +805,25 @@ export default function AdminPage() {
       !deviceForm.location.trim() ||
       Object.values(values).some((v) => v === null)
     ) {
-      setMessage("Preenche todos os campos do dispositivo com valores vÃ¡lidos.");
+      setMessage("Preenche todos os campos do dispositivo com valores válidos.");
       setMessageType("error");
       return;
     }
 
     if (values.temp_low_c >= values.temp_high_c) {
-      setMessage("A temperatura mÃ­nima deve ser inferior Ã  mÃ¡xima.");
+      setMessage("A temperatura mínima deve ser inferior à máxima.");
       setMessageType("error");
       return;
     }
 
     if (values.hum_low >= values.hum_high) {
-      setMessage("A humidade mÃ­nima deve ser inferior Ã  mÃ¡xima.");
+      setMessage("A humidade mínima deve ser inferior à máxima.");
       setMessageType("error");
       return;
     }
 
     if (values.hyst_c < 0) {
-      setMessage("A histerese nÃ£o pode ser negativa.");
+      setMessage("A histerese não pode ser negativa.");
       setMessageType("error");
       return;
     }
@@ -833,7 +835,7 @@ export default function AdminPage() {
     }
 
     if (values.display_standby_min < 0) {
-      setMessage("O standby do display nÃ£o pode ser negativo.");
+      setMessage("O standby do display não pode ser negativo.");
       setMessageType("error");
       return;
     }
@@ -878,10 +880,10 @@ export default function AdminPage() {
         )
       );
 
-      setMessage("ConfiguraÃ§Ã£o operacional guardada com sucesso.");
+      setMessage("Configuração operacional guardada com sucesso.");
       setMessageType("success");
     } catch (error) {
-      setMessage(error?.message || "Erro ao guardar configuraÃ§Ã£o do dispositivo.");
+      setMessage(error?.message || "Erro ao guardar configuração do dispositivo.");
       setMessageType("error");
     } finally {
       setSavingDevice(false);
@@ -893,7 +895,7 @@ export default function AdminPage() {
       <main style={styles.page}>
         <div style={styles.container}>
           <div style={styles.card}>
-            <div style={styles.loadingText}>A carregar painel de administraÃ§Ã£o...</div>
+            <div style={styles.loadingText}>A carregar painel de administração...</div>
           </div>
         </div>
       </main>
@@ -903,16 +905,16 @@ export default function AdminPage() {
   if (profile?.role !== "super_admin") {
     const title =
       accessState === "signed_out"
-        ? "SessÃƒÂ£o necessÃƒÂ¡ria"
+        ? "Sessão necessária"
         : accessState === "error"
-        ? "NÃƒÂ£o foi possÃƒÂ­vel abrir a administraÃƒÂ§ÃƒÂ£o"
+        ? "Não foi possível abrir a administração"
         : "Acesso restrito";
     const description =
       accessState === "signed_out"
-        ? "Estamos a encaminhar-te para o inÃƒÂ­cio de sessÃƒÂ£o."
+        ? "Estamos a encaminhar-te para o início de sessão."
         : accessState === "error"
-        ? "O painel encontrou um problema ao validar a conta. Podes tentar novamente ou voltar ÃƒÂ  dashboard."
-        : "Esta ÃƒÂ¡rea estÃƒÂ¡ disponÃƒÂ­vel apenas para contas super_admin.";
+        ? "O painel encontrou um problema ao validar a conta. Podes tentar novamente ou voltar à dashboard."
+        : "Esta área está disponível apenas para contas super_admin.";
 
     return (
       <main style={styles.page}>
@@ -923,7 +925,7 @@ export default function AdminPage() {
             {message ? <div style={styles.messageError}>{message}</div> : null}
             <div style={styles.topActions}>
               <button onClick={() => router.replace("/")} style={styles.secondaryButton}>
-                Voltar ÃƒÂ  dashboard
+                Voltar à dashboard
               </button>
               <button onClick={() => loadData({ showLoader: true })} style={styles.secondaryButton}>
                 Tentar novamente
@@ -943,7 +945,7 @@ export default function AdminPage() {
             <h1 style={styles.title}>STS Admin {STS_SYSTEM_VERSION}</h1>
             <div style={styles.versionBadge}>ADMIN PAGE - {STS_ADMIN_VERSION}</div>
             <p style={styles.subtitle}>
-              Centro tÃ©cnico para clientes, dispositivos, acessos, alertas e configuraÃ§Ã£o tÃ©cnica
+              Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
           </div>
 
@@ -987,30 +989,30 @@ export default function AdminPage() {
           <div>
             <div style={styles.workflowTitle}>Fluxo recomendado</div>
             <div style={styles.workflowHint}>
-              Usa esta pÃ¡gina de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso, configurar alertas e validar parÃ¢metros.
+              Usa esta página de cima para baixo: escolher dispositivo, criar ou selecionar cliente, atribuir acesso, configurar alertas e validar parâmetros.
             </div>
           </div>
 
           <div style={styles.workflowSteps}>
             <div style={styles.workflowStep}>
               <span style={styles.workflowNumber}>1</span>
+              <strong style={styles.workflowStepTitle}>Dispositivo</strong>
+              <small style={styles.workflowStepText}>Escolher equipamento ativo</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>2</span>
               <strong style={styles.workflowStepTitle}>Cliente</strong>
               <small style={styles.workflowStepText}>Criar ou escolher utilizador</small>
             </div>
             <div style={styles.workflowStep}>
-              <span style={styles.workflowNumber}>2</span>
-              <strong style={styles.workflowStepTitle}>Dispositivo</strong>
-              <small style={styles.workflowStepText}>Selecionar equipamento ativo</small>
-            </div>
-            <div style={styles.workflowStep}>
               <span style={styles.workflowNumber}>3</span>
               <strong style={styles.workflowStepTitle}>Acessos</strong>
-              <small style={styles.workflowStepText}>PermissÃµes e alertas</small>
+              <small style={styles.workflowStepText}>Permissões e alertas</small>
             </div>
             <div style={styles.workflowStep}>
               <span style={styles.workflowNumber}>4</span>
-              <strong style={styles.workflowStepTitle}>ConfiguraÃ§Ã£o</strong>
-              <small style={styles.workflowStepText}>Limites e parÃ¢metros tÃ©cnicos</small>
+              <strong style={styles.workflowStepTitle}>Configuração</strong>
+              <small style={styles.workflowStepText}>Limites e parâmetros técnicos</small>
             </div>
           </div>
         </section>
@@ -1019,21 +1021,21 @@ export default function AdminPage() {
         <section style={styles.commandCenter}>
           <div>
             <div style={styles.commandEyebrow}>STS Cold Admin</div>
-            <div style={styles.commandTitle}>Centro tÃ©cnico operacional</div>
+            <div style={styles.commandTitle}>Centro técnico operacional</div>
             <div style={styles.commandText}>
-              GestÃ£o centralizada de clientes, dispositivos, acessos, firmware, onboarding e diagnÃ³stico.
+              Gestão centralizada de clientes, dispositivos, acessos, firmware, onboarding e diagnóstico.
             </div>
           </div>
 
           <div style={styles.commandGrid}>
             <div style={styles.commandItem}>
               <span>Clientes</span>
-              <strong>GestÃ£o e permissÃµes</strong>
+              <strong>Gestão e permissões</strong>
             </div>
 
             <div style={styles.commandItem}>
               <span>Dispositivos</span>
-              <strong>AssociaÃ§Ã£o inteligente</strong>
+              <strong>Associação inteligente</strong>
             </div>
 
             <div style={styles.commandItem}>
@@ -1042,8 +1044,8 @@ export default function AdminPage() {
             </div>
 
             <div style={styles.commandItem}>
-              <span>DiagnÃ³stico</span>
-              <strong>Estado e comunicaÃ§Ã£o</strong>
+              <span>Diagnóstico</span>
+              <strong>Estado e comunicação</strong>
             </div>
           </div>
         </section>
@@ -1053,141 +1055,20 @@ export default function AdminPage() {
           <div>
             <div style={styles.adminProtectionTitle}>Conta principal protegida</div>
             <div style={styles.adminProtectionText}>
-              O super_admin principal mantÃ©m permissÃµes totais e nÃ£o aparece por defeito na atribuiÃ§Ã£o inicial de clientes.
+              O super_admin principal mantém permissões totais e não aparece por defeito na atribuição inicial de clientes.
             </div>
           </div>
           <div style={styles.adminProtectionBadge}>PROTEGIDO</div>
         </section>
 
-<div style={styles.topGrid}>
-          <section style={styles.card}>
-            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Clientes e utilizadores / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso Ã  plataforma STS.</div>
-
-            <div style={styles.formGrid}>
-              <input
-                type="text"
-                placeholder="Nome completo"
-                value={newUser.full_name}
-                onChange={(e) =>
-                  setNewUser((prev) => ({
-                    ...prev,
-                    full_name: e.target.value,
-                  }))
-                }
-                style={styles.input}
-              />
-
-              <input
-                type="email"
-                placeholder="Email"
-                value={newUser.email}
-                onChange={(e) =>
-                  setNewUser((prev) => ({
-                    ...prev,
-                    email: e.target.value,
-                  }))
-                }
-                style={styles.input}
-              />
-
-              <input
-                type="text"
-                placeholder="Password temporÃ¡ria"
-                value={newUser.password}
-                onChange={(e) =>
-                  setNewUser((prev) => ({
-                    ...prev,
-                    password: e.target.value,
-                  }))
-                }
-                style={styles.input}
-              />
-
-              <select
-                value={newUser.role}
-                onChange={(e) =>
-                  setNewUser((prev) => ({
-                    ...prev,
-                    role: e.target.value,
-                  }))
-                }
-                style={styles.input}
-              >
-                <option value="viewer">SÃ³ leitura</option>
-                <option value="client_admin">Gestor do cliente</option>
-              </select>
-            </div>
-
-            <div style={styles.actionsRow}>
-              <button
-                onClick={createUser}
-                style={styles.primaryButton}
-                disabled={creatingUser}
-              >
-                {creatingUser ? "A criar..." : "Clientes e utilizadores"}
-              </button>
-            </div>
-          </section>
-
-          <section style={styles.card}>
-            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>AssociaÃ§Ã£o de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
-
-            <div style={styles.formGrid}>
-              <select
-                value={accessUserId}
-                onChange={(e) => setAccessUserId(e.target.value)}
-                style={styles.input}
-              >
-                <option value="">Escolher cliente</option>
-                {nonAdminUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email})
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="text"
-                value={
-                  selectedDeviceData
-                    ? `${selectedDeviceData.name || selectedDeviceData.device_id} (${selectedDeviceData.device_id})`
-                    : ""
-                }
-                style={styles.input}
-                disabled
-                placeholder="Seleciona primeiro um dispositivo"
-              />
-            </div>
-
-            <label style={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                checked={canEdit}
-                onChange={() => setCanEdit((prev) => !prev)}
-              />
-              <span>Permitir ediÃ§Ã£o na dashboard</span>
-            </label>
-
-            <div style={styles.actionsRow}>
-              <button
-                onClick={assignDevice}
-                style={styles.primaryButton}
-                disabled={savingAccess || !selectedDevice}
-              >
-                {savingAccess ? "A guardar..." : "AssociaÃ§Ã£o de dispositivo"}
-              </button>
-            </div>
-          </section>
-        </div>
-
         <section style={styles.card}>
-          <div style={styles.sectionStep}>03</div><div style={styles.cardTitle}>Dispositivo em gestÃ£o</div><div style={styles.cardHint}>Escolhe o equipamento que queres configurar ou consultar.</div>
+          <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Dispositivo em gestão</div><div style={styles.cardHint}>Escolhe o equipamento que queres configurar ou consultar.</div>
 
           <div style={styles.devicePickerGrid}>
             <div style={styles.devicePickerLeft}>
               <input
                 type="text"
-                placeholder="Pesquisar dispositivo, localizaÃ§Ã£o ou ID"
+                placeholder="Pesquisar dispositivo, localização ou ID"
                 value={deviceSearch}
                 onChange={(e) => setDeviceSearch(e.target.value)}
                 style={styles.input}
@@ -1226,7 +1107,7 @@ export default function AdminPage() {
                         {d.name || d.device_id}
                       </div>
                       <div style={styles.deviceQuickMeta}>
-                        {d.device_id} Â· {d.location || "Sem localizaÃ§Ã£o"}
+                        {d.device_id} - {d.location || "Sem localização"}
                       </div>
                     </button>
                   ))
@@ -1258,18 +1139,18 @@ export default function AdminPage() {
 
                   <div style={styles.selectedDeviceStats}>
                     <SmallStat
-                      label="LocalizaÃ§Ã£o"
+                      label="Localização"
                       value={selectedDeviceData.location || "-"}
                     />
                     <SmallStat
-                      label="Ãšltima temperatura"
+                      label="Última temperatura"
                       value={formatValue(
                         selectedDeviceData.last_temperature,
-                        " Â°C"
+                        " °C"
                       )}
                     />
                     <SmallStat
-                      label="Ãšltima humidade"
+                      label="Última humidade"
                       value={formatValue(
                         selectedDeviceData.last_humidity,
                         " %"
@@ -1286,8 +1167,129 @@ export default function AdminPage() {
           </div>
         </section>
 
+        <div style={styles.topGrid}>
+          <section style={styles.card}>
+            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Clientes e utilizadores</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
+
+            <div style={styles.formGrid}>
+              <input
+                type="text"
+                placeholder="Nome completo"
+                value={newUser.full_name}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    full_name: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
+
+              <input
+                type="email"
+                placeholder="Email"
+                value={newUser.email}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    email: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
+
+              <input
+                type="text"
+                placeholder="Password temporária"
+                value={newUser.password}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
+
+              <select
+                value={newUser.role}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    role: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              >
+                <option value="viewer">Só leitura</option>
+                <option value="client_admin">Gestor do cliente</option>
+              </select>
+            </div>
+
+            <div style={styles.actionsRow}>
+              <button
+                onClick={createUser}
+                style={styles.primaryButton}
+                disabled={creatingUser}
+              >
+                {creatingUser ? "A criar..." : "Clientes e utilizadores"}
+              </button>
+            </div>
+          </section>
+
+          <section style={styles.card}>
+            <div style={styles.sectionStep}>03</div><div style={styles.cardTitle}>Associação de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
+
+            <div style={styles.formGrid}>
+              <select
+                value={accessUserId}
+                onChange={(e) => setAccessUserId(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Escolher cliente</option>
+                {nonAdminUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                value={
+                  selectedDeviceData
+                    ? `${selectedDeviceData.name || selectedDeviceData.device_id} (${selectedDeviceData.device_id})`
+                    : ""
+                }
+                style={styles.input}
+                disabled
+                placeholder="Seleciona primeiro um dispositivo"
+              />
+            </div>
+
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={canEdit}
+                onChange={() => setCanEdit((prev) => !prev)}
+              />
+              <span>Permitir edição na dashboard</span>
+            </label>
+
+            <div style={styles.actionsRow}>
+              <button
+                onClick={assignDevice}
+                style={styles.primaryButton}
+                disabled={savingAccess || !selectedDevice}
+              >
+                {savingAccess ? "A guardar..." : "Associação de dispositivo"}
+              </button>
+            </div>
+          </section>
+        </div>
+
         <section style={styles.card}>
-          <div style={styles.sectionStep}>04</div><div style={styles.cardTitle}>Clientes, permissÃµes e alertas</div><div style={styles.cardHint}>Gere quem tem acesso, permissÃµes e notificaÃ§Ãµes deste dispositivo.</div>
+          <div style={styles.sectionStep}>04</div><div style={styles.cardTitle}>Clientes, permissões e alertas</div><div style={styles.cardHint}>Gere quem tem acesso, permissões e notificações deste dispositivo.</div>
 
           {!selectedDevice ? (
             <div style={styles.emptyState}>
@@ -1347,7 +1349,7 @@ export default function AdminPage() {
                         <div style={styles.clientCardBottom}>
                           <span style={styles.mutedTag}>{client.role}</span>
                           <span style={styles.mutedTag}>
-                            {client.access?.can_edit ? "Com ediÃ§Ã£o" : "SÃ³ leitura"}
+                            {client.access?.can_edit ? "Com edição" : "Só leitura"}
                           </span>
                         </div>
                       </button>
@@ -1401,12 +1403,12 @@ export default function AdminPage() {
                         value={selectedClient.is_active ? "Ativo" : "Inativo"}
                       />
                       <SmallStat
-                        label="PermissÃ£o"
+                        label="Permissão"
                         value={
                           selectedDeviceClients.find((c) => c.id === selectedClient.id)
                             ?.access?.can_edit
-                            ? "Com ediÃ§Ã£o"
-                            : "SÃ³ leitura"
+                            ? "Com edição"
+                            : "Só leitura"
                         }
                       />
                       <SmallStat
@@ -1427,7 +1429,7 @@ export default function AdminPage() {
                           onChange={(e) => setSelectedClientRole(e.target.value)}
                           style={styles.input}
                         >
-                          <option value="viewer">SÃ³ leitura</option>
+                          <option value="viewer">Só leitura</option>
                           <option value="client_admin">Gestor do cliente</option>
                         </select>
 
@@ -1448,30 +1450,41 @@ export default function AdminPage() {
                           checked={Boolean(selectedClient.can_change_password)}
                           onClick={toggleSelectedClientPasswordPermission}
                           label={`Escolher nova password: ${
-                            selectedClient.can_change_password ? "Sim" : "NÃƒÂ£o"
+                            selectedClient.can_change_password ? "Sim" : "Não"
                           }`}
                           disabled={savingPasswordPermission}
                         />
                       </div>
                       {savingPasswordPermission ? (
-                        <div style={styles.savingHint}>A guardar permissÃƒÂ£o...</div>
+                        <div style={styles.savingHint}>A guardar permissão...</div>
                       ) : null}
                       <div style={styles.inlineControls}>
-                        <input
-                          type="text"
-                          placeholder="Nova password temporÃƒÂ¡ria"
-                          value={passwordDraft}
-                          onChange={(e) => setPasswordDraft(e.target.value)}
-                          style={styles.input}
-                        />
                         <button
-                          onClick={updateSelectedClientPassword}
-                          style={styles.primaryButton}
-                          disabled={savingPasswordUpdate || passwordDraft.length < 8}
+                          type="button"
+                          onClick={() => setShowPasswordTools((prev) => !prev)}
+                          style={styles.secondaryButton}
                         >
-                          {savingPasswordUpdate ? "A guardar..." : "Atualizar"}
+                          {showPasswordTools ? "Fechar" : "Definir password temporária"}
                         </button>
                       </div>
+                      {showPasswordTools ? (
+                        <div style={styles.inlineControls}>
+                          <input
+                            type="text"
+                            placeholder="Nova password temporária"
+                            value={passwordDraft}
+                            onChange={(e) => setPasswordDraft(e.target.value)}
+                            style={styles.input}
+                          />
+                          <button
+                            onClick={updateSelectedClientPassword}
+                            style={styles.primaryButton}
+                            disabled={savingPasswordUpdate || passwordDraft.length < 8}
+                          >
+                            {savingPasswordUpdate ? "A guardar..." : "Atualizar"}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div style={styles.compactPanel}>
@@ -1494,7 +1507,7 @@ export default function AdminPage() {
                                   )
                                 }
                                 label={`Receber alertas: ${
-                                  alertRow?.is_active ? "Sim" : "NÃ£o"
+                                  alertRow?.is_active ? "Sim" : "Não"
                                 }`}
                               />
 
@@ -1557,7 +1570,7 @@ export default function AdminPage() {
 
                             {savingAlertKey.startsWith(savingPrefix) ? (
                               <div style={styles.savingHint}>
-                                A guardar preferÃªncias...
+                                A guardar preferências...
                               </div>
                             ) : null}
                           </>
@@ -1587,62 +1600,19 @@ export default function AdminPage() {
 
         <section style={styles.card}>
           <div style={styles.sectionStep}>05</div>
-        <section style={styles.v2Panel}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Firmware, hardware e onboarding</div>
-              <div style={styles.cardHint}>
-                PreparaÃ§Ã£o tÃ©cnica da nova geraÃ§Ã£o STS Cold.
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.v2Grid}>
-            <div style={styles.v2Item}>
-              <span>Firmware</span>
-              <strong>A definir</strong>
-            </div>
-
-            <div style={styles.v2Item}>
-              <span>Hardware</span>
-              <strong>RevisÃ£o futura</strong>
-            </div>
-
-            <div style={styles.v2Item}>
-              <span>QR Pairing</span>
-              <strong>Preparado</strong>
-            </div>
-
-            <div style={styles.v2Item}>
-              <span>DiagnÃ³stico</span>
-              <strong>Sensor e comunicaÃ§Ã£o</strong>
-            </div>
-
-            <div style={styles.v2Item}>
-              <span>OTA</span>
-              <strong>Estrutura preparada</strong>
-            </div>
-
-            <div style={styles.v2Item}>
-              <span>Estado V2</span>
-              <strong>Pronto para evoluÃ§Ã£o</strong>
-            </div>
-          </div>
-        </section>
-
-<div style={styles.cardTitle}>ConfiguraÃ§Ã£o operacional</div><div style={styles.cardHint}>Define limites, localizaÃ§Ã£o e parÃ¢metros de funcionamento.</div>
+          <div style={styles.cardTitle}>Configuração operacional</div><div style={styles.cardHint}>Define limites, localização e parâmetros de funcionamento.</div>
 
           {!selectedDeviceData ? (
             <div style={styles.emptyState}>
-              Seleciona um dispositivo para editar a configuraÃ§Ã£o.
+              Seleciona um dispositivo para editar a configuração.
             </div>
           ) : (
             <>
-              <div style={styles.configSectionTitle}>IdentificaÃ§Ã£o</div>
+              <div style={styles.configSectionTitle}>Identificação</div>
               <div style={styles.configGrid}>
                 <ConfigField
                   label="Nome do dispositivo"
-                  help="Nome apresentado na dashboard, emails e Ã¡rea administrativa."
+                  help="Nome apresentado na dashboard, emails e área administrativa."
                 >
                   <input
                     type="text"
@@ -1659,12 +1629,12 @@ export default function AdminPage() {
                 </ConfigField>
 
                 <ConfigField
-                  label="LocalizaÃ§Ã£o"
-                  help="DescriÃ§Ã£o do local fÃ­sico onde o dispositivo estÃ¡ instalado."
+                  label="Localização"
+                  help="Descrição do local físico onde o dispositivo está instalado."
                 >
                   <input
                     type="text"
-                    placeholder="LocalizaÃ§Ã£o"
+                    placeholder="Localização"
                     value={deviceForm.location}
                     onChange={(e) =>
                       setDeviceForm((prev) => ({
@@ -1680,13 +1650,13 @@ export default function AdminPage() {
               <div style={styles.configSectionTitle}>Limites de temperatura</div>
               <div style={styles.configGrid}>
                 <ConfigField
-                  label="Temperatura mÃ­nima (Â°C)"
+                  label="Temperatura mínima (°C)"
                   help="Abaixo deste valor, o sistema entra em alerta de temperatura baixa."
                 >
                   <input
                     type="number"
                     step="0.1"
-                    placeholder="Temp. mÃ­nima"
+                    placeholder="Temp. mínima"
                     value={deviceForm.temp_low_c}
                     onChange={(e) =>
                       setDeviceForm((prev) => ({
@@ -1699,13 +1669,13 @@ export default function AdminPage() {
                 </ConfigField>
 
                 <ConfigField
-                  label="Temperatura mÃ¡xima (Â°C)"
+                  label="Temperatura máxima (°C)"
                   help="Acima deste valor, o sistema entra em alerta de temperatura alta."
                 >
                   <input
                     type="number"
                     step="0.1"
-                    placeholder="Temp. mÃ¡xima"
+                    placeholder="Temp. máxima"
                     value={deviceForm.temp_high_c}
                     onChange={(e) =>
                       setDeviceForm((prev) => ({
@@ -1721,13 +1691,13 @@ export default function AdminPage() {
               <div style={styles.configSectionTitle}>Limites de humidade</div>
               <div style={styles.configGrid}>
                 <ConfigField
-                  label="Humidade mÃ­nima (%)"
+                  label="Humidade mínima (%)"
                   help="Abaixo deste valor, o sistema entra em alerta de humidade baixa."
                 >
                   <input
                     type="number"
                     step="1"
-                    placeholder="Humidade mÃ­nima"
+                    placeholder="Humidade mínima"
                     value={deviceForm.hum_low}
                     onChange={(e) =>
                       setDeviceForm((prev) => ({
@@ -1740,13 +1710,13 @@ export default function AdminPage() {
                 </ConfigField>
 
                 <ConfigField
-                  label="Humidade mÃ¡xima (%)"
+                  label="Humidade máxima (%)"
                   help="Acima deste valor, o sistema entra em alerta de humidade alta."
                 >
                   <input
                     type="number"
                     step="1"
-                    placeholder="Humidade mÃ¡xima"
+                    placeholder="Humidade máxima"
                     value={deviceForm.hum_high}
                     onChange={(e) =>
                       setDeviceForm((prev) => ({
@@ -1759,10 +1729,10 @@ export default function AdminPage() {
                 </ConfigField>
               </div>
 
-              <div style={styles.configSectionTitle}>ParÃ¢metros tÃ©cnicos</div>
+              <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
               <div style={styles.configGrid}>
                 <ConfigField
-                  label="Histerese (Â°C)"
+                  label="Histerese (°C)"
                   help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
                 >
                   <input
@@ -1801,7 +1771,7 @@ export default function AdminPage() {
 
                 <ConfigField
                   label="Standby do display (min)"
-                  help="Minutos atÃ© o ecrÃ£ entrar em standby para poupanÃ§a de energia."
+                  help="Minutos até o ecrã entrar em standby para poupança de energia."
                 >
                   <input
                     type="number"
@@ -1825,7 +1795,7 @@ export default function AdminPage() {
                   style={styles.primaryButton}
                   disabled={savingDevice}
                 >
-                  {savingDevice ? "A guardar..." : "Guardar configuraÃ§Ã£o"}
+                  {savingDevice ? "A guardar..." : "Guardar configuração"}
                 </button>
               </div>
             </>
@@ -1833,32 +1803,81 @@ export default function AdminPage() {
         </section>
 
         {selectedDeviceData ? (
+          <>
           <section style={styles.card}>
-            <div style={styles.sectionStep}>06</div><div style={styles.cardTitle}>DiagnÃ³stico e suporte</div><div style={styles.cardHint}>InformaÃ§Ã£o tÃ©cnica rÃ¡pida para suporte e validaÃ§Ã£o.</div>
+            <div style={styles.sectionStep}>06</div><div style={styles.cardTitle}>Diagnóstico e suporte</div><div style={styles.cardHint}>Informação técnica rápida para suporte e validação.</div>
 
             <div style={styles.statsGrid}>
               <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
               <SmallStat label="Nome" value={selectedDeviceData.name || "-"} />
-              <SmallStat label="LocalizaÃ§Ã£o" value={selectedDeviceData.location || "-"} />
+              <SmallStat label="Localização" value={selectedDeviceData.location || "-"} />
               <SmallStat label="Config version" value={selectedDeviceData.config_version ?? "-"} />
               <SmallStat label="Atualizada em" value={formatDateTime(selectedDeviceData.updated_at)} />
               <SmallStat label="Last seen" value={formatDateTime(selectedDeviceData.last_seen)} />
               <SmallStat label="Status raw" value={selectedDeviceData.status || "-"} />
               <SmallStat
-                label="Ãšltima temp."
-                value={formatValue(selectedDeviceData.last_temperature, " Â°C")}
+                label="Última temp."
+                value={formatValue(selectedDeviceData.last_temperature, " °C")}
               />
               <SmallStat
-                label="Ãšltima hum."
+                label="Última hum."
                 value={formatValue(selectedDeviceData.last_humidity, " %")}
               />
             </div>
           </section>
+          </>
         ) : null}
 
         {selectedDeviceData ? (
+          <>
           <section style={styles.card}>
-            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>ConfiguraÃ§Ã£o raw / debug / debug</div><div style={styles.cardHint}>JSON tÃ©cnico guardado na base de dados.</div>
+          <div style={styles.sectionStep}>07</div>
+        <section style={styles.v2Panel}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Firmware, hardware e onboarding</div>
+              <div style={styles.cardHint}>
+                Preparação técnica da nova geração STS Cold.
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.v2Grid}>
+            <div style={styles.v2Item}>
+              <span>Firmware</span>
+              <strong>A definir</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Hardware</span>
+              <strong>Revisão futura</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>QR Pairing</span>
+              <strong>Preparado</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Diagnóstico</span>
+              <strong>Sensor e comunicação</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>OTA</span>
+              <strong>Estrutura preparada</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Estado V2</span>
+              <strong>Pronto para evolução</strong>
+            </div>
+          </div>
+        </section>
+        </section>
+
+        <section style={styles.card}>
+            <div style={styles.sectionStep}>08</div><div style={styles.cardTitle}>Configuração raw / debug</div><div style={styles.cardHint}>JSON técnico guardado na base de dados.</div>
 
             <div style={styles.rawConfigWrap}>
               <pre style={styles.rawConfig}>
@@ -1866,6 +1885,7 @@ export default function AdminPage() {
               </pre>
             </div>
           </section>
+          </>
         ) : null}
       </div>
     </main>
@@ -2711,3 +2731,6 @@ const styles = {
     marginTop: "4px",
   },
 };
+
+
+
