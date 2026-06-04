@@ -2812,7 +2812,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       .fillColor("#0f766e")
       .fontSize(10)
       .font("Helvetica-Bold")
-      .text("Monitorizar Hoje. Proteger Amanhã.", 42, 92);
+      .text("Monitorizar Hoje. Proteger Amanhã.", 42, 72);
 
     doc
       .fillColor("#475569")
