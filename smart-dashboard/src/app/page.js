@@ -29,6 +29,7 @@ const STS_PRODUCT = {
   version: STS_SYSTEM_VERSION,
   domain: "stsapp.pt",
 };
+const STS_TAGLINE = "Monitorizar Hoje. Proteger Amanhã.";
 const STS_LOGO_SRC = "/sts-logo.png";
 
 const STS_STATES = {
@@ -3216,6 +3217,7 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
+            <div style={styles.tagline}>{STS_TAGLINE}</div>
             <div style={styles.versionBadge}>DASHBOARD · {STS_PRODUCT.version}</div>
             </div>
           </div>
@@ -3974,6 +3976,14 @@ const styles = {
     color: "#94a3b8",
     fontSize: "14px",
     lineHeight: 1.35,
+  },
+
+  tagline: {
+    marginTop: "6px",
+    color: "#dbeafe",
+    fontSize: "13px",
+    fontWeight: 800,
+    lineHeight: 1.25,
   },
 
   topActions: {

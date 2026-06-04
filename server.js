@@ -2809,6 +2809,12 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       .text("SmartTempSystems", 42, 42);
 
     doc
+      .fillColor("#0f766e")
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .text("Monitorizar Hoje. Proteger Amanhã.", 42, 92);
+
+    doc
       .fillColor("#475569")
       .fontSize(12)
       .font("Helvetica")
