@@ -158,6 +158,111 @@ function formatPeriodLabelForFilename(periodKey = "24h") {
   return String(periodKey || "24h").replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
+function getAlarmMaskLabel(mask) {
+  const value = Number(mask) || 0;
+  const labels = [];
+
+  if (value & 0x01) labels.push("Temp. alta");
+  if (value & 0x02) labels.push("Temp. baixa");
+  if (value & 0x04) labels.push("Hum. alta");
+  if (value & 0x08) labels.push("Hum. baixa");
+
+  return labels.length ? labels.join(" + ") : "Alerta";
+}
+
+function getReadingAlarmMask(row, cfg) {
+  const explicitMask = toOptionalNumber(row?.alarm_mask);
+  if (explicitMask && explicitMask > 0) return explicitMask;
+
+  const temperature = toOptionalNumber(row?.temperature);
+  const humidity = toOptionalNumber(row?.humidity);
+  let mask = 0;
+
+  if (temperature !== null && temperature >= cfg.temp_high_c) mask |= 0x01;
+  if (temperature !== null && temperature <= cfg.temp_low_c) mask |= 0x02;
+  if (humidity !== null && humidity >= cfg.hum_high) mask |= 0x04;
+  if (humidity !== null && humidity <= cfg.hum_low) mask |= 0x08;
+
+  return mask;
+}
+
+function buildReportAlertHistory(rows, cfg) {
+  const events = [];
+  let previousMask = 0;
+  let lastAckCount = 0;
+  let ackWasActive = false;
+
+  (rows || []).forEach((row) => {
+    const currentMask = getReadingAlarmMask(row, cfg);
+    const createdAt = row?.created_at;
+    const temperature = toOptionalNumber(row?.temperature);
+    const humidity = toOptionalNumber(row?.humidity);
+    const valueText = [
+      temperature !== null ? `${formatNumber(temperature, 1)} \u00b0C` : null,
+      humidity !== null ? `${formatNumber(humidity, 0)} %` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    if (currentMask > 0 && (previousMask === 0 || currentMask !== previousMask)) {
+      events.push({
+        kind: "alert",
+        color: "#fee2e2",
+        stroke: "#fecaca",
+        title: row?.alarm_reason || getAlarmMaskLabel(currentMask),
+        when: createdAt,
+        deviceTime: row?.alarm_event_time || null,
+        detail: valueText || "-",
+      });
+    }
+
+    const ackCount = toOptionalNumber(row?.alarm_ack_count) || 0;
+    const ackActive =
+      row?.alarm_ack === true ||
+      String(row?.alarm_ack || "").toLowerCase() === "true" ||
+      String(row?.device_status || "").toLowerCase().includes("ack");
+
+    if (
+      ackActive &&
+      ((ackCount > 0 && ackCount > lastAckCount) || (ackCount === 0 && !ackWasActive))
+    ) {
+      events.push({
+        kind: "ack",
+        color: "#dbeafe",
+        stroke: "#bfdbfe",
+        title: "ACK confirmado",
+        when: createdAt,
+        deviceTime: row?.alarm_ack_time || null,
+        detail: valueText || "Alerta reconhecido no dispositivo",
+      });
+    }
+
+    if (currentMask === 0 && previousMask > 0) {
+      events.push({
+        kind: "normal",
+        color: "#dcfce7",
+        stroke: "#bbf7d0",
+        title: "Normalizado",
+        when: createdAt,
+        deviceTime: null,
+        detail: valueText || "Valores novamente dentro dos limites",
+      });
+    }
+
+    if (ackCount > lastAckCount) lastAckCount = ackCount;
+    ackWasActive = ackActive;
+    previousMask = currentMask;
+  });
+
+  return events.slice(-8).reverse();
+}
+
+function formatReportAlertTime(event) {
+  const deviceTime = String(event?.deviceTime || "").trim();
+  if (deviceTime && deviceTime !== "-") return deviceTime;
+  return formatDateTimePt(event?.when, true);
+}
+
 function validateConfigNumbers(payload) {
   const errors = [];
 
@@ -2685,7 +2790,9 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
 
       supabase
         .from("readings")
-        .select("temperature, humidity, created_at")
+        .select(
+          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_event_count, alarm_event_time, alarm_mask, alarm_reason"
+        )
         .eq("device_id", deviceId)
         .gte("created_at", sinceIso)
         .order("created_at", { ascending: true }),
@@ -2696,22 +2803,35 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       return res.status(500).json({ error: "Erro ao obter dispositivo" });
     }
 
-    if (readingsError) {
-      console.error("Erro ao obter leituras para PDF:", readingsError);
-      return res.status(500).json({ error: "Erro ao obter leituras" });
-    }
-
     if (!deviceRow) {
       return res.status(404).json({ error: "Dispositivo não encontrado" });
     }
 
-    const rows = readings || [];
+    let rows = readings || [];
+
+    if (readingsError) {
+      const { data: fallbackReadings, error: fallbackReadingsError } =
+        await supabase
+          .from("readings")
+          .select("temperature, humidity, created_at")
+          .eq("device_id", deviceId)
+          .gte("created_at", sinceIso)
+          .order("created_at", { ascending: true });
+
+      if (fallbackReadingsError) {
+        console.error("Erro ao obter leituras para PDF:", readingsError);
+        return res.status(500).json({ error: "Erro ao obter leituras" });
+      }
+
+      rows = fallbackReadings || [];
+    }
 
     if (!rows.length) {
       return res.status(404).json({ error: "Sem dados para relatório" });
     }
 
     const cfg = getDeviceConfig(deviceRow);
+    const alertHistory = buildReportAlertHistory(rows, cfg);
 
     const temperatures = rows
       .map((row) => Number(row.temperature))
@@ -2778,6 +2898,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
                   { label: "Localização", value: sanitizeLocation(deviceRow?.location) },
                   { label: "Período", value: periodLabel },
                   { label: "Total de leituras", value: String(rows.length) },
+                  { label: "Eventos de alerta", value: String(alertHistory.length) },
                 ],
               }),
               attachment: [
@@ -2932,19 +3053,76 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       y + 76
     );
 
-    doc
-      .fillColor("#64748b")
-      .font("Helvetica")
-      .fontSize(9)
-      .text(
-        "Documento gerado automaticamente pela plataforma SmartTempSystems.",
-        42,
-        785,
-        {
-          width: 511,
-          align: "center",
-        }
-      );
+    const drawFooter = () => {
+      doc
+        .fillColor("#64748b")
+        .font("Helvetica")
+        .fontSize(9)
+        .text(
+          "Documento gerado automaticamente pela plataforma SmartTempSystems.",
+          42,
+          785,
+          {
+            width: 511,
+            align: "center",
+          }
+        );
+    };
+
+    if (alertHistory.length) {
+      drawFooter();
+      doc.addPage();
+
+      let alertY = 54;
+      doc
+        .fillColor("#0f172a")
+        .font("Helvetica-Bold")
+        .fontSize(18)
+        .text("Histórico de alertas", 42, alertY);
+
+      alertY += 24;
+
+      doc
+        .fillColor("#64748b")
+        .font("Helvetica")
+        .fontSize(10)
+        .text("Eventos mais recentes do período analisado.", 42, alertY);
+
+      alertY += 30;
+
+      alertHistory.forEach((event) => {
+        doc
+          .roundedRect(42, alertY, 511, 46, 8)
+          .fillAndStroke(event.color, event.stroke);
+
+        doc
+          .fillColor("#0f172a")
+          .font("Helvetica-Bold")
+          .fontSize(11)
+          .text(event.title, 58, alertY + 10, { width: 260 });
+
+        doc
+          .fillColor("#334155")
+          .font("Helvetica")
+          .fontSize(10)
+          .text(event.detail, 58, alertY + 27, { width: 330 });
+
+        doc
+          .fillColor("#475569")
+          .font("Helvetica-Bold")
+          .fontSize(10)
+          .text(formatReportAlertTime(event), 410, alertY + 10, {
+            width: 120,
+            align: "right",
+          });
+
+        alertY += 56;
+      });
+
+      drawFooter();
+    } else {
+      drawFooter();
+    }
 
     doc.end();
   } catch (error) {
