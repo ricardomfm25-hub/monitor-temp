@@ -98,6 +98,18 @@ function toNumberOrDefault(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function toOptionalNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
 function sanitizeDeviceName(value, fallback) {
   const v = String(value || "").trim();
   return v || fallback;
@@ -1827,7 +1839,22 @@ app.post("/api/temperature", async (req, res) => {
   }
 
   try {
-    const { device_id, temperature, humidity } = req.body;
+    const {
+      device_id,
+      temperature,
+      humidity,
+      device_status,
+      alarm_ack,
+      alarm_ack_count,
+      alarm_ack_time,
+      alarm_ack_age_s,
+      alarm_event_count,
+      alarm_event_time,
+      alarm_event_age_s,
+      alarm_started_age_s,
+      alarm_mask,
+      alarm_reason,
+    } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
       return res.status(400).json({
@@ -1852,6 +1879,17 @@ app.post("/api/temperature", async (req, res) => {
         device_id,
         temperature: numericTemperature,
         humidity: numericHumidity,
+        device_status: device_status || null,
+        alarm_ack: toBoolean(alarm_ack),
+        alarm_ack_count: toOptionalNumber(alarm_ack_count) || 0,
+        alarm_ack_time: alarm_ack_time || null,
+        alarm_ack_age_s: toOptionalNumber(alarm_ack_age_s),
+        alarm_event_count: toOptionalNumber(alarm_event_count) || 0,
+        alarm_event_time: alarm_event_time || null,
+        alarm_event_age_s:
+          toOptionalNumber(alarm_event_age_s) ?? toOptionalNumber(alarm_started_age_s),
+        alarm_mask: toOptionalNumber(alarm_mask) || 0,
+        alarm_reason: alarm_reason || null,
       },
     ]);
 
@@ -2171,7 +2209,9 @@ app.get("/api/dashboard/device/:id/history", async (req, res) => {
 
     const { data, error } = await supabase
       .from("readings")
-      .select("temperature, humidity, created_at")
+      .select(
+        "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason"
+      )
       .eq("device_id", deviceId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -2190,6 +2230,16 @@ app.get("/api/dashboard/device/:id/history", async (req, res) => {
       temperature: Number(row.temperature),
       humidity: Number(row.humidity),
       created_at: row.created_at,
+      device_status: row.device_status,
+      alarm_ack: row.alarm_ack,
+      alarm_ack_count: row.alarm_ack_count,
+      alarm_ack_time: row.alarm_ack_time,
+      alarm_ack_age_s: row.alarm_ack_age_s,
+      alarm_event_count: row.alarm_event_count,
+      alarm_event_time: row.alarm_event_time,
+      alarm_event_age_s: row.alarm_event_age_s,
+      alarm_mask: row.alarm_mask,
+      alarm_reason: row.alarm_reason,
     }));
 
     res.json(history);
