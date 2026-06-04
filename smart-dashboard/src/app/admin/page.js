@@ -1,53 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "../utils/supabase/client";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-  ReferenceDot,
-} from "recharts";
+import { createClient } from "../../utils/supabase/client";
 
-const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
-const AUTO_REFRESH_MS = 15000;
-const MAX_HISTORY_HOURS = 24 * 7;
-const DEVICE_STORAGE_KEY = "sts_selected_device_id";
+const STS_SYSTEM_VERSION = "V2.4.25";
+const STS_ADMIN_VERSION = STS_SYSTEM_VERSION;
 
+function toInputValue(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "";
+  }
+  return String(value);
+}
 
-const STS_PRODUCT = {
-  family: "STS",
-  product: "STS Cold",
-  version: "V2.3.4",
-  domain: "stsapp.pt",
-};
-const STS_LOGO_SRC = "/sts-logo.png";
-
-const STS_STATES = {
-  ONLINE: "ONLINE",
-  WARNING: "WARNING",
-  ALERT: "ALERT",
-  CRITICAL: "CRITICAL",
-  OFFLINE: "OFFLINE",
-  SETUP: "SETUP",
-  MAINTENANCE: "MAINTENANCE",
-  SENSOR_FAIL: "SENSOR_FAIL",
-  RECOVERY: "RECOVERY",
-};
-
-const PERIODS = [
-  { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
-  { key: "6h", label: "6H", hours: 6, bucketMs: 15 * 60 * 1000, tickMs: 60 * 60 * 1000 },
-  { key: "12h", label: "12H", hours: 12, bucketMs: 30 * 60 * 1000, tickMs: 2 * 60 * 60 * 1000 },
-  { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000 },
-  { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 24 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000 },
-];
+function parseNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const normalized = String(value).replace(",", ".");
+  const numeric = Number(normalized);
+  return Number.isNaN(numeric) ? null : numeric;
+}
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -65,1368 +37,11 @@ function formatDateTime(value) {
   });
 }
 
-function formatShortTime(value, periodKey = "24h") {
-  if (value === null || value === undefined) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-
-  if (periodKey === "7d") {
-    return d.toLocaleDateString("pt-PT", {
-      timeZone: "Europe/Lisbon",
-      day: "2-digit",
-      month: "2-digit",
-    });
-  }
-
-  return d.toLocaleTimeString("pt-PT", {
-    timeZone: "Europe/Lisbon",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function formatValue(value, suffix = "", digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "-";
   }
   return `${Number(value).toFixed(digits)}${suffix}`;
-}
-
-function formatRelativeTime(value) {
-  if (!value) return "-";
-  const ts = new Date(value).getTime();
-  if (!Number.isFinite(ts)) return "-";
-
-  const diff = Date.now() - ts;
-  if (diff < 0) return "agora";
-
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 10) return "agora";
-  if (seconds < 60) return `há ${seconds}s`;
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `há ${minutes} min`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `há ${hours} h`;
-
-  const days = Math.floor(hours / 24);
-  return `há ${days} d`;
-}
-
-function formatDurationCompact(ms) {
-  if (!Number.isFinite(ms) || ms < 0) return "-";
-
-  const totalSeconds = Math.floor(ms / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-}
-
-function toInputValue(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "";
-  }
-  return String(value);
-}
-
-function parseNumber(value) {
-  if (value === "" || value === null || value === undefined) return null;
-  const normalized = String(value).replace(",", ".");
-  const numeric = Number(normalized);
-  return Number.isNaN(numeric) ? null : numeric;
-}
-
-function getOfflineLimitMs(sendIntervalS) {
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
-
-  return Math.max(expectedMs * 6, 180 * 1000);
-}
-
-function getEffectiveStatus(device, sendIntervalS) {
-  const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
-  const now = Date.now();
-  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
-
-  if (!lastSeen || now - lastSeen > offlineLimitMs) {
-    return "OFFLINE";
-  }
-
-  return device?.status || "SEM DADOS";
-}
-
-function getStatusInfo(status) {
-  const s = String(status || "").toLowerCase();
-
-  if (s.includes("offline")) {
-    return {
-      label: "OFFLINE",
-      color: "#ef4444",
-      soft: "#2a1316",
-      border: "#4b1f24",
-      glow: "0 0 0 1px rgba(239,68,68,0.12)",
-      priority: 3,
-      dot: "#ef4444",
-      panel: "#15131a",
-    };
-  }
-
-  if (s.includes("alarm") || s.includes("critical")) {
-    return {
-      label: "ALARME",
-      color: "#ef4444",
-      soft: "#2a1316",
-      border: "#4b1f24",
-      glow: "0 0 0 1px rgba(239,68,68,0.12)",
-      priority: 0,
-      dot: "#ef4444",
-      panel: "#15131a",
-    };
-  }
-
-  if (s.includes("alert")) {
-    return {
-      label: "ALERTA",
-      color: "#f59e0b",
-      soft: "#2a2112",
-      border: "#4b3a1d",
-      glow: "0 0 0 1px rgba(245,158,11,0.10)",
-      priority: 1,
-      dot: "#f59e0b",
-      panel: "#15131a",
-    };
-  }
-
-  if (s.includes("normal") || s.includes("ok")) {
-    return {
-      label: "NORMAL",
-      color: "#22c55e",
-      soft: "#132219",
-      border: "#1f3b2a",
-      glow: "0 0 0 1px rgba(34,197,94,0.10)",
-      priority: 2,
-      dot: "#22c55e",
-      panel: "#151c27",
-    };
-  }
-
-  return {
-    label: status || "SEM DADOS",
-    color: "#94a3b8",
-    soft: "#161b22",
-    border: "#293241",
-    glow: "0 0 0 1px rgba(148,163,184,0.08)",
-    priority: 4,
-    dot: "#94a3b8",
-    panel: "#151c27",
-  };
-}
-
-function getAlertLevelInfo(level) {
-  const s = String(level || "").toLowerCase();
-
-  if (s.includes("ack") || s.includes("acknowledged")) {
-    return {
-      label: "ACK",
-      color: "#60a5fa",
-      bg: "#172554",
-      border: "#1d4ed8",
-    };
-  }
-
-  if (s.includes("alarm") || s.includes("critical")) {
-    return {
-      label: "ALARME",
-      color: "#ef4444",
-      bg: "#2a1316",
-      border: "#4b1f24",
-    };
-  }
-
-  if (s.includes("alert")) {
-    return {
-      label: "ALERTA",
-      color: "#f59e0b",
-      bg: "#2a2112",
-      border: "#4b3a1d",
-    };
-  }
-
-  if (s.includes("normal") || s.includes("recover") || s.includes("resolved")) {
-    return {
-      label: "NORMALIZADO",
-      color: "#22c55e",
-      bg: "#132219",
-      border: "#1f3b2a",
-    };
-  }
-
-  return {
-    label: "NORMALIZADO",
-    color: "#22c55e",
-    bg: "#132219",
-    border: "#1f3b2a",
-  };
-}
-
-function getSeriesMinMax(data, key) {
-  const values = data
-    .map((item) => parseNumber(item?.[key]))
-    .filter((v) => v !== null);
-
-  if (!values.length) {
-    return { min: null, max: null };
-  }
-
-  return {
-    min: Math.min(...values),
-    max: Math.max(...values),
-  };
-}
-
-function getChartDomain(data, key, thresholds = []) {
-  const values = data
-    .map((item) => parseNumber(item?.[key]))
-    .filter((v) => v !== null);
-
-  const thresholdValues = thresholds
-    .map((v) => parseNumber(v))
-    .filter((v) => v !== null);
-
-  const combined = [...values, ...thresholdValues];
-
-  if (!combined.length) return ["auto", "auto"];
-
-  let min = Math.min(...combined);
-  let max = Math.max(...combined);
-
-  if (min === max) {
-    const pad =
-      key === "humidity"
-        ? Math.max(Math.abs(min) * 0.02, 1)
-        : Math.max(Math.abs(min) * 0.03, 0.6);
-
-    return [
-      Number((min - pad).toFixed(2)),
-      Number((max + pad).toFixed(2)),
-    ];
-  }
-
-  const range = max - min;
-  const pad =
-    key === "humidity"
-      ? Math.max(range * 0.15, 1)
-      : Math.max(range * 0.18, 0.3);
-
-  return [
-    Number((min - pad).toFixed(2)),
-    Number((max + pad).toFixed(2)),
-  ];
-}
-
-function getReferencePoints(data, key) {
-  const points = data
-    .map((item) => ({
-      value: parseNumber(item?.[key]),
-      created_at: item?.created_at,
-      timestamp: item?.timestamp,
-    }))
-    .filter(
-      (item) =>
-        item.value !== null &&
-        item.created_at &&
-        Number.isFinite(item.timestamp)
-    );
-
-  if (!points.length) {
-    return { minPoint: null, maxPoint: null };
-  }
-
-  let minPoint = points[0];
-  let maxPoint = points[0];
-
-  for (const point of points) {
-    if (point.value < minPoint.value) minPoint = point;
-    if (point.value > maxPoint.value) maxPoint = point;
-  }
-
-  return { minPoint, maxPoint };
-}
-
-function getNiceTemperatureTicks(domain) {
-  if (!Array.isArray(domain) || domain.length !== 2) return undefined;
-
-  const [min, max] = domain;
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return undefined;
-
-  const range = max - min;
-  if (range <= 0) return [Number(min.toFixed(1)), Number(max.toFixed(1))];
-
-  const steps = 5;
-  const rawStep = range / steps;
-
-  let step = 0.1;
-  if (rawStep > 5) step = 2;
-  else if (rawStep > 2) step = 1;
-  else if (rawStep > 1) step = 0.5;
-  else if (rawStep > 0.5) step = 0.2;
-
-  const start = Math.floor(min / step) * step;
-  const end = Math.ceil(max / step) * step;
-
-  const ticks = [];
-  for (let v = start; v <= end + step / 2; v += step) {
-    ticks.push(Number(v.toFixed(1)));
-  }
-
-  return ticks;
-}
-
-function getPeriodConfig(periodKey) {
-  return PERIODS.find((p) => p.key === periodKey) || PERIODS[3];
-}
-
-function floorToBucket(timestamp, bucketMs) {
-  return Math.floor(timestamp / bucketMs) * bucketMs;
-}
-
-function getPeriodWindow(periodKey) {
-  const cfg = getPeriodConfig(periodKey);
-  const end = Date.now();
-
-  if (periodKey === "7d") {
-    const now = new Date();
-    const endDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      23,
-      59,
-      59,
-      999
-    ).getTime();
-    const startDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() - 6,
-      0,
-      0,
-      0,
-      0
-    ).getTime();
-
-    return { start: startDay, end: endDay, bucketMs: cfg.bucketMs, tickMs: cfg.tickMs };
-  }
-
-  return {
-    start: end - cfg.hours * 60 * 60 * 1000,
-    end,
-    bucketMs: cfg.bucketMs,
-    tickMs: cfg.tickMs,
-  };
-}
-
-function buildTimeSeries(readings, periodKey) {
-  const { start, end, bucketMs } = getPeriodWindow(periodKey);
-
-  const filtered = (readings || [])
-    .filter((item) => Number.isFinite(item?.timestamp))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const buckets = new Map();
-
-  for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
-    const d = new Date(t);
-    const bucketTime =
-      periodKey === "7d"
-        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
-        : t;
-
-    if (bucketTime >= start && !buckets.has(bucketTime)) {
-      buckets.set(bucketTime, {
-        timestamp: bucketTime,
-        created_at: new Date(bucketTime).toISOString(),
-        temperature: null,
-        humidity: null,
-        tempSum: 0,
-        tempCount: 0,
-        humSum: 0,
-        humCount: 0,
-        hasData: false,
-      });
-    }
-  }
-
-  for (const item of filtered) {
-    let bucketTime;
-
-    if (periodKey === "7d") {
-      const d = new Date(item.timestamp);
-      bucketTime = new Date(
-        d.getFullYear(),
-        d.getMonth(),
-        d.getDate(),
-        0,
-        0,
-        0,
-        0
-      ).getTime();
-    } else {
-      bucketTime = floorToBucket(item.timestamp, bucketMs);
-    }
-
-    if (!buckets.has(bucketTime)) continue;
-    const bucket = buckets.get(bucketTime);
-
-    const temp = parseNumber(item.temperature);
-    const hum = parseNumber(item.humidity);
-
-    if (temp !== null) {
-      bucket.tempSum += temp;
-      bucket.tempCount += 1;
-      bucket.hasData = true;
-    }
-
-    if (hum !== null) {
-      bucket.humSum += hum;
-      bucket.humCount += 1;
-      bucket.hasData = true;
-    }
-  }
-
-  return Array.from(buckets.values())
-    .map((bucket) => ({
-      timestamp: bucket.timestamp,
-      created_at: bucket.created_at,
-      temperature:
-        bucket.tempCount > 0
-          ? Number((bucket.tempSum / bucket.tempCount).toFixed(2))
-          : null,
-      humidity:
-        bucket.humCount > 0
-          ? Number((bucket.humSum / bucket.humCount).toFixed(2))
-          : null,
-      hasData: bucket.hasData,
-    }))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
-    .sort((a, b) => a.timestamp - b.timestamp);
-}
-
-function getXAxisTicks(periodKey) {
-  const { start, end, tickMs } = getPeriodWindow(periodKey);
-  const ticks = [];
-
-  if (periodKey === "7d") {
-    for (let t = start; t <= end; t += tickMs) {
-      ticks.push(t);
-    }
-    return ticks;
-  }
-
-  ticks.push(start);
-  let current = Math.ceil(start / tickMs) * tickMs;
-
-  while (current < end) {
-    ticks.push(current);
-    current += tickMs;
-  }
-
-  ticks.push(end);
-  return Array.from(new Set(ticks)).sort((a, b) => a - b);
-}
-
-function getCommunicationHealth({
-  rawReadings,
-  sendIntervalS,
-  deviceLastSeen,
-  periodKey,
-}) {
-  const { start, end } = getPeriodWindow(periodKey);
-
-  const sorted = [...(rawReadings || [])]
-    .filter((item) => Number.isFinite(item?.timestamp))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
-
-  const offlineThresholdMs = getOfflineLimitMs(sendIntervalS);
-  const periodMs = Math.max(end - start, expectedMs);
-  const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
-  const receivedReadings = sorted.length;
-
-  const deliveryPct = Math.max(
-    0,
-    Math.min(100, Math.round((receivedReadings / expectedReadings) * 100))
-  );
-
-  const lastDelayMs = deviceLastSeen
-    ? Date.now() - new Date(deviceLastSeen).getTime()
-    : null;
-
-  if (!sorted.length) {
-    return {
-      score: 0,
-      label: "Sem dados",
-      tone: "neutral",
-      summary: "Sem leituras suficientes para avaliar.",
-      delivery_pct: deliveryPct,
-      regularity_pct: 0,
-      expected_readings: expectedReadings,
-      received_readings: receivedReadings,
-      expected_interval_ms: expectedMs,
-      offline_threshold_ms: offlineThresholdMs,
-      last_delay_ms: lastDelayMs,
-      max_gap_ms: null,
-      relevant_gap_count: 0,
-      severe_gap_count: 0,
-    };
-  }
-
-  const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
-  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
-
-  let maxGapMs = 0;
-  let relevantGapCount = 0;
-  let severeGapCount = 0;
-
-  for (let i = 1; i < sorted.length; i += 1) {
-    const delta = sorted[i].timestamp - sorted[i - 1].timestamp;
-    if (!Number.isFinite(delta) || delta <= 0) continue;
-
-    if (delta > maxGapMs) maxGapMs = delta;
-    if (delta >= relevantGapThresholdMs) relevantGapCount += 1;
-    if (delta >= severeGapThresholdMs) severeGapCount += 1;
-  }
-
-  let penalty = 0;
-  penalty += relevantGapCount * 2;
-  penalty += severeGapCount * 8;
-
-  if (lastDelayMs !== null) {
-    if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
-    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
-      penalty += 10;
-    }
-  }
-
-  const regularityPct = Math.max(
-    0,
-    Math.min(100, Math.round(deliveryPct - penalty))
-  );
-
-  let label = "Estável";
-  let tone = "good";
-  let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-
-  const isOffline = lastDelayMs !== null && lastDelayMs > offlineThresholdMs;
-
-  if (isOffline) {
-    label = "Offline";
-    tone = "bad";
-    summary = "Sem comunicação recente do dispositivo.";
-  } else if (
-    deliveryPct >= 98 &&
-    relevantGapCount <= 1 &&
-    severeGapCount === 0
-  ) {
-    label = "Excelente";
-    tone = "good";
-    summary = "Cobertura muito alta e comunicação muito consistente.";
-  } else if (
-    deliveryPct >= 94 &&
-    relevantGapCount <= 5 &&
-    severeGapCount <= 1
-  ) {
-    label = "Estável";
-    tone = "good";
-    summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
-    label = "Com falhas";
-    tone = "warn";
-    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
-  } else {
-    label = "Instável";
-    tone = "bad";
-    summary = "Perdas ou gaps relevantes na comunicação.";
-  }
-
-  return {
-    score: regularityPct,
-    label,
-    tone,
-    summary,
-    delivery_pct: deliveryPct,
-    regularity_pct: regularityPct,
-    expected_readings: expectedReadings,
-    received_readings: receivedReadings,
-    expected_interval_ms: expectedMs,
-    offline_threshold_ms: offlineThresholdMs,
-    last_delay_ms: lastDelayMs,
-    max_gap_ms: maxGapMs || null,
-    relevant_gap_count: relevantGapCount,
-    severe_gap_count: severeGapCount,
-  };
-}
-
-function getMinutesDiff(a, b) {
-  const diffMs = new Date(b).getTime() - new Date(a).getTime();
-  return diffMs / 60000;
-}
-
-function getTrendDirectionLabel(direction, type) {
-  if (direction === "up") {
-    return type === "temperature"
-      ? "Temperatura a subir de forma consistente"
-      : "Humidade a subir de forma consistente";
-  }
-
-  if (direction === "down") {
-    return type === "temperature"
-      ? "Temperatura a descer de forma consistente"
-      : "Humidade a descer de forma consistente";
-  }
-
-  return "Sem tendência relevante";
-}
-
-function buildPredictiveSignal({
-  readings,
-  valueKey,
-  lowLimit,
-  highLimit,
-  type,
-}) {
-  const clean = (readings || [])
-    .map((r) => ({
-      created_at: r.created_at,
-      value: parseNumber(r?.[valueKey]),
-    }))
-    .filter((r) => r.created_at && r.value !== null)
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
-  if (clean.length < 6) {
-    return {
-      active: false,
-      severity: "none",
-      eta_minutes: null,
-      title: "Risco baixo",
-      detail: "Sem tendência relevante",
-      source: type,
-      score: 0,
-    };
-  }
-
-  const recent = clean.slice(-6);
-  const current = recent[recent.length - 1];
-  const deltas = [];
-  const slopes = [];
-
-  for (let i = 1; i < recent.length; i += 1) {
-    const prev = recent[i - 1];
-    const curr = recent[i];
-    const delta = curr.value - prev.value;
-    const minutes = getMinutesDiff(prev.created_at, curr.created_at);
-
-    if (!Number.isFinite(delta) || !Number.isFinite(minutes) || minutes <= 0) {
-      continue;
-    }
-
-    deltas.push(delta);
-    slopes.push(delta / minutes);
-  }
-
-  if (deltas.length < 5 || slopes.length < 5) {
-    return {
-      active: false,
-      severity: "none",
-      eta_minutes: null,
-      title: "Risco baixo",
-      detail: "Sem tendência relevante",
-      source: type,
-      score: 0,
-    };
-  }
-
-  const upCount = deltas.filter((d) => d > 0).length;
-  const downCount = deltas.filter((d) => d < 0).length;
-
-  let direction = "flat";
-  if (upCount >= 5) direction = "up";
-  if (downCount >= 5) direction = "down";
-
-  if (direction === "flat") {
-    return {
-      active: false,
-      severity: "none",
-      eta_minutes: null,
-      title: "Risco baixo",
-      detail: "Sem tendência relevante",
-      source: type,
-      score: 0,
-    };
-  }
-
-  const avgSlope =
-    slopes.reduce((sum, value) => sum + value, 0) / slopes.length;
-  const absAvgSlope = Math.abs(avgSlope);
-
-  const targetLimit =
-    direction === "up" ? highLimit : direction === "down" ? lowLimit : null;
-
-  if (targetLimit === null || targetLimit === undefined) {
-    return {
-      active: false,
-      severity: "none",
-      eta_minutes: null,
-      title: "Risco baixo",
-      detail: "Sem tendência relevante",
-      source: type,
-      score: 0,
-    };
-  }
-
-  const distance = Math.abs(targetLimit - current.value);
-  const speedThreshold = type === "temperature" ? 0.03 : 0.18;
-
-  if (absAvgSlope < speedThreshold) {
-    return {
-      active: false,
-      severity: "none",
-      eta_minutes: null,
-      title: "Risco baixo",
-      detail: "Sem tendência relevante",
-      source: type,
-      score: 0,
-    };
-  }
-
-  if (distance <= 0) {
-    return {
-      active: true,
-      severity: "high",
-      eta_minutes: 0,
-      title: "Risco elevado",
-      detail: getTrendDirectionLabel(direction, type),
-      source: type,
-      score: 100,
-    };
-  }
-
-  const etaMinutes = distance / absAvgSlope;
-
-  if (!Number.isFinite(etaMinutes)) {
-    return {
-      active: false,
-      severity: "none",
-      eta_minutes: null,
-      title: "Risco baixo",
-      detail: "Sem tendência relevante",
-      source: type,
-      score: 0,
-    };
-  }
-
-  const closeMargin = type === "temperature" ? 1.2 : 8;
-  const closeToLimit = distance <= closeMargin;
-
-  if (etaMinutes <= 45 && closeToLimit) {
-    return {
-      active: true,
-      severity: "high",
-      eta_minutes: Math.max(1, Math.round(etaMinutes)),
-      title: "Risco elevado",
-      detail: `${getTrendDirectionLabel(direction, type)} · possível alerta em ~${Math.max(
-        1,
-        Math.round(etaMinutes)
-      )} min`,
-      source: type,
-      score: 90,
-    };
-  }
-
-  if (etaMinutes <= 120 && closeToLimit) {
-    return {
-      active: true,
-      severity: "medium",
-      eta_minutes: Math.max(1, Math.round(etaMinutes)),
-      title: "Risco moderado",
-      detail: `${getTrendDirectionLabel(direction, type)} · aproximação ao limite`,
-      source: type,
-      score: 65,
-    };
-  }
-
-  return {
-    active: false,
-    severity: "none",
-    eta_minutes: null,
-    title: "Risco baixo",
-    detail: "Sem tendência relevante",
-    source: type,
-    score: 0,
-  };
-}
-
-function getPredictiveStatus(readings, config) {
-  const tempSignal = buildPredictiveSignal({
-    readings,
-    valueKey: "temperature",
-    lowLimit: parseNumber(config?.temp_low_c),
-    highLimit: parseNumber(config?.temp_high_c),
-    type: "temperature",
-  });
-
-  const humSignal = buildPredictiveSignal({
-    readings,
-    valueKey: "humidity",
-    lowLimit: parseNumber(config?.hum_low),
-    highLimit: parseNumber(config?.hum_high),
-    type: "humidity",
-  });
-
-  const best = [tempSignal, humSignal].sort((a, b) => b.score - a.score)[0];
-
-  if (!readings?.length) {
-  return {
-    level: "unknown",
-    title: "Predição indisponível",
-    detail: "Sem leituras recentes suficientes para calcular tendência.",
-    chip: "Sem dados",
-    source: "none",
-    source_label: "Sem dados recentes",
-    eta_minutes: null,
-    score: 0,
-  };
-}
-
-if (!best || best.score <= 0) {
-  return {
-    level: "low",
-    title: "Risco baixo",
-    detail: "Sem tendência relevante nas últimas leituras recentes.",
-    chip: "Baixo",
-    source: "none",
-    source_label: "Sem variável crítica",
-    eta_minutes: null,
-    score: 0,
-  };
-}
-
-  const isTemperature = best.source === "temperature";
-
-  if (best.severity === "high") {
-    return {
-      level: "high",
-      title: best.title,
-      detail: best.detail,
-      chip: "Elevado",
-      source: best.source,
-      source_label: isTemperature
-        ? "Variável crítica: Temperatura"
-        : "Variável crítica: Humidade",
-      eta_minutes: best.eta_minutes,
-      score: best.score,
-    };
-  }
-
-  return {
-    level: "medium",
-    title: best.title,
-    detail: best.detail,
-    chip: "Moderado",
-    source: best.source,
-    source_label: isTemperature
-      ? "Variável crítica: Temperatura"
-      : "Variável crítica: Humidade",
-    eta_minutes: best.eta_minutes,
-    score: best.score,
-  };
-}
-
-function getOperationalInsights({
-  device,
-  config,
-  communicationHealth,
-  predictiveStatus,
-}) {
-  const insights = [];
-
-  const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
-  const isOnline = device?.online === true;
-  const isLongOffline = !isOnline || lastSeenSeconds > 3600;
-
-  if (isLongOffline) {
-    insights.push({
-      title: "Comunicação interrompida",
-      detail:
-        lastSeenSeconds > 86400
-          ? `Sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias.`
-          : "Sem comunicação recente com o equipamento.",
-      tone: "bad",
-    });
-
-    insights.push({
-      title: "Tempo real suspenso",
-      detail: "Últimos valores disponíveis apenas como histórico.",
-      tone: "warn",
-    });
-
-    return insights.slice(0, 3);
-  }
-
-  const temp = parseNumber(device?.last_temperature);
-  const hum = parseNumber(device?.last_humidity);
-  const tempLow = parseNumber(config?.temp_low_c);
-  const tempHigh = parseNumber(config?.temp_high_c);
-  const humLow = parseNumber(config?.hum_low);
-  const humHigh = parseNumber(config?.hum_high);
-
-  if (Number.isFinite(temp) && Number.isFinite(tempHigh) && temp > tempHigh) {
-    insights.push({
-      title: "Temperatura acima do limite",
-      detail: `Valor atual ${formatValue(temp, " °C")} face ao máximo configurado de ${formatValue(tempHigh, " °C")}.`,
-      tone: "warn",
-    });
-  } else if (Number.isFinite(temp) && Number.isFinite(tempLow) && temp < tempLow) {
-    insights.push({
-      title: "Temperatura abaixo do limite",
-      detail: `Valor atual ${formatValue(temp, " °C")} face ao mínimo configurado de ${formatValue(tempLow, " °C")}.`,
-      tone: "warn",
-    });
-  }
-
-  if (Number.isFinite(hum) && Number.isFinite(humHigh) && hum > humHigh) {
-    insights.push({
-      title: "Humidade acima do limite",
-      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao máximo configurado de ${formatValue(humHigh, " %", 0)}.`,
-      tone: "warn",
-    });
-  } else if (Number.isFinite(hum) && Number.isFinite(humLow) && hum < humLow) {
-    insights.push({
-      title: "Humidade abaixo do limite",
-      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao mínimo configurado de ${formatValue(humLow, " %", 0)}.`,
-      tone: "warn",
-    });
-  }
-
-  if (communicationHealth?.label === "Instável") {
-    insights.push({
-      title: "Comunicação instável",
-      detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
-      tone: "warn",
-    });
-  } else if (communicationHealth?.label === "Com falhas") {
-    insights.push({
-      title: "Pequenas falhas de comunicação",
-      detail: communicationHealth?.summary || "A comunicação continua aceitável.",
-      tone: "warn",
-    });
-  }
-
-  if (predictiveStatus?.level === "high") {
-    insights.push({
-      title: "Risco preditivo elevado",
-      detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
-      tone: "bad",
-    });
-  } else if (predictiveStatus?.level === "medium") {
-    insights.push({
-      title: "Risco preditivo moderado",
-      detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
-      tone: "warn",
-    });
-  }
-
-  if (!insights.length) {
-    insights.push({
-      title: "Operação dentro do esperado",
-      detail: "Sem desvios críticos detetados neste momento.",
-      tone: "good",
-    });
-  }
-
-  return insights.slice(0, 3);
-}
-
-function normalizeAlertRows(payload) {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.alerts)
-    ? payload.alerts
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload?.events)
-    ? payload.events
-    : [];
-
-  return rows.map(normalizeAlertEvent);
-}
-
-function normalizeAlertType(value) {
-  const s = String(value || "").toLowerCase();
-  if (s.includes("hum")) return "humidity";
-  if (s.includes("temp")) return "temperature";
-  if (s.includes("offline") || s.includes("wifi") || s.includes("connection")) return "offline";
-  if (s.includes("system") || s.includes("ack")) return "system";
-  return value || "system";
-}
-
-function normalizeAlertLevel(value) {
-  const s = String(value || "").toLowerCase();
-  if (s.includes("ack")) return "ack";
-  if (s.includes("normal") || s.includes("recover") || s.includes("resolved")) return "normal";
-  if (s.includes("alarm") || s.includes("critical")) return "alarm";
-  if (s.includes("alert") || s.includes("high") || s.includes("low")) return "alert";
-  return value || "alert";
-}
-
-function normalizeAlertState(value) {
-  const s = String(value || "").toLowerCase();
-  if (s.includes("high") || s.includes("above") || s.includes("max") || s.includes("alta")) {
-    return "high";
-  }
-  if (s.includes("low") || s.includes("below") || s.includes("min") || s.includes("baixa")) {
-    return "low";
-  }
-  return null;
-}
-
-function normalizeAlertEvent(item) {
-  if (!item) return item;
-  const eventDescriptor =
-    item.event_type ||
-    item.event ||
-    item.kind ||
-    item.reason ||
-    item.title ||
-    item.type ||
-    "";
-  const levelDescriptor = [
-    item.level,
-    item.severity,
-    item.status,
-    eventDescriptor,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return {
-    ...item,
-    type: normalizeAlertType(item.type || item.metric || item.variable || eventDescriptor),
-    level: normalizeAlertLevel(levelDescriptor),
-    state: item.state || item.direction || normalizeAlertState(`${eventDescriptor} ${item.status || ""}`),
-    created_at: item.created_at || item.timestamp || item.sent_at,
-    sent_at: item.sent_at || item.created_at || item.timestamp || null,
-    temperature: parseNumber(item.temperature ?? item.temp ?? item.value_temperature),
-    humidity: parseNumber(item.humidity ?? item.hum ?? item.value_humidity),
-  };
-}
-
-function getReadingAlertState(reading, config, key) {
-  const value = parseNumber(reading?.[key]);
-  const low =
-    key === "temperature"
-      ? parseNumber(config?.temp_low_c)
-      : parseNumber(config?.hum_low);
-  const high =
-    key === "temperature"
-      ? parseNumber(config?.temp_high_c)
-      : parseNumber(config?.hum_high);
-
-  if (value === null) return null;
-  if (high !== null && value >= high) return "high";
-  if (low !== null && value <= low) return "low";
-  return null;
-}
-
-function buildDerivedAlertEvent(reading, type, level, state, source) {
-  return {
-    id: `derived-${type}-${level}-${state || "state"}-${reading?.created_at || reading?.timestamp}`,
-    type,
-    level,
-    state,
-    source,
-    created_at: reading?.created_at || new Date(reading.timestamp).toISOString(),
-    sent_at: reading?.sent_at || reading?.created_at || null,
-    temperature: parseNumber(reading?.temperature),
-    humidity: parseNumber(reading?.humidity),
-    derived: true,
-  };
-}
-
-function buildCurrentReadingFromDevice(device) {
-  if (!device) return null;
-  const timestamp = device?.last_seen ? new Date(device.last_seen).getTime() : Date.now();
-
-  return {
-    created_at: device?.last_seen || new Date(timestamp).toISOString(),
-    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-    temperature: parseNumber(device?.last_temperature),
-    humidity: parseNumber(device?.last_humidity),
-    device_status: device?.status,
-    alarm_ack: String(device?.status || "").toLowerCase().includes("ack"),
-    current_snapshot: true,
-  };
-}
-
-function deriveAlertEventsFromReadings(readings, config) {
-  const ordered = [...(readings || [])]
-    .filter((item) => Number.isFinite(item?.timestamp))
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const events = [];
-  const activeState = {
-    temperature: null,
-    humidity: null,
-  };
-  let ackActive = false;
-
-  ordered.forEach((reading) => {
-    ["temperature", "humidity"].forEach((type) => {
-      const nextState = getReadingAlertState(reading, config, type);
-      const previousState = activeState[type];
-
-      if (nextState && nextState !== previousState) {
-        events.push(buildDerivedAlertEvent(reading, type, "alert", nextState, "reading"));
-      }
-
-      if (!nextState && previousState) {
-        events.push(buildDerivedAlertEvent(reading, type, "normal", previousState, "reading"));
-      }
-
-      activeState[type] = nextState;
-    });
-
-    const readingAck =
-      reading?.alarm_ack === true ||
-      String(reading?.alarm_ack || "").toLowerCase() === "true" ||
-      String(reading?.device_status || reading?.status || "").toLowerCase().includes("ack");
-
-    if (readingAck && !ackActive) {
-      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status"));
-    }
-
-    ackActive = readingAck;
-  });
-
-  return events;
-}
-
-function deriveCurrentAlertEvents(device, config, existingEvents) {
-  const reading = buildCurrentReadingFromDevice(device);
-  if (!reading) return [];
-
-  const events = [];
-
-  ["temperature", "humidity"].forEach((type) => {
-    const currentState = getReadingAlertState(reading, config, type);
-    if (!currentState) return;
-
-    const latestForType = [...(existingEvents || [])]
-      .filter((item) => String(item?.type || "").toLowerCase() === type)
-      .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))[0];
-    const alreadyOpen =
-      String(latestForType?.level || "").toLowerCase() === "alert" &&
-      String(latestForType?.state || "").toLowerCase() === currentState;
-
-    if (!alreadyOpen) {
-      events.push(buildDerivedAlertEvent(reading, type, "alert", currentState, "current_state"));
-    }
-  });
-
-  return events;
-}
-
-function getAlertTimestamp(item) {
-  const ts = new Date(item?.sent_at || item?.created_at).getTime();
-  return Number.isFinite(ts) ? ts : 0;
-}
-
-function getAlertDedupeKey(item) {
-  const bucket = Math.floor(getAlertTimestamp(item) / 120000);
-  return [
-    String(item?.type || "system").toLowerCase(),
-    String(item?.level || "").toLowerCase(),
-    String(item?.state || item?.direction || "").toLowerCase(),
-    bucket,
-  ].join("|");
-}
-
-function mergeAlertEvents(backendAlerts, derivedAlerts) {
-  const merged = [];
-  const seen = new Set();
-
-  [...normalizeAlertRows(backendAlerts), ...(derivedAlerts || [])]
-    .filter(Boolean)
-    .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
-    .forEach((item) => {
-      const key = getAlertDedupeKey(item);
-      if (seen.has(key)) return;
-      seen.add(key);
-      merged.push(item);
-    });
-
-  return merged;
-}
-
-function getDevicePriority(device) {
-  return getStatusInfo(
-    getEffectiveStatus(device, parseNumber(device?.config?.send_interval_s))
-  ).priority;
-}
-
-function sortDevices(devices) {
-  return [...(devices || [])].sort((a, b) => {
-    const priorityDiff = getDevicePriority(a) - getDevicePriority(b);
-    if (priorityDiff !== 0) return priorityDiff;
-
-    const aSeen = a?.last_seen ? new Date(a.last_seen).getTime() : 0;
-    const bSeen = b?.last_seen ? new Date(b.last_seen).getTime() : 0;
-    if (bSeen !== aSeen) return bSeen - aSeen;
-
-    const aName = String(a?.name || a?.device_id || "");
-    const bName = String(b?.name || b?.device_id || "");
-    return aName.localeCompare(bName, "pt");
-  });
-}
-
-function getBestInitialDeviceId(devices, currentSelectedId) {
-  const safeDevices = devices || [];
-  if (!safeDevices.length) return null;
-
-  if (currentSelectedId && safeDevices.some((d) => d.device_id === currentSelectedId)) {
-    return currentSelectedId;
-  }
-
-  if (typeof window !== "undefined") {
-    const storedId = window.localStorage.getItem(DEVICE_STORAGE_KEY);
-    if (storedId && safeDevices.some((d) => d.device_id === storedId)) {
-      return storedId;
-    }
-  }
-
-  const ordered = sortDevices(safeDevices);
-  return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
-}
-
-function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
-  if (!active || !payload || !payload.length) return null;
-
-  const point = payload[0]?.payload;
-  const value = payload[0]?.value;
-
-  return (
-    <div style={styles.tooltip}>
-      <div style={styles.tooltipTitle}>
-        {formatDateTime(point?.created_at || label)}
-      </div>
-      <div style={styles.tooltipValue}>
-        {value === null || value === undefined
-          ? "Sem leitura neste intervalo"
-          : (
-            <>
-              Valor: <strong>{formatValue(value, unit, digits)}</strong>
-            </>
-          )}
-      </div>
-    </div>
-  );
-}
-
-function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
-  const toneMap = {
-    neutral: {
-      border: "#223047",
-      bg: "#0f172a",
-      value: "#f8fafc",
-      accent: "#94a3b8",
-      chipBg: "#111827",
-    },
-    good: {
-      border: "#223047",
-      bg: "#0f172a",
-      value: "#f8fafc",
-      accent: "#22c55e",
-      chipBg: "#132219",
-    },
-    warn: {
-      border: "#223047",
-      bg: "#0f172a",
-      value: "#f8fafc",
-      accent: "#f59e0b",
-      chipBg: "#2a2112",
-    },
-    bad: {
-      border: "#223047",
-      bg: "#0f172a",
-      value: "#f8fafc",
-      accent: "#ef4444",
-      chipBg: "#2a1316",
-    },
-  };
-
-  const selected = toneMap[tone] || toneMap.neutral;
-
-  return (
-    <div
-      style={{
-        ...styles.metricCard,
-        borderColor: selected.border,
-        background: selected.bg,
-      }}
-    >
-      <div style={styles.metricTopRow}>
-        <div style={styles.metricLabel}>{label}</div>
-        {accentLabel ? (
-          <span
-            style={{
-              ...styles.miniChip,
-              color: "#94a3b8",
-              borderColor: "transparent",
-              background: "#111827",
-            }}
-          >
-            {accentLabel}
-          </span>
-        ) : null}
-      </div>
-
-      <div
-        style={{
-          ...styles.metricValue,
-          color: tone === "warn" || tone === "bad" ? selected.accent : selected.value,
-        }}
-      >
-        {value}
-      </div>
-      {subvalue ? <div style={styles.metricSubvalue}>{subvalue}</div> : null}
-    </div>
-  );
-}
-
-function InfoItem({ label, value, valueColor }) {
-  return (
-    <div style={styles.infoItem}>
-      <span style={styles.infoLabel}>{label}</span>
-      <span style={{ ...styles.infoValue, color: valueColor || styles.infoValue.color }}>
-        {value}
-      </span>
-    </div>
-  );
 }
 
 function SmallStat({ label, value }) {
@@ -1438,2009 +53,1819 @@ function SmallStat({ label, value }) {
   );
 }
 
-function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
-  const toneStyles = getHealthToneStyles(tone);
+function FieldHelp({ children }) {
+  return <div style={styles.fieldHelp}>{children}</div>;
+}
 
+function ConfigField({ label, help, children }) {
   return (
-    <div style={styles.healthCard}>
-      <div style={styles.healthTop}>
-        <div style={styles.healthLabel}>{label}</div>
-        {badge ? (
-          <span
-            style={{
-              ...styles.healthBadge,
-              background: toneStyles.badgeBg,
-              borderColor: toneStyles.badgeBorder,
-              color: toneStyles.valueColor,
-            }}
-          >
-            {badge}
-          </span>
-        ) : null}
-      </div>
-      <div style={{ ...styles.healthValue, color: toneStyles.valueColor }}>
-        {value}
-      </div>
-      <div style={styles.healthHint}>{hint}</div>
+    <div style={styles.configField}>
+      <div style={styles.configFieldLabel}>{label}</div>
+      {children}
+      <FieldHelp>{help}</FieldHelp>
     </div>
   );
 }
 
-function getHealthToneStyles(tone) {
-  if (tone === "good") {
-    return {
-      valueColor: "#22c55e",
-      badgeBg: "#132219",
-      badgeBorder: "transparent",
-    };
-  }
-
-  if (tone === "warn") {
-    return {
-      valueColor: "#f59e0b",
-      badgeBg: "#2a2112",
-      badgeBorder: "transparent",
-    };
-  }
-
-  if (tone === "bad") {
-    return {
-      valueColor: "#ef4444",
-      badgeBg: "#2a1316",
-      badgeBorder: "transparent",
-    };
-  }
-
-  return {
-    valueColor: "#cbd5e1",
-    badgeBg: "#162033",
-    badgeBorder: "transparent",
-  };
-}
-
-function DeviceSelector({
-  devices,
-  selectedDeviceId,
-  onSelect,
-  isMobile,
-}) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  const orderedDevices = useMemo(() => sortDevices(devices), [devices]);
-  const selectedDevice =
-    orderedDevices.find((item) => item.device_id === selectedDeviceId) ||
-    orderedDevices[0] ||
-    null;
-
-  const selectedStatusInfo = getStatusInfo(
-    getEffectiveStatus(selectedDevice, parseNumber(selectedDevice?.config?.send_interval_s))
-  );
-
-  const stats = useMemo(() => {
-    const all = orderedDevices.length;
-    const offline = orderedDevices.filter(
-      (item) =>
-        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) === "OFFLINE"
-    ).length;
-
-    const alerts = orderedDevices.filter((item) => {
-      const status = String(
-        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) || ""
-      ).toLowerCase();
-
-      return status.includes("alert") || status.includes("alarm") || status.includes("critical");
-    }).length;
-
-    const normal = Math.max(0, all - offline - alerts);
-
-    return { all, offline, alerts, normal };
-  }, [orderedDevices]);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(event.target)) {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  if (!orderedDevices.length) {
-    return (
-      <section style={styles.card}>
-        <div style={styles.cardHeader}>
-          <div>
-            <div style={styles.cardTitle}>Dispositivo</div>
-            <div style={styles.cardHint}>Nenhum dispositivo disponível</div>
-          </div>
-        </div>
-
-        <div style={styles.emptyState}>Nenhum dispositivo encontrado.</div>
-      </section>
-    );
-  }
-
+function TogglePill({ checked, onClick, label, disabled = false }) {
   return (
-    <section style={styles.card}>
-      <div style={styles.cardHeader}>
-        <div>
-          <div style={styles.cardTitle}>Dispositivos monitorizados</div>
-          <div style={styles.cardHint}>
-            Seleção do equipamento em monitorização
-          </div>
-        </div>
-
-        <div style={styles.selectorSummaryPills}>
-          <span style={styles.selectorSummaryPill}>{stats.all} total</span>
-          <span style={styles.selectorSummaryPill}>{stats.normal} normal</span>
-          <span style={styles.selectorSummaryPill}>{stats.alerts} alerta</span>
-          <span style={styles.selectorSummaryPill}>{stats.offline} offline</span>
-        </div>
-      </div>
-
-      <div ref={wrapRef} style={styles.selectorWrap}>
-        <button
-          type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          style={styles.selectorMainButton}
-        >
-          <div style={styles.selectorMainLeft}>
-            <div
-              style={{
-                ...styles.selectorStatusDot,
-                background: selectedStatusInfo.dot,
-                boxShadow: `0 0 10px ${selectedStatusInfo.dot}`,
-              }}
-            />
-            <div style={styles.selectorMainText}>
-              <div style={styles.selectorMainName}>
-                {selectedDevice?.name || selectedDevice?.device_id || "Selecionar dispositivo"}
-              </div>
-              <div style={styles.selectorMainMeta}>
-                {selectedDevice?.location || "Localização por definir"} ·{" "}
-                {formatValue(selectedDevice?.last_temperature, " °C")} ·{" "}
-                {formatValue(selectedDevice?.last_humidity, " %")}
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.selectorMainRight}>
-            <div
-              style={{
-                ...styles.selectorMainStatus,
-                color: selectedStatusInfo.color,
-                background: selectedStatusInfo.soft,
-                borderColor: "transparent",
-              }}
-            >
-              {selectedStatusInfo.label}
-            </div>
-
-            <div
-              style={{
-                ...styles.selectorChevron,
-                transform: open ? "rotate(180deg)" : "rotate(0deg)",
-              }}
-            >
-              ▼
-            </div>
-          </div>
-        </button>
-
-        {open ? (
-          <div
-            style={{
-              ...styles.selectorDropdown,
-              maxHeight: isMobile ? "420px" : "360px",
-            }}
-          >
-            {orderedDevices.map((item) => {
-              const info = getStatusInfo(
-                getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s))
-              );
-              const active = item.device_id === selectedDeviceId;
-
-              return (
-                <button
-                  key={item.device_id}
-                  type="button"
-                  onClick={() => {
-                    onSelect(item.device_id);
-                    setOpen(false);
-                  }}
-                  style={{
-                    ...styles.selectorOption,
-                    ...(active ? styles.selectorOptionActive : {}),
-                  }}
-                >
-                  <div style={styles.selectorOptionLeft}>
-                    <div
-                      style={{
-                        ...styles.selectorOptionDot,
-                        background: info.dot,
-                      }}
-                    />
-                    <div style={styles.selectorOptionText}>
-                      <div style={styles.selectorOptionName}>
-                        {item?.name || item?.device_id}
-                      </div>
-                      <div style={styles.selectorOptionMeta}>
-                        {item?.location || "Localização por definir"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={styles.selectorOptionRight}>
-                    <div style={styles.selectorOptionTemp}>
-                      {formatValue(item?.last_temperature, " °C")}
-                    </div>
-                    <div
-                      style={{
-                        ...styles.selectorOptionStatus,
-                        color: info.color,
-                        background: info.soft,
-                        borderColor: "transparent",
-                      }}
-                    >
-                      {info.label}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function AlertRow({ item }) {
-  const levelInfo = getAlertLevelInfo(item?.level);
-
-  const typeMap = {
-    temperature: "Temperatura",
-    humidity: "Humidade",
-    offline: "Ligação",
-    system: "Sistema",
-  };
-
-  const typeLabel = typeMap[String(item?.type || "").toLowerCase()] || "Evento";
-  const stateLabel =
-    item?.state === "high"
-      ? "acima do limite"
-      : item?.state === "low"
-      ? "abaixo do limite"
-      : "";
-  const eventType = stateLabel ? `${typeLabel} ${stateLabel}` : typeLabel;
-
-  return (
-    <div style={styles.alertRow}>
-      <div style={styles.alertRowTop}>
-        <div style={styles.alertRowTitle}>{eventType}</div>
-        <span
-          style={{
-            ...styles.alertBadge,
-            color: levelInfo.color,
-            background: levelInfo.bg,
-            borderColor: "transparent",
-          }}
-        >
-          {levelInfo.label}
-        </span>
-      </div>
-
-      <div style={styles.alertRowMeta}>
-        <span>{formatDateTime(item?.sent_at || item?.created_at)}</span>
-
-        {item?.temperature !== null && item?.temperature !== undefined ? (
-          <span>Temp: {formatValue(item.temperature, " °C")}</span>
-        ) : null}
-
-        {item?.humidity !== null && item?.humidity !== undefined ? (
-          <span>Hum: {formatValue(item.humidity, " %", 0)}</span>
-        ) : null}
-
-        {item?.derived ? <span>Reconstruído pela leitura</span> : null}
-      </div>
-    </div>
-  );
-}
-
-function UnifiedPredictionCard({ prediction, isOffline }) {
-  const toneMap = {
-    unknown: {
-      border: "#243042",
-      bg: "linear-gradient(135deg, rgba(11,18,32,0.98), rgba(15,23,42,0.96))",
-      value: "#f8fafc",
-      badgeBg: "#162033",
-      badgeBorder: "transparent",
-      badgeColor: "#94a3b8",
-    },
-    low: {
-      border: "#24513a",
-      bg: "linear-gradient(135deg, rgba(10,24,22,0.98), rgba(15,23,42,0.96))",
-      value: "#d1fae5",
-      badgeBg: "#132219",
-      badgeBorder: "transparent",
-      badgeColor: "#22c55e",
-    },
-    medium: {
-      border: "#4b3a1d",
-      bg: "linear-gradient(135deg, rgba(28,24,15,0.98), rgba(15,23,42,0.96))",
-      value: "#fde68a",
-      badgeBg: "#2a2112",
-      badgeBorder: "transparent",
-      badgeColor: "#f59e0b",
-    },
-    high: {
-      border: "#4b1f24",
-      bg: "linear-gradient(135deg, rgba(32,14,18,0.98), rgba(15,23,42,0.96))",
-      value: "#fecaca",
-      badgeBg: "#2a1316",
-      badgeBorder: "transparent",
-      badgeColor: "#ef4444",
-    },
-  };
-
-  const selected = toneMap[prediction?.level] || toneMap.unknown;
-
-  return (
-    <section
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
       style={{
-        ...styles.smartSurfaceCard,
-        borderColor: selected.border,
-        background: selected.bg,
+        ...styles.togglePill,
+        ...(checked ? styles.togglePillActive : styles.togglePillInactive),
+        ...(disabled ? styles.disabledButton : {}),
       }}
     >
-      <div style={styles.smartSurfaceHeader}>
-        <div>
-          <div style={styles.smartSurfaceEyebrow}>Análise preditiva</div>
-          <div style={styles.cardTitle}>Tendência de risco</div>
-          <div style={styles.smartSurfaceHint}>
-            Leitura preditiva resumida do comportamento recente
-          </div>
-        </div>
-
-        <div
-          style={{
-            ...styles.healthBadge,
-            background: selected.badgeBg,
-            borderColor: selected.badgeBorder,
-            color: selected.badgeColor,
-          }}
-        >
-          {prediction?.chip || "Sem dados"}
-        </div>
-      </div>
-
-      <div style={styles.smartSignalLine} />
-
-      <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
-        {prediction?.title || "Predição indisponível"}
-      </div>
-
-      <div style={styles.predictionMainDetail}>
-        {prediction?.detail || "Sem dados recentes para prever tendência."}
-      </div>
-
-      <div style={styles.predictionSourceLabel}>
-        {prediction?.source_label || "Sem dados recentes"}
-      </div>
-
-      {isOffline ? (
-        <div style={styles.predictionOfflineNoteGlobal}>
-          Predição suspensa até voltar online.
-        </div>
-      ) : null}
-    </section>
+      {label}
+    </button>
   );
 }
 
-function OperationalInsightCard({ items }) {
-  return (
-    <section style={styles.card}>
-      <div style={styles.cardHeader}>
-        <div>
-          <div style={styles.cardTitle}>Leitura operacional</div>
-          <div style={styles.cardHint}>
-            Leitura simples para decidir rapidamente o que precisa de atenção
-          </div>
-        </div>
-      </div>
+const HIDDEN_ADMIN_EMAILS = ["ricardomfm.25@gmail.com"];
 
-      <div style={styles.insightGrid}>
-        {items.map((item, index) => {
-          const toneStyles =
-            item.tone === "bad"
-              ? {
-                  border: "#4b1f24",
-                  bg: "#2a1316",
-                  title: "#fecaca",
-                }
-              : item.tone === "warn"
-              ? {
-                  border: "#4b3a1d",
-                  bg: "#2a2112",
-                  title: "#f59e0b",
-                }
-              : {
-                  border: "#223047",
-                  bg: "#0f172a",
-                  title: "#86efac",
-                };
-
-          return (
-            <div
-              key={`${item.title}-${index}`}
-              style={{
-                ...styles.insightCard,
-                borderColor: toneStyles.border,
-                background: toneStyles.bg,
-              }}
-            >
-              <div style={{ ...styles.insightTitle, color: toneStyles.title }}>
-                {item.title}
-              </div>
-              <div style={styles.insightDetail}>{item.detail}</div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-
-
-function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summary24h }) {
-  const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 88;
-  const noReadings24h = (summary24h?.totalReadings ?? 0) === 0;
-
-  let title = "Recomendação STS";
-  let detail = "Evitar aberturas prolongadas ajuda a estabilizar a temperatura e reduzir consumo.";
-  let tag = "Boas práticas";
-
-  if (isOffline) {
-    title = "Verificação recomendada";
-    detail = "Confirmar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
-    tag = "Dispositivo offline";
-  } else if (noReadings24h) {
-    title = "Sem leituras recentes";
-    detail = "Não existem dados suficientes nas últimas 24h para avaliar a operação.";
-    tag = "Sem dados";
-  } else if (lowCoverage || communicationHealth?.label === "Com falhas" || communicationHealth?.label === "Instável") {
-    title = "Atenção à comunicação";
-    detail = "Falhas frequentes podem atrasar alertas. Confirma a cobertura Wi-Fi junto ao equipamento.";
-    tag = "Comunicação";
-  } else if (String(statusInfo?.label || "").toLowerCase().includes("normal")) {
-    title = "Operação estável";
-    detail = "A estabilidade térmica ajuda a preservar qualidade, reduzir desperdício e controlar consumo.";
-    tag = "Operação";
-  }
+function isHiddenSystemAdmin(user) {
+  const email = String(user?.email || user?.user_email || user?.profile_email || "").toLowerCase();
+  const role = String(user?.role || "").toLowerCase();
+  const name = String(user?.full_name || user?.name || "").toLowerCase();
 
   return (
-    <section style={styles.smartInsightCard}>
-      <div style={styles.smartInsightTop}>
-        <div style={styles.smartInsightKicker}>STS Insight</div>
-        <div style={styles.smartInsightTag}>{tag}</div>
-      </div>
-      <div style={styles.smartInsightLine} />
-      <div style={styles.smartInsightTitle}>{title}</div>
-      <div style={styles.smartInsightDetail}>{detail}</div>
-    </section>
+    HIDDEN_ADMIN_EMAILS.includes(email) ||
+    (role === "super_admin" && name.includes("ricardo"))
   );
 }
 
-
-function DataChart({
-  title,
-  data,
-  dataKey,
-  unit,
-  minThreshold,
-  maxThreshold,
-  isMobile,
-  periodKey,
-  isOffline,
-}) {
-  const { min, max } = getSeriesMinMax(data, dataKey);
-  const yDomain = getChartDomain(data, dataKey, [minThreshold, maxThreshold]);
-  const { minPoint, maxPoint } = getReferencePoints(data, dataKey);
-  const yTicks =
-    dataKey === "temperature" ? getNiceTemperatureTicks(yDomain) : undefined;
-
-  const valueDigits = dataKey === "humidity" ? 0 : 1;
-  const yTickFormatter =
-    dataKey === "humidity"
-      ? (value) => `${Math.round(Number(value))}`
-      : (value) => `${Number(value).toFixed(1)}`;
-
-  const timeWindow = getPeriodWindow(periodKey);
-  const xTicks = getXAxisTicks(periodKey);
-  const hasData = data.some((item) => parseNumber(item?.[dataKey]) !== null);
-
-  return (
-    <div style={styles.chartCard}>
-      <div style={styles.chartHeader}>
-        <div>
-          <div style={styles.chartTitle}>{title}</div>
-          <div style={styles.chartSubtitle}>
-            Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
-          </div>
-          <div style={styles.chartHint}>
-            Intervalo exibido: {periodKey.toUpperCase()}
-          </div>
-          {isOffline ? (
-            <div style={styles.chartOfflineHint}>
-              Dispositivo offline · histórico preservado até à última leitura válida
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {!hasData ? (
-        <div style={styles.emptyChartState}>Sem leituras neste período.</div>
-      ) : (
-        <div style={styles.chartWrap}>
-          <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
-            <LineChart
-              data={data}
-              margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
-            >
-              <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
-
-              <XAxis
-                type="number"
-                dataKey="timestamp"
-                domain={[timeWindow.start, timeWindow.end]}
-                ticks={xTicks}
-                scale="time"
-                tickFormatter={(value) => formatShortTime(value, periodKey)}
-                stroke="#7c8aa0"
-                tick={{ fontSize: 12 }}
-                tickMargin={8}
-                minTickGap={24}
-              />
-
-              <YAxis
-                stroke="#7c8aa0"
-                tick={{ fontSize: 12 }}
-                domain={yDomain}
-                ticks={yTicks}
-                width={64}
-                tickMargin={8}
-                allowDecimals={dataKey === "temperature"}
-                tickFormatter={yTickFormatter}
-              />
-
-              <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
-
-              {minThreshold !== null && minThreshold !== undefined && (
-                <ReferenceLine
-                  y={Number(minThreshold)}
-                  stroke="#f59e0b"
-                  strokeDasharray="6 6"
-                />
-              )}
-
-              {maxThreshold !== null && maxThreshold !== undefined && (
-                <ReferenceLine
-                  y={Number(maxThreshold)}
-                  stroke="#ef4444"
-                  strokeDasharray="6 6"
-                />
-              )}
-
-              <Line
-                type="linear"
-                dataKey={dataKey}
-                stroke="#3b82f6"
-                strokeWidth={3}
-                dot={false}
-                activeDot={{ r: 4 }}
-                connectNulls={false}
-                isAnimationActive={false}
-              />
-
-              {minPoint && (
-                <ReferenceDot
-                  x={minPoint.timestamp}
-                  y={minPoint.value}
-                  r={4}
-                  fill="#facc15"
-                  stroke="none"
-                  label={{
-                    value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
-                    position: "bottom",
-                    fill: "#facc15",
-                    fontSize: 12,
-                  }}
-                />
-              )}
-
-              {maxPoint && (
-                <ReferenceDot
-                  x={maxPoint.timestamp}
-                  y={maxPoint.value}
-                  r={4}
-                  fill="#fb7185"
-                  stroke="none"
-                  label={{
-                    value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
-                    position: "top",
-                    fill: "#fb7185",
-                    fontSize: 12,
-                  }}
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BootScreen() {
-  return (
-    <main style={styles.bootPage}>
-      <div style={styles.bootWrap}>
-        <div style={styles.bootCircle}>
-          <div style={styles.bootSpinner} />
-          <div style={styles.bootCenter}>
-            <img src={STS_LOGO_SRC} alt="STS" style={styles.bootLogoImage} />
-          </div>
-        </div>
-
-        <div style={styles.bootText}>
-          A sincronizar dados mais recentes...
-        </div>
-      </div>
-    </main>
-  );
-}
-
-async function fetchJsonOrThrow(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-
-  const raw = await response.text();
-
-  let payload = null;
-  try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch {
-    payload = {
-      error: "Resposta inválida da API.",
-      details: raw?.slice?.(0, 300) || "",
-    };
-  }
-
-  if (!response.ok) {
-    throw new Error(payload?.error || `Erro API ${response.status}.`);
-  }
-
-  return payload;
-}
-
-export default function DashboardPage() {
+export default function AdminPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
-  const [period, setPeriod] = useState("24h");
-const [reportPeriod, setReportPeriod] = useState("24h");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [initialLoaded, setInitialLoaded] = useState(false);
-  const [savingClient, setSavingClient] = useState(false);
-  const [savingAdmin, setSavingAdmin] = useState(false);
-  const [deviceOverview, setDeviceOverview] = useState(null);
-const [alertsCollapsed, setAlertsCollapsed] = useState(false);
-
-  const [profile, setProfile] = useState(null);
-  const [devicePermissions, setDevicePermissions] = useState([]);
+  const [users, setUsers] = useState([]);
   const [devices, setDevices] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
-  const [device, setDevice] = useState(null);
-  const [readings, setReadings] = useState([]);
-  const [alerts, setAlerts] = useState([]);
+  const [deviceAccess, setDeviceAccess] = useState([]);
+  const [alertRecipients, setAlertRecipients] = useState([]);
+  const [profile, setProfile] = useState(null);
 
-  const [clientForm, setClientForm] = useState({
+  const [deviceSearch, setDeviceSearch] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [selectedDevice, setSelectedDevice] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedClientRole, setSelectedClientRole] = useState("viewer");
+
+  const [newUser, setNewUser] = useState({
+    full_name: "",
+    email: "",
+    password: "",
+    role: "viewer",
+  });
+
+  const [accessUserId, setAccessUserId] = useState("");
+  const [canEdit, setCanEdit] = useState(false);
+  const [passwordDraft, setPasswordDraft] = useState("");
+
+  const [deviceForm, setDeviceForm] = useState({
+    name: "",
+    location: "",
     temp_low_c: "",
     temp_high_c: "",
     hum_low: "",
     hum_high: "",
-  });
-
-  const [adminForm, setAdminForm] = useState({
-    name: "",
-    location: "",
     hyst_c: "",
     send_interval_s: "",
     display_standby_min: "",
   });
 
-  const [clientMessage, setClientMessage] = useState("");
-  const [adminMessage, setAdminMessage] = useState("");
-  const [pageError, setPageError] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("success");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [accessState, setAccessState] = useState("checking");
 
-  const [isMobile, setIsMobile] = useState(false);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [savingDevice, setSavingDevice] = useState(false);
+  const [savingAlertKey, setSavingAlertKey] = useState("");
+  const [savingUserRole, setSavingUserRole] = useState(false);
+  const [savingUserActive, setSavingUserActive] = useState(false);
+  const [savingPasswordPermission, setSavingPasswordPermission] = useState(false);
+  const [savingPasswordUpdate, setSavingPasswordUpdate] = useState(false);
+  const [deletingUser, setDeletingUser] = useState(false);
 
-  const requestInFlightRef = useRef(false);
-  const mountedRef = useRef(true);
-
-  const isSuperAdmin = profile?.role === "super_admin";
-  const isClientAdmin = profile?.role === "client_admin";
-
-  const canEditSelectedDevice = useMemo(() => {
-    const access = devicePermissions.find(
-      (item) => item.device_id === selectedDeviceId
-    );
-
-    if (isSuperAdmin) return true;
-    if (isClientAdmin) return Boolean(access?.can_edit);
-
-    return Boolean(access?.can_edit);
-  }, [devicePermissions, isSuperAdmin, isClientAdmin, selectedDeviceId]);
-
-  const chartReadings = useMemo(
-    () => buildTimeSeries(readings, period),
-    [readings, period]
+  const nonAdminUsers = useMemo(
+    () => users.filter((u) => u.role !== "super_admin"),
+    [users]
   );
 
+  const filteredDevices = useMemo(() => {
+    const search = deviceSearch.trim().toLowerCase();
+    if (!search) return devices;
+
+    return devices.filter((device) => {
+      const haystack = [
+        device.device_id,
+        device.name,
+        device.location,
+        device.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(search);
+    });
+  }, [devices, deviceSearch]);
+
+  const selectedDeviceData = useMemo(
+    () => devices.find((d) => d.device_id === selectedDevice) || null,
+    [devices, selectedDevice]
+  );
+
+  const selectedDeviceAccesses = useMemo(() => {
+    if (!selectedDevice) return [];
+    return deviceAccess.filter((row) => row.device_id === selectedDevice);
+  }, [deviceAccess, selectedDevice]);
+
+  const selectedDeviceClients = useMemo(() => {
+    return selectedDeviceAccesses
+      .map((access) => {
+        const user = users.find((u) => u.id === access.user_id);
+        if (!user || user.role === "super_admin") return null;
+        return {
+          ...user,
+          access,
+        };
+      })
+      .filter(Boolean);
+  }, [selectedDeviceAccesses, users]);
+
+  const filteredSelectedDeviceClients = useMemo(() => {
+    const search = clientSearch.trim().toLowerCase();
+    if (!search) return selectedDeviceClients;
+
+    return selectedDeviceClients.filter((client) => {
+      const haystack = [client.full_name, client.email, client.role]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [selectedDeviceClients, clientSearch]);
+
+  const selectedClient = useMemo(
+    () => users.find((u) => u.id === selectedClientId) || null,
+    [users, selectedClientId]
+  );
+
+  const visibleUsers = (users || []).filter((user) => !isHiddenSystemAdmin(user));
+
+
   useEffect(() => {
-    function handleResize() {
-      setIsMobile(window.innerWidth <= 768);
+    loadData({ showLoader: true });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDeviceData) {
+      setDeviceForm({
+        name: "",
+        location: "",
+        temp_low_c: "",
+        temp_high_c: "",
+        hum_low: "",
+        hum_high: "",
+        hyst_c: "",
+        send_interval_s: "",
+        display_standby_min: "",
+      });
+      return;
     }
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
+    const config = selectedDeviceData.config || {};
 
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    setDeviceForm({
+      name: selectedDeviceData.name || "",
+      location: selectedDeviceData.location || "",
+      temp_low_c: toInputValue(config.temp_low_c),
+      temp_high_c: toInputValue(config.temp_high_c),
+      hum_low: toInputValue(config.hum_low),
+      hum_high: toInputValue(config.hum_high),
+      hyst_c: toInputValue(config.hyst_c),
+      send_interval_s: toInputValue(config.send_interval_s),
+      display_standby_min: toInputValue(config.display_standby_min),
+    });
+  }, [selectedDeviceData]);
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+    setPasswordDraft("");
+    if (!selectedClient) {
+      setSelectedClientRole("viewer");
+      return;
+    }
+    setSelectedClientRole(selectedClient.role || "viewer");
+  }, [selectedClient]);
 
-  useEffect(() => {
-    if (!selectedDeviceId) return;
-    if (typeof window === "undefined") return;
+  async function loadData({ showLoader = false } = {}) {
+    if (showLoader) setLoading(true);
+    else setRefreshing(true);
 
-    window.localStorage.setItem(DEVICE_STORAGE_KEY, selectedDeviceId);
-  }, [selectedDeviceId]);
+    setMessage("");
+    setAccessState("checking");
 
-  const loadData = useCallback(
-    async ({ silent = false, syncForms = true } = {}) => {
-      if (requestInFlightRef.current) return;
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      requestInFlightRef.current = true;
-      setPageError("");
-
-      if (!silent && mountedRef.current) {
-        if (!initialLoaded) {
-          setLoading(true);
-        } else {
-          setRefreshing(true);
-        }
+      if (userError) throw userError;
+      if (!user) {
+        setAccessState("signed_out");
+        router.replace("/login");
+        return;
       }
 
-      try {
-        const {
-          data: { user },
-          error: sessionError,
-        } = await supabase.auth.getUser();
-
-        if (sessionError) throw sessionError;
-        if (!user) {
-          router.replace("/login");
-          return;
-        }
-
-        const [profileResponse, permissionsResponse] = await Promise.all([
-          supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-          supabase
-            .from("device_access")
-            .select("device_id, can_view, can_edit")
-            .eq("user_id", user.id),
-        ]);
-
-        if (profileResponse.error) {
-          console.warn("profile:", JSON.stringify(profileResponse.error, null, 2));
-          throw new Error("Não foi possível carregar o perfil do utilizador.");
-        }
-
-        if (permissionsResponse.error) {
-          console.warn("permissions:", JSON.stringify(permissionsResponse.error, null, 2));
-          throw new Error("Não foi possível carregar as permissões do utilizador.");
-        }
-
-        const profileData = profileResponse.data || null;
-        const permissionsData = permissionsResponse.data || [];
-
-        if (!profileData) {
-          throw new Error("O utilizador autenticado não tem perfil criado em public.profiles.");
-        }
-
-        if (!profileData.is_active) {
-          throw new Error("O teu utilizador está inativo.");
-        }
-
-        let devicesQuery = supabase
-          .from("devices")
+      const [
+        { data: profileData, error: profileError },
+        { data: profiles, error: profilesError },
+        { data: devicesData, error: devicesError },
+        { data: accessData, error: accessError },
+        { data: alertData, error: alertError },
+      ] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+        supabase.from("profiles").select("*").order("full_name"),
+        supabase.from("devices").select("*").order("device_id"),
+        supabase.from("device_access").select("*"),
+        supabase
+          .from("device_alert_recipients")
           .select("*")
-          .order("device_id", { ascending: true });
+          .order("device_id")
+          .order("email"),
+      ]);
 
-        if (profileData.role !== "super_admin") {
-          const allowedDeviceIds = permissionsData
-            .filter((item) => item.can_view)
-            .map((item) => item.device_id);
+      if (profileError) throw profileError;
+      if (profilesError) throw profilesError;
+      if (devicesError) throw devicesError;
+      if (accessError) throw accessError;
+      if (alertError) throw alertError;
 
-          if (!allowedDeviceIds.length) {
-            if (!mountedRef.current) return;
+      if (!profileData || profileData.role !== "super_admin") {
+        setAccessState("denied");
+        router.replace("/");
+        return;
+      }
 
-            setProfile(profileData);
-            setDevicePermissions(permissionsData);
-            setDevices([]);
-            setInitialLoaded(true);
-            return;
-          }
+      const safeUsers = profiles || [];
+      const safeDevices = devicesData || [];
+      const safeAccesses = accessData || [];
 
-          devicesQuery = devicesQuery.in("device_id", allowedDeviceIds);
-        }
+      setProfile(profileData);
+      setAccessState("allowed");
+      setUsers(safeUsers);
+      setDevices(safeDevices);
+      setDeviceAccess(safeAccesses);
+      setAlertRecipients(alertData || []);
 
-        const { data: devicesData, error: devicesError } = await devicesQuery;
+      let nextSelectedDevice = selectedDevice;
+      if (!nextSelectedDevice && safeDevices.length > 0) {
+        nextSelectedDevice = safeDevices[0].device_id;
+        setSelectedDevice(nextSelectedDevice);
+      } else if (
+        nextSelectedDevice &&
+        !safeDevices.some((d) => d.device_id === nextSelectedDevice)
+      ) {
+        nextSelectedDevice = safeDevices[0]?.device_id || "";
+        setSelectedDevice(nextSelectedDevice);
+      }
 
-        if (devicesError) {
-          console.warn("devices list:", JSON.stringify(devicesError, null, 2));
-          throw new Error("Não foi possível carregar a lista de dispositivos.");
-        }
+      const deviceUsers = safeAccesses
+        .filter((row) => row.device_id === nextSelectedDevice)
+        .map((row) => row.user_id)
+        .filter((userId) => {
+          const user = safeUsers.find((u) => u.id === userId);
+          return user && user.role !== "super_admin" && !isHiddenSystemAdmin(user);
+        });
 
-        const safeDevices = devicesData || [];
-        const nextSelectedDeviceId = getBestInitialDeviceId(safeDevices, selectedDeviceId);
+      if (!selectedClientId && deviceUsers.length > 0) {
+        setSelectedClientId(deviceUsers[0]);
+      } else if (
+        selectedClientId &&
+        !safeUsers.some((u) => u.id === selectedClientId)
+      ) {
+        setSelectedClientId(deviceUsers[0] || "");
+      } else if (
+        selectedClientId &&
+        nextSelectedDevice &&
+        !deviceUsers.includes(selectedClientId)
+      ) {
+        setSelectedClientId(deviceUsers[0] || "");
+      }
 
-        const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.all([
-          nextSelectedDeviceId
-            ? supabase
-                .from("devices")
-                .select("*")
-                .eq("device_id", nextSelectedDeviceId)
-                .limit(1)
-                .maybeSingle()
-            : Promise.resolve({ data: null, error: null }),
+      if (!accessUserId && safeUsers.some((u) => u.role !== "super_admin")) {
+        const firstUser = safeUsers.find((u) => u.role !== "super_admin");
+        setAccessUserId(firstUser?.id || "");
+      } else if (
+        accessUserId &&
+        !safeUsers.some((u) => u.id === accessUserId)
+      ) {
+        const firstUser = safeUsers.find((u) => u.role !== "super_admin");
+        setAccessUserId(firstUser?.id || "");
+      }
+    } catch (error) {
+      setAccessState("error");
+      setMessage(error?.message || "Erro ao carregar dados de administraÃ§Ã£o.");
+      setMessageType("error");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
 
-          nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/overview`).catch((error) => {
-                console.warn("overview:", error);
-                return null;
-              })
-            : Promise.resolve(null),
+  function getUserAlertRow(userId, deviceId) {
+    return (
+      alertRecipients.find(
+        (row) => row.user_id === userId && row.device_id === deviceId
+      ) || null
+    );
+  }
 
-          nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
-            : Promise.resolve([]),
+  async function createUser() {
+    const full_name = newUser.full_name.trim();
+    const email = newUser.email.trim().toLowerCase();
+    const password = newUser.password;
+    const role = newUser.role;
 
-          nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`).catch((error) => {
-                console.warn("alerts:", error);
-                return [];
-              })
-            : Promise.resolve([]),
-        ]);
+    if (!full_name || !email || !password) {
+      setMessage("Preenche nome, email e password.");
+      setMessageType("error");
+      return;
+    }
 
-        if (deviceResponse?.error) {
-          console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
-          throw new Error("Não foi possível carregar o dispositivo selecionado.");
-        }
+    setCreatingUser(true);
+    setMessage("");
 
-        const baseDeviceData = deviceResponse?.data || null;
+    try {
+      const res = await fetch("/api/admin/create-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          full_name,
+          email,
+          password,
+          role,
+          can_change_password: false,
+        }),
+      });
 
-        const deviceData = baseDeviceData
-          ? {
-              ...baseDeviceData,
-              last_temperature:
-                overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
-              last_humidity:
-                overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
-              status:
-                overviewData?.status
-                  ? String(overviewData.status).toUpperCase()
-                  : baseDeviceData?.status,
-              online: overviewData?.online ?? baseDeviceData?.online ?? null,
-              last_seen_seconds:
-                overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
-              communication_health: overviewData?.communication_health || null,
-              predictive_status: overviewData?.predictive_status || null,
-              telemetry_seq:
-                overviewData?.telemetry_seq ?? baseDeviceData?.telemetry_seq ?? null,
-              buffer_count:
-                overviewData?.buffer_count ?? baseDeviceData?.buffer_count ?? null,
-              post_ok_count:
-                overviewData?.post_ok_count ?? baseDeviceData?.post_ok_count ?? null,
-              post_fail_count:
-                overviewData?.post_fail_count ?? baseDeviceData?.post_fail_count ?? null,
-              boot_count:
-                overviewData?.boot_count ?? baseDeviceData?.boot_count ?? null,
-              reset_reason:
-                overviewData?.reset_reason ?? baseDeviceData?.reset_reason ?? null,
-              clock_synced:
-                overviewData?.clock_synced ?? baseDeviceData?.clock_synced ?? null,
-              clock_sync_age_s:
-                overviewData?.clock_sync_age_s ?? baseDeviceData?.clock_sync_age_s ?? null,
-              alerts_24h: overviewData?.alerts_24h ?? 0,
-              total_readings_24h: overviewData?.total_readings_24h ?? 0,
-              last_seen:
-                baseDeviceData?.last_seen ||
-                (overviewData?.last_seen_seconds !== null &&
-                overviewData?.last_seen_seconds !== undefined
-                  ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
-                  : baseDeviceData?.last_seen),
-            }
-          : null;
+      const data = await res.json();
 
-        const readingsData = (historyRows || [])
-          .map((item) => {
-            const timestamp = new Date(item.created_at).getTime();
+      if (!res.ok) {
+        setMessage(data?.error || "Erro ao criar utilizador.");
+        setMessageType("error");
+        return;
+      }
 
-            return {
-              ...item,
-              temperature: parseNumber(item.temperature),
-              humidity: parseNumber(item.humidity),
-              timestamp: Number.isFinite(timestamp) ? timestamp : null,
-            };
+      setMessage("Utilizador criado com sucesso.");
+      setMessageType("success");
+
+      setNewUser({
+        full_name: "",
+        email: "",
+        password: "",
+        role: "viewer",
+      });
+
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro inesperado ao criar utilizador.");
+      setMessageType("error");
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  async function updateSelectedClientRole() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    if (!["viewer", "client_admin"].includes(selectedClientRole)) {
+      setMessage("Role invÃ¡lido.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingUserRole(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          role: selectedClientRole,
+        })
+        .eq("id", selectedClient.id);
+
+      if (error) throw error;
+
+      setMessage("Role atualizada com sucesso.");
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar role.");
+      setMessageType("error");
+    } finally {
+      setSavingUserRole(false);
+    }
+  }
+
+  async function toggleSelectedClientActive() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingUserActive(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          is_active: !selectedClient.is_active,
+        })
+        .eq("id", selectedClient.id);
+
+      if (error) throw error;
+
+      setMessage(
+        !selectedClient.is_active
+          ? "Utilizador reativado com sucesso."
+          : "Utilizador desativado com sucesso."
+      );
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar estado do utilizador.");
+      setMessageType("error");
+    } finally {
+      setSavingUserActive(false);
+    }
+  }
+
+  async function toggleSelectedClientPasswordPermission() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingPasswordPermission(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          can_change_password: !Boolean(selectedClient.can_change_password),
+        })
+        .eq("id", selectedClient.id);
+
+      if (error) throw error;
+
+      setMessage(
+        !selectedClient.can_change_password
+          ? "Permissao para escolher nova password ativa."
+          : "Permissao para escolher nova password removida."
+      );
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar permissao de password.");
+      setMessageType("error");
+    } finally {
+      setSavingPasswordPermission(false);
+    }
+  }
+
+  async function updateSelectedClientPassword() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    if (passwordDraft.length < 8) {
+      setMessage("A nova password deve ter pelo menos 8 caracteres.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingPasswordUpdate(true);
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/admin/update-user-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: selectedClient.id,
+          password: passwordDraft,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(data?.error || "Erro ao atualizar password.");
+        setMessageType("error");
+        return;
+      }
+
+      setPasswordDraft("");
+      setMessage("Password atualizada com sucesso.");
+      setMessageType("success");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar password.");
+      setMessageType("error");
+    } finally {
+      setSavingPasswordUpdate(false);
+    }
+  }
+
+  async function deleteSelectedClient() {
+    if (!selectedClient) {
+      setMessage("Seleciona um cliente deste dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Remover totalmente o utilizador "${selectedClient.full_name}"?\n\nEsta aÃ§Ã£o vai apagar:\n- login\n- perfil\n- acessos a dispositivos\n- preferÃªncias de alertas\n\nNÃ£o pode ser revertida.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingUser(true);
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: selectedClient.id,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(data?.error || "Erro ao remover utilizador.");
+        setMessageType("error");
+        return;
+      }
+
+      setMessage("Utilizador removido totalmente com sucesso.");
+      setMessageType("success");
+      setSelectedClientId("");
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao remover utilizador.");
+      setMessageType("error");
+    } finally {
+      setDeletingUser(false);
+    }
+  }
+
+  async function assignDevice() {
+    if (!accessUserId || !selectedDevice) {
+      setMessage("Seleciona utilizador e dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingAccess(true);
+    setMessage("");
+
+    try {
+      const existing = deviceAccess.find(
+        (row) => row.user_id === accessUserId && row.device_id === selectedDevice
+      );
+
+      if (existing) {
+        const { error } = await supabase
+          .from("device_access")
+          .update({
+            can_view: true,
+            can_edit: canEdit,
           })
-          .filter((item) => Number.isFinite(item.timestamp));
+          .eq("user_id", accessUserId)
+          .eq("device_id", selectedDevice);
 
-        const derivedAlerts = deriveAlertEventsFromReadings(
-          readingsData,
-          deviceData?.config ?? {}
-        );
-        const currentAlerts = deriveCurrentAlertEvents(
-          deviceData,
-          deviceData?.config ?? {},
-          [...normalizeAlertRows(alertsRows), ...derivedAlerts]
-        );
-        const alertsData = mergeAlertEvents(alertsRows, [
-          ...derivedAlerts,
-          ...currentAlerts,
-        ]);
+        if (error) throw error;
 
-        if (!mountedRef.current) return;
-
-        if (nextSelectedDeviceId && nextSelectedDeviceId !== selectedDeviceId) {
-          setSelectedDeviceId(nextSelectedDeviceId);
-        }
-
-        setProfile(profileData);
-        setDevicePermissions(permissionsData);
-        setDevices(safeDevices);
-        setDevice(deviceData);
-        setDeviceOverview(overviewData || null);
-        setReadings(readingsData);
-        setAlerts(alertsData);
-
-        if (syncForms && deviceData) {
-          const deviceConfig = deviceData?.config ?? {};
-
-          setClientForm({
-            temp_low_c: toInputValue(deviceConfig?.temp_low_c),
-            temp_high_c: toInputValue(deviceConfig?.temp_high_c),
-            hum_low: toInputValue(deviceConfig?.hum_low),
-            hum_high: toInputValue(deviceConfig?.hum_high),
-          });
-
-          setAdminForm({
-            name: deviceData?.name || "",
-            location: deviceData?.location || "",
-            hyst_c: toInputValue(deviceConfig?.hyst_c),
-            send_interval_s: toInputValue(deviceConfig?.send_interval_s),
-            display_standby_min: toInputValue(deviceConfig?.display_standby_min),
-          });
-        }
-
-        setInitialLoaded(true);
-      } catch (error) {
-        console.warn("loadData:", error);
-        if (mountedRef.current) {
-          setPageError(
-            error?.message || "Ocorreu um erro ao carregar os dados."
-          );
-        }
-      } finally {
-        requestInFlightRef.current = false;
-        if (mountedRef.current) {
-          setLoading(false);
-          setRefreshing(false);
-        }
+        setMessage("Acesso atualizado com sucesso.");
+        setMessageType("success");
+        await loadData();
+        return;
       }
-    },
-    [selectedDeviceId, supabase, router, initialLoaded]
-  );
 
-  useEffect(() => {
-    loadData({ syncForms: true });
+      const { error } = await supabase.from("device_access").insert({
+        user_id: accessUserId,
+        device_id: selectedDevice,
+        can_view: true,
+        can_edit: canEdit,
+      });
 
-    const interval = setInterval(() => {
-      loadData({ silent: true, syncForms: false });
-    }, AUTO_REFRESH_MS);
+      if (error) throw error;
 
-    return () => clearInterval(interval);
-  }, [loadData]);
-
-  useEffect(() => {
-    if (!selectedDeviceId) return;
-
-    const channel = supabase
-      .channel(`sts-live-${selectedDeviceId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "readings",
-          filter: `device_id=eq.${selectedDeviceId}`,
-        },
-        () => {
-          loadData({ silent: true, syncForms: false });
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "devices",
-          filter: `device_id=eq.${selectedDeviceId}`,
-        },
-        () => {
-          loadData({ silent: true, syncForms: false });
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "alerts",
-          filter: `device_id=eq.${selectedDeviceId}`,
-        },
-        () => {
-          loadData({ silent: true, syncForms: false });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedDeviceId, loadData, supabase]);
-
-  const config = device?.config ?? {};
-
-  const tempLow = parseNumber(config?.temp_low_c);
-  const tempHigh = parseNumber(config?.temp_high_c);
-  const humLow = parseNumber(config?.hum_low);
-  const humHigh = parseNumber(config?.hum_high);
-  const hystC = parseNumber(config?.hyst_c);
-  const sendIntervalS = parseNumber(config?.send_interval_s);
-  const displayStandbyMin = parseNumber(config?.display_standby_min);
-
-  const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
-  const statusInfo = getStatusInfo(effectiveStatus);
-  const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
-  const deviceLocation = device?.location || "Localização por definir";
-
-const communicationHealth = useMemo(
-  () =>
-    getCommunicationHealth({
-      rawReadings: readings,
-      sendIntervalS,
-      deviceLastSeen: device?.last_seen,
-      periodKey: period,
-    }),
-  [readings, sendIntervalS, device?.last_seen, period]
-);
-
-  const isDeviceOffline = effectiveStatus === "OFFLINE";
-
-  const predictiveStatus = isDeviceOffline
-    ? {
-        level: "unknown",
-        title: "Predição indisponível",
-        detail: "Sem dados recentes para prever tendência.",
-        chip: "Suspensa",
-        source: "none",
-        source_label: "Dispositivo offline",
-        eta_minutes: null,
-        score: 0,
-      }
-    : device?.predictive_status || getPredictiveStatus(readings, config);
-
-  const effectiveLastDelayMs =
-    communicationHealth?.last_delay_ms !== null &&
-    communicationHealth?.last_delay_ms !== undefined
-      ? communicationHealth.last_delay_ms
-      : device?.last_seen
-      ? Date.now() - new Date(device.last_seen).getTime()
-      : null;
-
-  const operationalInsights = useMemo(
-    () =>
-      getOperationalInsights({
-        device,
-        config,
-        communicationHealth,
-        predictiveStatus,
-      }),
-    [device, config, communicationHealth, predictiveStatus]
-  );
-
-  const currentTempTone =
-    effectiveStatus === "OFFLINE"
-      ? "neutral"
-      : tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh
-      ? "warn"
-      : tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow
-      ? "warn"
-      : "neutral";
-
-  const currentHumTone =
-    effectiveStatus === "OFFLINE"
-      ? "neutral"
-      : humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh
-      ? "warn"
-      : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
-      ? "warn"
-      : "neutral";
-
-  const currentTempValue = formatValue(device?.last_temperature, " °C");
-  const currentHumValue = formatValue(device?.last_humidity, " %");
-  const currentTempAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
-  const currentHumAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
-
-  const summary24h = useMemo(() => {
-    const { start, end } = getPeriodWindow("24h");
-
-    const scoped = readings
-      .filter((item) => Number.isFinite(item?.timestamp))
-      .filter((item) => item.timestamp >= start && item.timestamp <= end);
-
-    const temps = scoped
-      .map((item) => parseNumber(item.temperature))
-      .filter((v) => v !== null);
-
-    const hums = scoped
-      .map((item) => parseNumber(item.humidity))
-      .filter((v) => v !== null);
-
-    const avg = (arr, digits = 1) =>
-      arr.length
-        ? Number((arr.reduce((sum, v) => sum + v, 0) / arr.length).toFixed(digits))
-        : null;
-
-    return {
-      tempMin: temps.length ? Math.min(...temps) : null,
-      tempMax: temps.length ? Math.max(...temps) : null,
-      tempAvg: avg(temps, 1),
-      humMin: hums.length ? Math.min(...hums) : null,
-      humMax: hums.length ? Math.max(...hums) : null,
-      humAvg: avg(hums, 0),
-      totalReadings: scoped.length,
-    };
-  }, [readings]);
-
-  async function saveClientConfig() {
-    if (!device || !selectedDeviceId || !canEditSelectedDevice) return;
-
-    setSavingClient(true);
-    setClientMessage("");
-
-    const newTempLow = parseNumber(clientForm.temp_low_c);
-    const newTempHigh = parseNumber(clientForm.temp_high_c);
-    const newHumLow = parseNumber(clientForm.hum_low);
-    const newHumHigh = parseNumber(clientForm.hum_high);
-
-    if (
-      newTempLow === null ||
-      newTempHigh === null ||
-      newHumLow === null ||
-      newHumHigh === null
-    ) {
-      setClientMessage("Preenche todos os campos do cliente com valores válidos.");
-      setSavingClient(false);
-      return;
+      setMessage("Acesso atribuÃ­do com sucesso.");
+      setMessageType("success");
+      setSelectedClientId(accessUserId);
+      await loadData();
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atribuir ou atualizar acesso.");
+      setMessageType("error");
+    } finally {
+      setSavingAccess(false);
     }
+  }
 
-    if (newTempLow >= newTempHigh) {
-      setClientMessage("A temperatura mínima deve ser inferior à máxima.");
-      setSavingClient(false);
-      return;
-    }
-
-    if (newHumLow >= newHumHigh) {
-      setClientMessage("A humidade mínima deve ser inferior à máxima.");
-      setSavingClient(false);
-      return;
-    }
-
-    let data;
+  async function removeAccess(userId, deviceId) {
+    setMessage("");
 
     try {
-      data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
-        method: "POST",
-        body: JSON.stringify({
-          temp_low_c: newTempLow,
-          temp_high_c: newTempHigh,
-          hum_low: newHumLow,
-          hum_high: newHumHigh,
-        }),
-      });
+      const { error } = await supabase
+        .from("device_access")
+        .delete()
+        .eq("user_id", userId)
+        .eq("device_id", deviceId);
+
+      if (error) throw error;
+
+      setMessage("Acesso removido.");
+      setMessageType("success");
+
+      if (selectedClientId === userId) {
+        setSelectedClientId("");
+      }
+
+      await loadData();
     } catch (error) {
-      setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
-      setSavingClient(false);
-      return;
+      setMessage(error?.message || "Erro ao remover acesso.");
+      setMessageType("error");
     }
-
-    const refreshedConfig = data?.config || {};
-
-    const nextDevice = {
-      ...device,
-      config: refreshedConfig,
-      config_version: data?.config_version ?? device?.config_version,
-      name: data?.name ?? device?.name,
-      location: data?.location ?? device?.location,
-      updated_at: data?.updated_at ?? device?.updated_at,
-    };
-
-    setDevice(nextDevice);
-    setDevices((prev) =>
-      prev.map((item) =>
-        item.device_id === selectedDeviceId
-          ? {
-              ...item,
-              ...nextDevice,
-            }
-          : item
-      )
-    );
-
-    setClientForm({
-      temp_low_c: toInputValue(refreshedConfig?.temp_low_c),
-      temp_high_c: toInputValue(refreshedConfig?.temp_high_c),
-      hum_low: toInputValue(refreshedConfig?.hum_low),
-      hum_high: toInputValue(refreshedConfig?.hum_high),
-    });
-
-    setClientMessage("Configurações do cliente guardadas com sucesso.");
-    setSavingClient(false);
   }
 
-  async function saveAdminConfig() {
-    if (!device || !selectedDeviceId || !isSuperAdmin) return;
+  async function toggleAlertSetting(user, deviceId, field, nextValue) {
+    if (!user?.id || !deviceId) return;
 
-    setSavingAdmin(true);
-    setAdminMessage("");
-
-    const newHyst = parseNumber(adminForm.hyst_c);
-    const newSendInterval = parseNumber(adminForm.send_interval_s);
-    const newDisplayStandby = parseNumber(adminForm.display_standby_min);
-
-    if (
-      newHyst === null ||
-      newSendInterval === null ||
-      newDisplayStandby === null
-    ) {
-      setAdminMessage("Preenche todos os campos admin com valores válidos.");
-      setSavingAdmin(false);
-      return;
-    }
-
-    if (newSendInterval < 5) {
-      setAdminMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
-      setSavingAdmin(false);
-      return;
-    }
-
-    let data;
+    const key = `${user.id}_${deviceId}_${field}`;
+    setSavingAlertKey(key);
+    setMessage("");
 
     try {
-      data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
-        method: "POST",
-        body: JSON.stringify({
-          name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
-          location: adminForm.location.trim() || "Localização por definir",
-          hyst_c: newHyst,
-          send_interval_s: newSendInterval,
-          display_standby_min: newDisplayStandby,
-        }),
-      });
+      const existing = getUserAlertRow(user.id, deviceId);
+
+      if (existing) {
+        const { error } = await supabase
+          .from("device_alert_recipients")
+          .update({
+            [field]: nextValue,
+            email: user.email,
+            name: user.full_name,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+
+        if (error) throw error;
+      } else {
+        const insertPayload = {
+          user_id: user.id,
+          device_id: deviceId,
+          email: user.email,
+          name: user.full_name,
+          is_active: field === "is_active" ? nextValue : true,
+          temp_alerts: field === "temp_alerts" ? nextValue : true,
+          humidity_alerts: field === "humidity_alerts" ? nextValue : true,
+          offline_alerts: field === "offline_alerts" ? nextValue : true,
+          predictive_alerts: field === "predictive_alerts" ? nextValue : false,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error } = await supabase
+          .from("device_alert_recipients")
+          .insert(insertPayload);
+
+        if (error) throw error;
+      }
+
+      await loadData();
+      setMessage("PreferÃªncia de alertas atualizada.");
+      setMessageType("success");
     } catch (error) {
-      setAdminMessage(error?.message || "Erro ao guardar configurações admin.");
-      setSavingAdmin(false);
+      setMessage(error?.message || "Erro ao atualizar alertas.");
+      setMessageType("error");
+    } finally {
+      setSavingAlertKey("");
+    }
+  }
+
+  async function saveDeviceConfig() {
+    if (!selectedDeviceData || !selectedDevice) {
+      setMessage("Seleciona um dispositivo.");
+      setMessageType("error");
       return;
     }
 
-    const refreshedConfig = data?.config || {};
-
-    const nextDevice = {
-      ...device,
-      config: refreshedConfig,
-      config_version: data?.config_version ?? device?.config_version,
-      name: data?.name ?? device?.name,
-      location: data?.location ?? device?.location,
-      updated_at: data?.updated_at ?? device?.updated_at,
+    const values = {
+      temp_low_c: parseNumber(deviceForm.temp_low_c),
+      temp_high_c: parseNumber(deviceForm.temp_high_c),
+      hum_low: parseNumber(deviceForm.hum_low),
+      hum_high: parseNumber(deviceForm.hum_high),
+      hyst_c: parseNumber(deviceForm.hyst_c),
+      send_interval_s: parseNumber(deviceForm.send_interval_s),
+      display_standby_min: parseNumber(deviceForm.display_standby_min),
     };
 
-    setDevice(nextDevice);
-    setDevices((prev) =>
-      prev.map((item) =>
-        item.device_id === selectedDeviceId
-          ? {
-              ...item,
-              ...nextDevice,
-            }
-          : item
-      )
-    );
-
-    setAdminForm({
-      name: nextDevice?.name || "",
-      location: nextDevice?.location || "",
-      hyst_c: toInputValue(refreshedConfig?.hyst_c),
-      send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
-      display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
-    });
-
-    setAdminMessage("Configurações admin guardadas com sucesso.");
-    setSavingAdmin(false);
-  }
-
-async function downloadPdfReport() {
-  if (!selectedDeviceId) return;
-
-  try {
-    const response = await fetch(
-      `/api/sts/device/${selectedDeviceId}/report?period=${reportPeriod}`,
-      {
-        method: "GET",
-        cache: "no-store",
-      }
-    );
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(payload?.error || "Não foi possível gerar o PDF.");
+    if (
+      !deviceForm.name.trim() ||
+      !deviceForm.location.trim() ||
+      Object.values(values).some((v) => v === null)
+    ) {
+      setMessage("Preenche todos os campos do dispositivo com valores vÃ¡lidos.");
+      setMessageType("error");
+      return;
     }
 
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
+    if (values.temp_low_c >= values.temp_high_c) {
+      setMessage("A temperatura mÃ­nima deve ser inferior Ã  mÃ¡xima.");
+      setMessageType("error");
+      return;
+    }
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${selectedDeviceId}_relatorio_${reportPeriod}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    if (values.hum_low >= values.hum_high) {
+      setMessage("A humidade mÃ­nima deve ser inferior Ã  mÃ¡xima.");
+      setMessageType("error");
+      return;
+    }
 
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    setPageError(error?.message || "Erro ao descarregar relatório PDF.");
+    if (values.hyst_c < 0) {
+      setMessage("A histerese nÃ£o pode ser negativa.");
+      setMessageType("error");
+      return;
+    }
+
+    if (values.send_interval_s < 5) {
+      setMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+      setMessageType("error");
+      return;
+    }
+
+    if (values.display_standby_min < 0) {
+      setMessage("O standby do display nÃ£o pode ser negativo.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingDevice(true);
+    setMessage("");
+
+    try {
+      const currentConfig = selectedDeviceData.config || {};
+
+      const newConfig = {
+        ...currentConfig,
+        temp_low_c: values.temp_low_c,
+        temp_high_c: values.temp_high_c,
+        hum_low: values.hum_low,
+        hum_high: values.hum_high,
+        hyst_c: values.hyst_c,
+        send_interval_s: values.send_interval_s,
+        display_standby_min: values.display_standby_min,
+      };
+
+      const { data, error } = await supabase
+        .from("devices")
+        .update({
+          name: deviceForm.name.trim(),
+          location: deviceForm.location.trim(),
+          config: newConfig,
+          config_version: Number(selectedDeviceData.config_version || 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("device_id", selectedDevice)
+        .select("*")
+        .single();
+
+      if (error || !data) {
+        throw error || new Error("Erro ao guardar dispositivo.");
+      }
+
+      setDevices((prev) =>
+        prev.map((item) =>
+          item.device_id === data.device_id ? { ...item, ...data } : item
+        )
+      );
+
+      setMessage("ConfiguraÃ§Ã£o operacional guardada com sucesso.");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao guardar configuraÃ§Ã£o do dispositivo.");
+      setMessageType("error");
+    } finally {
+      setSavingDevice(false);
+    }
   }
-}
 
-  const hasDevices = devices.length > 0;
-  const hasReadings = readings.length > 0;
+  if (loading) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.card}>
+            <div style={styles.loadingText}>A carregar painel de administraÃ§Ã£o...</div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
-  if (loading && !initialLoaded) {
-    return <BootScreen />;
+  if (profile?.role !== "super_admin") {
+    const title =
+      accessState === "signed_out"
+        ? "SessÃƒÂ£o necessÃƒÂ¡ria"
+        : accessState === "error"
+        ? "NÃƒÂ£o foi possÃƒÂ­vel abrir a administraÃƒÂ§ÃƒÂ£o"
+        : "Acesso restrito";
+    const description =
+      accessState === "signed_out"
+        ? "Estamos a encaminhar-te para o inÃƒÂ­cio de sessÃƒÂ£o."
+        : accessState === "error"
+        ? "O painel encontrou um problema ao validar a conta. Podes tentar novamente ou voltar ÃƒÂ  dashboard."
+        : "Esta ÃƒÂ¡rea estÃƒÂ¡ disponÃƒÂ­vel apenas para contas super_admin.";
+
+    return (
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.card}>
+            <div style={styles.accessDeniedTitle}>{title}</div>
+            <div style={styles.accessDeniedText}>{description}</div>
+            {message ? <div style={styles.messageError}>{message}</div> : null}
+            <div style={styles.topActions}>
+              <button onClick={() => router.replace("/")} style={styles.secondaryButton}>
+                Voltar ÃƒÂ  dashboard
+              </button>
+              <button onClick={() => loadData({ showLoader: true })} style={styles.secondaryButton}>
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        <div style={styles.topBar}>
-          <div style={styles.brandLockup}>
-            <img src={STS_LOGO_SRC} alt="STS" style={styles.headerLogo} />
-            <div>
-            <h1 style={styles.title}>Cold</h1>
+        <div style={styles.headerBar}>
+          <div style={styles.header}>
+            <h1 style={styles.title}>STS Admin {STS_SYSTEM_VERSION}</h1>
+            <div style={styles.versionBadge}>ADMIN PAGE - {STS_ADMIN_VERSION}</div>
             <p style={styles.subtitle}>
-              Monitorização inteligente para frio, conservação e operação crítica
+              Centro tÃ©cnico para clientes, dispositivos, acessos, alertas e configuraÃ§Ã£o tÃ©cnica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · {STS_PRODUCT.version}</div>
-            </div>
           </div>
 
           <div style={styles.topActions}>
-            {refreshing ? (
-              <div style={styles.refreshingText}>A atualizar...</div>
-            ) : null}
+            {refreshing ? <div style={styles.refreshingText}>A atualizar...</div> : null}
 
-            <button
-              onClick={async () => {
-                await loadData({ syncForms: true });
-              }}
-              style={styles.refreshButton}
-            >
-              Atualizar
+            <button onClick={() => router.push("/")} style={styles.secondaryButton}>
+              Dashboard
             </button>
 
-            {isSuperAdmin ? (
-              <button
-                onClick={() => router.push("/admin")}
-                style={styles.refreshButton}
-              >
-                Admin
-              </button>
-            ) : null}
+            <button onClick={() => loadData()} style={styles.secondaryButton}>
+              Atualizar
+            </button>
 
             <button
               onClick={async () => {
                 await supabase.auth.signOut();
                 router.replace("/login");
               }}
-              style={styles.refreshButton}
+              style={styles.secondaryButton}
             >
               Sair
             </button>
           </div>
         </div>
 
-        {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
-        <div id="devices">
-<DeviceSelector
-          devices={devices}
-          selectedDeviceId={selectedDeviceId}
-          onSelect={(deviceId) => {
-            setSelectedDeviceId(deviceId);
-            setClientMessage("");
-            setAdminMessage("");
-            setPageError("");
-            setRefreshing(true);
-          }}
-          isMobile={isMobile}
-        />
-            </div>
+        {message ? (
+          <div
+            style={
+              messageType === "error"
+                ? styles.messageError
+                : styles.messageSuccess
+            }
+          >
+            {message}
+          </div>
+        ) : null}
 
-        <section
-          id="overview"
-          style={{
-            ...styles.heroCard,
-            background: `linear-gradient(180deg, ${statusInfo.panel} 0%, #0f172a 100%)`,
-            borderColor: statusInfo.border,
-            gridTemplateColumns: isMobile
-              ? "1fr"
-              : "minmax(0, 1.8fr) minmax(340px, 1fr)",
-          }}
-        >
-          <div style={styles.heroLeft}>
-            <div style={styles.heroHeaderTop}>
-              <div>
-                <div style={styles.sectionEyebrow}>Dispositivo ativo</div>
-                <div style={styles.deviceName}>{deviceDisplayName}</div>
 
-                <div style={styles.deviceMetaLine}>
-                  <span style={styles.deviceMetaBadge}>
-                    {selectedDeviceId || DEFAULT_DEVICE_ID}
-                  </span>
-                  <span style={styles.deviceMetaDot}>•</span>
-                  <span style={styles.deviceMetaLocation}>{deviceLocation}</span>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  ...styles.statusPillLarge,
-                  color: statusInfo.color,
-                  background: statusInfo.soft,
-                  borderColor: "transparent",
-                  boxShadow: statusInfo.glow,
-                }}
-              >
-                {statusInfo.label}
-              </div>
-            </div>
-
-            <div
-              style={{
-                ...styles.metricsRow,
-                gridTemplateColumns: isMobile
-                  ? "1fr"
-                  : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              <MetricBox
-                label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
-                value={isDeviceOffline ? "-" : currentTempValue}
-                tone={currentTempTone}
-                accentLabel={currentTempAccentLabel}
-                subvalue={
-                  isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
-                    : tempLow !== null && tempHigh !== null
-                    ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
-                    : "Sem limites definidos"
-                }
-              />
-              <MetricBox
-                label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
-                value={isDeviceOffline ? "-" : currentHumValue}
-                tone={currentHumTone}
-                accentLabel={currentHumAccentLabel}
-                subvalue={
-                  isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
-                    : humLow !== null && humHigh !== null
-                    ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
-                    : "Sem limites definidos"
-                }
-              />
-            </div>
-
-            <div
-              style={{
-                ...styles.heroMetaRow,
-                gridTemplateColumns: isMobile
-                  ? "1fr"
-                  : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              <InfoItem
-                label="Última atualização do dispositivo"
-                value={`${formatDateTime(device?.last_seen)} (${formatRelativeTime(device?.last_seen)})`}
-              />
-              <InfoItem
-                label="Estado operacional"
-                value={statusInfo.label}
-                valueColor={statusInfo.color}
-              />
+        <section style={styles.workflowCard}>
+          <div>
+            <div style={styles.workflowTitle}>Fluxo recomendado</div>
+            <div style={styles.workflowHint}>
+              Usa esta pÃ¡gina de cima para baixo: criar cliente, escolher dispositivo, atribuir acesso, configurar alertas e validar parÃ¢metros.
             </div>
           </div>
 
-          <div
-            style={{
-              ...styles.heroRight,
-              borderLeft: isMobile ? "none" : styles.heroRight.borderLeft,
-              borderTop: isMobile ? "1px solid #243042" : "none",
-              paddingLeft: isMobile ? "0" : styles.heroRight.paddingLeft,
-              paddingTop: isMobile ? "16px" : "0",
-            }}
-          >
-            <div style={styles.sideTitle}>Resumo executivo 24h</div>
+          <div style={styles.workflowSteps}>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>1</span>
+              <strong style={styles.workflowStepTitle}>Cliente</strong>
+              <small style={styles.workflowStepText}>Criar ou escolher utilizador</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>2</span>
+              <strong style={styles.workflowStepTitle}>Dispositivo</strong>
+              <small style={styles.workflowStepText}>Selecionar equipamento ativo</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>3</span>
+              <strong style={styles.workflowStepTitle}>Acessos</strong>
+              <small style={styles.workflowStepText}>PermissÃµes e alertas</small>
+            </div>
+            <div style={styles.workflowStep}>
+              <span style={styles.workflowNumber}>4</span>
+              <strong style={styles.workflowStepTitle}>ConfiguraÃ§Ã£o</strong>
+              <small style={styles.workflowStepText}>Limites e parÃ¢metros tÃ©cnicos</small>
+            </div>
+          </div>
+        </section>
 
-            <div style={styles.sideSummary}>
-              <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Média temp.</span>
-                <span style={styles.summaryValue}>{formatValue(summary24h.tempAvg, " °C")}</span>
-              </div>
+        
+        <section style={styles.commandCenter}>
+          <div>
+            <div style={styles.commandEyebrow}>STS Cold Admin</div>
+            <div style={styles.commandTitle}>Centro tÃ©cnico operacional</div>
+            <div style={styles.commandText}>
+              GestÃ£o centralizada de clientes, dispositivos, acessos, firmware, onboarding e diagnÃ³stico.
+            </div>
+          </div>
 
-              <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Média hum.</span>
-                <span style={styles.summaryValue}>{formatValue(summary24h.humAvg, " %", 0)}</span>
-              </div>
+          <div style={styles.commandGrid}>
+            <div style={styles.commandItem}>
+              <span>Clientes</span>
+              <strong>GestÃ£o e permissÃµes</strong>
+            </div>
 
-              <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Leituras 24h</span>
-                <span style={styles.summaryValue}>{summary24h.totalReadings ?? 0}</span>
-              </div>
+            <div style={styles.commandItem}>
+              <span>Dispositivos</span>
+              <strong>AssociaÃ§Ã£o inteligente</strong>
+            </div>
 
-              <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Comunicação</span>
-                <span style={styles.summaryValue}>{communicationHealth.label}</span>
-              </div>
+            <div style={styles.commandItem}>
+              <span>Firmware</span>
+              <strong>Preparado para OTA</strong>
+            </div>
+
+            <div style={styles.commandItem}>
+              <span>DiagnÃ³stico</span>
+              <strong>Estado e comunicaÃ§Ã£o</strong>
             </div>
           </div>
         </section>
 
 
-
-        <OperationalInsightCard items={operationalInsights} />
-
-        <SmartClientInsight
-          communicationHealth={communicationHealth}
-          isOffline={effectiveStatus === "OFFLINE"}
-          statusInfo={statusInfo}
-          summary24h={summary24h}
-        />
-
-        <UnifiedPredictionCard
-          prediction={predictiveStatus}
-          isOffline={effectiveStatus === "OFFLINE"}
-        />
-        <section id="maintenance" style={{ ...styles.card, order: 20 }}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Saúde da comunicação</div>
-              <div style={styles.cardHint}>
-                Qualidade da ligação e regularidade das leituras
-              </div>
+        <section style={styles.adminProtectionCard}>
+          <div>
+            <div style={styles.adminProtectionTitle}>Conta principal protegida</div>
+            <div style={styles.adminProtectionText}>
+              O super_admin principal mantÃ©m permissÃµes totais e nÃ£o aparece por defeito na atribuiÃ§Ã£o inicial de clientes.
             </div>
           </div>
-
-          <div style={styles.healthSummaryBanner}>
-            {communicationHealth.summary}
-          </div>
-
-          <div
-            style={{
-              ...styles.healthGrid,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "repeat(4, minmax(0, 1fr))",
-            }}
-          >
-            <HealthStatCard
-              label="Atraso da última leitura"
-              value={formatDurationCompact(effectiveLastDelayMs)}
-              hint="Tempo desde a última leitura recebida"
-              tone={
-                communicationHealth.label === "Offline"
-                  ? "bad"
-                  : effectiveLastDelayMs !== null &&
-                    effectiveLastDelayMs >
-                      Math.max((Number(sendIntervalS) || 30) * 1000 * 4, 3 * 60 * 1000)
-                  ? "warn"
-                  : "good"
-              }
-            />
-
-            <HealthStatCard
-              label="Intervalo esperado"
-              value={formatDurationCompact(communicationHealth.expected_interval_ms)}
-              hint="Com base na configuração atual do dispositivo"
-              tone="neutral"
-            />
-
-            <HealthStatCard
-              label="Cobertura de leituras"
-              value={`${communicationHealth.delivery_pct ?? 0}%`}
-              hint={`${communicationHealth.received_readings}/${communicationHealth.expected_readings} leituras esperadas`}
-              tone={
-                (communicationHealth.delivery_pct ?? 0) < 88
-                  ? "bad"
-                  : (communicationHealth.delivery_pct ?? 0) < 94
-                  ? "warn"
-                  : "good"
-              }
-            />
-
-            <HealthStatCard
-              label="Estabilidade"
-              value={
-                communicationHealth.regularity_pct !== null
-                  ? `${communicationHealth.regularity_pct}%`
-                  : "-"
-              }
-              hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
-              tone={communicationHealth.tone}
-              badge={communicationHealth.label}
-            />
-
-            <HealthStatCard
-              label="Seq. confirmada"
-              value={formatValue(device?.telemetry_seq, "", 0)}
-              hint="Ultima sequencia reportada pelo dispositivo"
-              tone="neutral"
-            />
-
-            <HealthStatCard
-              label="Buffer pendente"
-              value={formatValue(device?.buffer_count, "", 0)}
-              hint="Leituras guardadas para reenvio"
-              tone={Number(device?.buffer_count || 0) > 0 ? "warn" : "good"}
-            />
-
-            <HealthStatCard
-              label="Envios falhados"
-              value={formatValue(device?.post_fail_count, "", 0)}
-              hint={`Confirmados: ${formatValue(device?.post_ok_count, "", 0)}`}
-              tone={Number(device?.post_fail_count || 0) > 0 ? "warn" : "good"}
-            />
-
-            <HealthStatCard
-              label="Reinicios"
-              value={formatValue(device?.boot_count, "", 0)}
-              hint={`Ultima causa: ${device?.reset_reason || "-"}`}
-              tone={
-                String(device?.reset_reason || "").includes("watchdog") ||
-                String(device?.reset_reason || "").includes("brownout") ||
-                String(device?.reset_reason || "").includes("panic")
-                  ? "warn"
-                  : "neutral"
-              }
-            />
-
-            <HealthStatCard
-              label="Hora"
-              value={device?.clock_synced === false ? "Pendente" : "Sincronizada"}
-              hint={`Ultimo acerto: ${
-                device?.clock_sync_age_s !== null && device?.clock_sync_age_s !== undefined
-                  ? formatDurationCompact(Number(device.clock_sync_age_s) * 1000)
-                  : "-"
-              }`}
-              tone={device?.clock_synced === false ? "warn" : "good"}
-            />
-          </div>
+          <div style={styles.adminProtectionBadge}>PROTEGIDO</div>
         </section>
 
-        <section id="reports" style={{ ...styles.card, order: 22 }}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Relatório PDF</div>
-              <div style={styles.cardHint}>
-                Exportação do resumo profissional de leituras do dispositivo
-              </div>
-            </div>
-          </div>
+<div style={styles.topGrid}>
+          <section style={styles.card}>
+            <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Clientes e utilizadores / utilizador</div><div style={styles.cardHint}>Cria uma conta para acesso Ã  plataforma STS.</div>
 
-          <div
-            style={{
-              ...styles.reportRow,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "minmax(220px, 320px) auto",
-            }}
-          >
-            <div style={styles.field}>
-              <label style={styles.label}>Período do relatório</label>
+            <div style={styles.formGrid}>
+              <input
+                type="text"
+                placeholder="Nome completo"
+                value={newUser.full_name}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    full_name: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
+
+              <input
+                type="email"
+                placeholder="Email"
+                value={newUser.email}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    email: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
+
+              <input
+                type="text"
+                placeholder="Password temporÃ¡ria"
+                value={newUser.password}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
+                style={styles.input}
+              />
+
               <select
-                value={reportPeriod}
-                onChange={(e) => setReportPeriod(e.target.value)}
-                style={styles.configInput}
+                value={newUser.role}
+                onChange={(e) =>
+                  setNewUser((prev) => ({
+                    ...prev,
+                    role: e.target.value,
+                  }))
+                }
+                style={styles.input}
               >
-                <option value="1h">1H</option>
-                <option value="6h">6H</option>
-                <option value="12h">12H</option>
-                <option value="24h">24H</option>
-                <option value="7d">7D</option>
+                <option value="viewer">SÃ³ leitura</option>
+                <option value="client_admin">Gestor do cliente</option>
               </select>
             </div>
 
-            <div style={styles.reportActionWrap}>
-              <button
-                style={styles.primaryButton}
-                onClick={downloadPdfReport}
-                disabled={!selectedDeviceId}
-              >
-                Descarregar PDF
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section
-          style={{
-            ...styles.chartGrid,
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-          }}
-        >
-          <DataChart
-            title="Temperatura"
-            data={chartReadings}
-            dataKey="temperature"
-            unit=" °C"
-            minThreshold={tempLow}
-            maxThreshold={tempHigh}
-            isMobile={isMobile}
-            periodKey={period}
-            isOffline={effectiveStatus === "OFFLINE"}
-          />
-
-          <DataChart
-            title="Humidade"
-            data={chartReadings}
-            dataKey="humidity"
-            unit=" %"
-            minThreshold={humLow}
-            maxThreshold={humHigh}
-            isMobile={isMobile}
-            periodKey={period}
-            isOffline={effectiveStatus === "OFFLINE"}
-          />
-        </section>
-        <section style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Período de visualização</div>
-              <div style={styles.cardHint}>
-                Ajusta o intervalo temporal apresentado nos gráficos
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.periodRow}>
-            {PERIODS.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setPeriod(item.key)}
-                style={{
-                  ...styles.periodButton,
-                  ...(period === item.key ? styles.periodButtonActive : {}),
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-
-
-<section id="alerts" style={{ ...styles.card, order: 21 }}>
-  <div style={styles.cardHeader}>
-    <div>
-      <div style={styles.cardTitle}>Histórico de alertas</div>
-      <div style={styles.cardHint}>
-        Últimos eventos registados para este dispositivo
-      </div>
-    </div>
-
-    {alerts.length > 3 ? (
-      <button
-        type="button"
-        onClick={() => setAlertsCollapsed((prev) => !prev)}
-        style={styles.collapseButton}
-      >
-        {alertsCollapsed ? "Minimizar" : "Ver todos"}
-      </button>
-    ) : null}
-  </div>
-
-  {!alerts.length ? (
-    <div style={styles.emptyState}>
-      Sem alertas registados para este dispositivo.
-    </div>
-  ) : (
-    <div style={styles.alertList}>
-      {(alertsCollapsed ? alerts : alerts.slice(0, 3)).map((item, index) => (
-        <AlertRow
-          key={item.id || `${item.sent_at || item.created_at}-${index}`}
-          item={item}
-        />
-      ))}
-
-      {!alertsCollapsed && alerts.length > 3 ? (
-        <div style={styles.alertListHint}>
-          A mostrar os 3 alertas mais recentes de {alerts.length}.
-        </div>
-      ) : null}
-    </div>
-  )}
-</section>
-
-        <section id="settings" style={{ ...styles.card, order: 23 }}>
-          <div style={styles.cardHeader}>
-            <div>
-              <div style={styles.cardTitle}>Configurações operacionais</div>
-              <div style={styles.cardHint}>
-                Limites operacionais por dispositivo
-              </div>
-            </div>
-
-            <div style={styles.readOnlyBadge}>
-              {canEditSelectedDevice ? "Configuração editável" : "Só leitura"}
-            </div>
-          </div>
-
-          <div
-            style={{
-              ...styles.formGrid,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "repeat(4, minmax(0, 1fr))",
-            }}
-          >
-            <div style={styles.field}>
-              <label style={styles.label}>Temperatura mínima (°C)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={clientForm.temp_low_c}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    temp_low_c: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
-            </div>
-
-            <div style={styles.field}>
-              <label style={styles.label}>Temperatura máxima (°C)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={clientForm.temp_high_c}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    temp_high_c: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
-            </div>
-
-            <div style={styles.field}>
-              <label style={styles.label}>Humidade mínima (%)</label>
-              <input
-                type="number"
-                step="1"
-                value={clientForm.hum_low}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    hum_low: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
-            </div>
-
-            <div style={styles.field}>
-              <label style={styles.label}>Humidade máxima (%)</label>
-              <input
-                type="number"
-                step="1"
-                value={clientForm.hum_high}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    hum_high: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
-            </div>
-          </div>
-
-          {canEditSelectedDevice ? (
             <div style={styles.actionsRow}>
               <button
+                onClick={createUser}
                 style={styles.primaryButton}
-                onClick={saveClientConfig}
-                disabled={savingClient || !selectedDeviceId}
+                disabled={creatingUser}
               >
-                {savingClient ? "A guardar..." : "Guardar configurações"}
+                {creatingUser ? "A criar..." : "Clientes e utilizadores"}
               </button>
-
-              {clientMessage ? (
-                <span
-                  style={
-                    clientMessage.toLowerCase().includes("sucesso")
-                      ? styles.successText
-                      : styles.errorTextInline
-                  }
-                >
-                  {clientMessage}
-                </span>
-              ) : null}
             </div>
-          ) : null}
+          </section>
+
+          <section style={styles.card}>
+            <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>AssociaÃ§Ã£o de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
+
+            <div style={styles.formGrid}>
+              <select
+                value={accessUserId}
+                onChange={(e) => setAccessUserId(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Escolher cliente</option>
+                {nonAdminUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                value={
+                  selectedDeviceData
+                    ? `${selectedDeviceData.name || selectedDeviceData.device_id} (${selectedDeviceData.device_id})`
+                    : ""
+                }
+                style={styles.input}
+                disabled
+                placeholder="Seleciona primeiro um dispositivo"
+              />
+            </div>
+
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={canEdit}
+                onChange={() => setCanEdit((prev) => !prev)}
+              />
+              <span>Permitir ediÃ§Ã£o na dashboard</span>
+            </label>
+
+            <div style={styles.actionsRow}>
+              <button
+                onClick={assignDevice}
+                style={styles.primaryButton}
+                disabled={savingAccess || !selectedDevice}
+              >
+                {savingAccess ? "A guardar..." : "AssociaÃ§Ã£o de dispositivo"}
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <section style={styles.card}>
+          <div style={styles.sectionStep}>03</div><div style={styles.cardTitle}>Dispositivo em gestÃ£o</div><div style={styles.cardHint}>Escolhe o equipamento que queres configurar ou consultar.</div>
+
+          <div style={styles.devicePickerGrid}>
+            <div style={styles.devicePickerLeft}>
+              <input
+                type="text"
+                placeholder="Pesquisar dispositivo, localizaÃ§Ã£o ou ID"
+                value={deviceSearch}
+                onChange={(e) => setDeviceSearch(e.target.value)}
+                style={styles.input}
+              />
+
+              <select
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                style={styles.input}
+              >
+                <option value="">Escolher dispositivo</option>
+                {filteredDevices.map((d) => (
+                  <option key={d.device_id} value={d.device_id}>
+                    {d.name ? `${d.name} (${d.device_id})` : d.device_id}
+                  </option>
+                ))}
+              </select>
+
+              <div style={styles.deviceQuickList}>
+                {filteredDevices.length === 0 ? (
+                  <div style={styles.emptyStateSmall}>Nenhum dispositivo encontrado.</div>
+                ) : (
+                  filteredDevices.map((d) => (
+                    <button
+                      key={d.device_id}
+                      type="button"
+                      onClick={() => setSelectedDevice(d.device_id)}
+                      style={{
+                        ...styles.deviceQuickItem,
+                        ...(selectedDevice === d.device_id
+                          ? styles.deviceQuickItemActive
+                          : {}),
+                      }}
+                    >
+                      <div style={styles.deviceQuickName}>
+                        {d.name || d.device_id}
+                      </div>
+                      <div style={styles.deviceQuickMeta}>
+                        {d.device_id} Â· {d.location || "Sem localizaÃ§Ã£o"}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={styles.devicePickerRight}>
+              {!selectedDeviceData ? (
+                <div style={styles.emptyState}>
+                  Seleciona um dispositivo para veres o resumo.
+                </div>
+              ) : (
+                <div style={styles.selectedDeviceCard}>
+                  <div style={styles.selectedDeviceTop}>
+                    <div>
+                      <div style={styles.selectedDeviceName}>
+                        {selectedDeviceData.name || selectedDeviceData.device_id}
+                      </div>
+                      <div style={styles.meta}>
+                        {selectedDeviceData.device_id}
+                      </div>
+                    </div>
+
+                    <div style={styles.statusBadgeNeutral}>
+                      {selectedDeviceData.status || "Sem estado"}
+                    </div>
+                  </div>
+
+                  <div style={styles.selectedDeviceStats}>
+                    <SmallStat
+                      label="LocalizaÃ§Ã£o"
+                      value={selectedDeviceData.location || "-"}
+                    />
+                    <SmallStat
+                      label="Ãšltima temperatura"
+                      value={formatValue(
+                        selectedDeviceData.last_temperature,
+                        " Â°C"
+                      )}
+                    />
+                    <SmallStat
+                      label="Ãšltima humidade"
+                      value={formatValue(
+                        selectedDeviceData.last_humidity,
+                        " %"
+                      )}
+                    />
+                    <SmallStat
+                      label="Last seen"
+                      value={formatDateTime(selectedDeviceData.last_seen)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </section>
 
-        {!loading && initialLoaded && hasDevices && !hasReadings ? (
-          <div style={styles.emptyState}>
-            Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
+        <section style={styles.card}>
+          <div style={styles.sectionStep}>04</div><div style={styles.cardTitle}>Clientes, permissÃµes e alertas</div><div style={styles.cardHint}>Gere quem tem acesso, permissÃµes e notificaÃ§Ãµes deste dispositivo.</div>
+
+          {!selectedDevice ? (
+            <div style={styles.emptyState}>
+              Seleciona primeiro um dispositivo.
+            </div>
+          ) : (
+            <div style={styles.clientSectionGrid}>
+              <div style={styles.clientListPanel}>
+                <input
+                  type="text"
+                  placeholder="Pesquisar cliente por nome ou email"
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  style={styles.input}
+                />
+
+                {filteredSelectedDeviceClients.length === 0 ? (
+                  <div style={styles.emptyStateSmall}>
+                    Nenhum cliente encontrado para este dispositivo.
+                  </div>
+                ) : (
+                  <div style={styles.clientCardList}>
+                    {filteredSelectedDeviceClients.map((client) => (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => setSelectedClientId(client.id)}
+                        style={{
+                          ...styles.clientCard,
+                          ...(selectedClientId === client.id
+                            ? styles.clientCardActive
+                            : {}),
+                        }}
+                      >
+                        <div style={styles.clientCardTop}>
+                          <div>
+                            <div style={styles.clientCardName}>
+                              {client.full_name}
+                            </div>
+                            <div style={styles.clientCardMeta}>
+                              {client.email}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              ...styles.miniStatusBadge,
+                              ...(client.is_active
+                                ? styles.miniStatusBadgeActive
+                                : styles.miniStatusBadgeInactive),
+                            }}
+                          >
+                            {client.is_active ? "Ativo" : "Inativo"}
+                          </div>
+                        </div>
+
+                        <div style={styles.clientCardBottom}>
+                          <span style={styles.mutedTag}>{client.role}</span>
+                          <span style={styles.mutedTag}>
+                            {client.access?.can_edit ? "Com ediÃ§Ã£o" : "SÃ³ leitura"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={styles.clientDetailsPanel}>
+                {!selectedClient ? (
+                  <div style={styles.emptyState}>
+                    Seleciona um cliente para gerir o utilizador e os alertas.
+                  </div>
+                ) : (
+                  <>
+                    <div style={styles.clientDetailsHeader}>
+                      <div>
+                        <div style={styles.selectedUserName}>
+                          {selectedClient.full_name}
+                        </div>
+                        <div style={styles.meta}>{selectedClient.email}</div>
+                      </div>
+
+                      <div style={styles.clientActionRow}>
+                        <button
+                          onClick={toggleSelectedClientActive}
+                          style={styles.smallActionButton}
+                          disabled={savingUserActive}
+                        >
+                          {savingUserActive
+                            ? "A atualizar..."
+                            : selectedClient.is_active
+                            ? "Desativar"
+                            : "Reativar"}
+                        </button>
+
+                        <button
+                          onClick={deleteSelectedClient}
+                          style={styles.smallDangerButton}
+                          disabled={deletingUser}
+                        >
+                          {deletingUser ? "A remover..." : "Remover"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={styles.clientMiniStats}>
+                      <SmallStat label="Role atual" value={selectedClient.role} />
+                      <SmallStat
+                        label="Estado"
+                        value={selectedClient.is_active ? "Ativo" : "Inativo"}
+                      />
+                      <SmallStat
+                        label="PermissÃ£o"
+                        value={
+                          selectedDeviceClients.find((c) => c.id === selectedClient.id)
+                            ?.access?.can_edit
+                            ? "Com ediÃ§Ã£o"
+                            : "SÃ³ leitura"
+                        }
+                      />
+                      <SmallStat
+                        label="Password"
+                        value={
+                          selectedClient.can_change_password
+                            ? "Pode alterar"
+                            : "Bloqueada"
+                        }
+                      />
+                    </div>
+
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Role</div>
+                      <div style={styles.inlineControls}>
+                        <select
+                          value={selectedClientRole}
+                          onChange={(e) => setSelectedClientRole(e.target.value)}
+                          style={styles.input}
+                        >
+                          <option value="viewer">SÃ³ leitura</option>
+                          <option value="client_admin">Gestor do cliente</option>
+                        </select>
+
+                        <button
+                          onClick={updateSelectedClientRole}
+                          style={styles.primaryButton}
+                          disabled={savingUserRole}
+                        >
+                          {savingUserRole ? "A guardar..." : "Guardar"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Password</div>
+                      <div style={styles.toggleWrap}>
+                        <TogglePill
+                          checked={Boolean(selectedClient.can_change_password)}
+                          onClick={toggleSelectedClientPasswordPermission}
+                          label={`Escolher nova password: ${
+                            selectedClient.can_change_password ? "Sim" : "NÃƒÂ£o"
+                          }`}
+                          disabled={savingPasswordPermission}
+                        />
+                      </div>
+                      {savingPasswordPermission ? (
+                        <div style={styles.savingHint}>A guardar permissÃƒÂ£o...</div>
+                      ) : null}
+                      <div style={styles.inlineControls}>
+                        <input
+                          type="text"
+                          placeholder="Nova password temporÃƒÂ¡ria"
+                          value={passwordDraft}
+                          onChange={(e) => setPasswordDraft(e.target.value)}
+                          style={styles.input}
+                        />
+                        <button
+                          onClick={updateSelectedClientPassword}
+                          style={styles.primaryButton}
+                          disabled={savingPasswordUpdate || passwordDraft.length < 8}
+                        >
+                          {savingPasswordUpdate ? "A guardar..." : "Atualizar"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Alertas</div>
+                      {(() => {
+                        const alertRow = getUserAlertRow(selectedClient.id, selectedDevice);
+                        const savingPrefix = `${selectedClient.id}_${selectedDevice}_`;
+
+                        return (
+                          <>
+                            <div style={styles.toggleWrap}>
+                              <TogglePill
+                                checked={Boolean(alertRow?.is_active)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "is_active",
+                                    !Boolean(alertRow?.is_active)
+                                  )
+                                }
+                                label={`Receber alertas: ${
+                                  alertRow?.is_active ? "Sim" : "NÃ£o"
+                                }`}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.temp_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "temp_alerts",
+                                    !Boolean(alertRow?.temp_alerts)
+                                  )
+                                }
+                                label="Temperatura"
+                                disabled={!alertRow?.is_active}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.humidity_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "humidity_alerts",
+                                    !Boolean(alertRow?.humidity_alerts)
+                                  )
+                                }
+                                label="Humidade"
+                                disabled={!alertRow?.is_active}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.offline_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "offline_alerts",
+                                    !Boolean(alertRow?.offline_alerts)
+                                  )
+                                }
+                                label="Offline"
+                                disabled={!alertRow?.is_active}
+                              />
+
+                              <TogglePill
+                                checked={Boolean(alertRow?.predictive_alerts)}
+                                onClick={() =>
+                                  toggleAlertSetting(
+                                    selectedClient,
+                                    selectedDevice,
+                                    "predictive_alerts",
+                                    !Boolean(alertRow?.predictive_alerts)
+                                  )
+                                }
+                                label="Preditivo"
+                                disabled={!alertRow?.is_active}
+                              />
+                            </div>
+
+                            {savingAlertKey.startsWith(savingPrefix) ? (
+                              <div style={styles.savingHint}>
+                                A guardar preferÃªncias...
+                              </div>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    <div style={styles.compactPanel}>
+                      <div style={styles.compactPanelTitle}>Acesso ao dispositivo</div>
+                      <div style={styles.inlineControls}>
+                        <button
+                          style={styles.removeBtn}
+                          onClick={() =>
+                            removeAccess(selectedClient.id, selectedDevice)
+                          }
+                        >
+                          Remover acesso
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.sectionStep}>05</div>
+        <section style={styles.v2Panel}>
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>Firmware, hardware e onboarding</div>
+              <div style={styles.cardHint}>
+                PreparaÃ§Ã£o tÃ©cnica da nova geraÃ§Ã£o STS Cold.
+              </div>
+            </div>
           </div>
+
+          <div style={styles.v2Grid}>
+            <div style={styles.v2Item}>
+              <span>Firmware</span>
+              <strong>A definir</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Hardware</span>
+              <strong>RevisÃ£o futura</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>QR Pairing</span>
+              <strong>Preparado</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>DiagnÃ³stico</span>
+              <strong>Sensor e comunicaÃ§Ã£o</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>OTA</span>
+              <strong>Estrutura preparada</strong>
+            </div>
+
+            <div style={styles.v2Item}>
+              <span>Estado V2</span>
+              <strong>Pronto para evoluÃ§Ã£o</strong>
+            </div>
+          </div>
+        </section>
+
+<div style={styles.cardTitle}>ConfiguraÃ§Ã£o operacional</div><div style={styles.cardHint}>Define limites, localizaÃ§Ã£o e parÃ¢metros de funcionamento.</div>
+
+          {!selectedDeviceData ? (
+            <div style={styles.emptyState}>
+              Seleciona um dispositivo para editar a configuraÃ§Ã£o.
+            </div>
+          ) : (
+            <>
+              <div style={styles.configSectionTitle}>IdentificaÃ§Ã£o</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Nome do dispositivo"
+                  help="Nome apresentado na dashboard, emails e Ã¡rea administrativa."
+                >
+                  <input
+                    type="text"
+                    placeholder="Nome do dispositivo"
+                    value={deviceForm.name}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        name: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="LocalizaÃ§Ã£o"
+                  help="DescriÃ§Ã£o do local fÃ­sico onde o dispositivo estÃ¡ instalado."
+                >
+                  <input
+                    type="text"
+                    placeholder="LocalizaÃ§Ã£o"
+                    value={deviceForm.location}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        location: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
+
+              <div style={styles.configSectionTitle}>Limites de temperatura</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Temperatura mÃ­nima (Â°C)"
+                  help="Abaixo deste valor, o sistema entra em alerta de temperatura baixa."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Temp. mÃ­nima"
+                    value={deviceForm.temp_low_c}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        temp_low_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="Temperatura mÃ¡xima (Â°C)"
+                  help="Acima deste valor, o sistema entra em alerta de temperatura alta."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Temp. mÃ¡xima"
+                    value={deviceForm.temp_high_c}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        temp_high_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
+
+              <div style={styles.configSectionTitle}>Limites de humidade</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Humidade mÃ­nima (%)"
+                  help="Abaixo deste valor, o sistema entra em alerta de humidade baixa."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Humidade mÃ­nima"
+                    value={deviceForm.hum_low}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hum_low: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="Humidade mÃ¡xima (%)"
+                  help="Acima deste valor, o sistema entra em alerta de humidade alta."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Humidade mÃ¡xima"
+                    value={deviceForm.hum_high}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hum_high: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
+
+              <div style={styles.configSectionTitle}>ParÃ¢metros tÃ©cnicos</div>
+              <div style={styles.configGrid}>
+                <ConfigField
+                  label="Histerese (Â°C)"
+                  help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Histerese"
+                    value={deviceForm.hyst_c}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hyst_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="Intervalo de envio (s)"
+                  help="Tempo entre cada envio de leitura do dispositivo para o backend."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Intervalo de envio"
+                    value={deviceForm.send_interval_s}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        send_interval_s: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="Standby do display (min)"
+                  help="Minutos atÃ© o ecrÃ£ entrar em standby para poupanÃ§a de energia."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="Standby display"
+                    value={deviceForm.display_standby_min}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        display_standby_min: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+              </div>
+
+              <div style={styles.actionsRow}>
+                <button
+                  onClick={saveDeviceConfig}
+                  style={styles.primaryButton}
+                  disabled={savingDevice}
+                >
+                  {savingDevice ? "A guardar..." : "Guardar configuraÃ§Ã£o"}
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+
+        {selectedDeviceData ? (
+          <section style={styles.card}>
+            <div style={styles.sectionStep}>06</div><div style={styles.cardTitle}>DiagnÃ³stico e suporte</div><div style={styles.cardHint}>InformaÃ§Ã£o tÃ©cnica rÃ¡pida para suporte e validaÃ§Ã£o.</div>
+
+            <div style={styles.statsGrid}>
+              <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
+              <SmallStat label="Nome" value={selectedDeviceData.name || "-"} />
+              <SmallStat label="LocalizaÃ§Ã£o" value={selectedDeviceData.location || "-"} />
+              <SmallStat label="Config version" value={selectedDeviceData.config_version ?? "-"} />
+              <SmallStat label="Atualizada em" value={formatDateTime(selectedDeviceData.updated_at)} />
+              <SmallStat label="Last seen" value={formatDateTime(selectedDeviceData.last_seen)} />
+              <SmallStat label="Status raw" value={selectedDeviceData.status || "-"} />
+              <SmallStat
+                label="Ãšltima temp."
+                value={formatValue(selectedDeviceData.last_temperature, " Â°C")}
+              />
+              <SmallStat
+                label="Ãšltima hum."
+                value={formatValue(selectedDeviceData.last_humidity, " %")}
+              />
+            </div>
+          </section>
+        ) : null}
+
+        {selectedDeviceData ? (
+          <section style={styles.card}>
+            <div style={styles.sectionStep}>07</div><div style={styles.cardTitle}>ConfiguraÃ§Ã£o raw / debug / debug</div><div style={styles.cardHint}>JSON tÃ©cnico guardado na base de dados.</div>
+
+            <div style={styles.rawConfigWrap}>
+              <pre style={styles.rawConfig}>
+                {JSON.stringify(selectedDeviceData.config || {}, null, 2)}
+              </pre>
+            </div>
+          </section>
         ) : null}
       </div>
     </main>
@@ -3448,221 +1873,187 @@ async function downloadPdfReport() {
 }
 
 const styles = {
-  bootPage: {
-    minHeight: "100vh",
-    background:
-      "radial-gradient(circle at 50% 18%, rgba(14,165,233,0.10) 0%, rgba(15,23,42,0.98) 34%, #060c16 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "24px",
-    color: "#f8fafc",
-  },
 
-  bootWrap: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "18px",
-    padding: "24px",
-  },
-
-  bootCircle: {
-    position: "relative",
-    width: "210px",
-    height: "210px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  bootSpinner: {
-    position: "absolute",
-    inset: 0,
-    borderRadius: "999px",
-    border: "1px solid rgba(148,163,184,0.12)",
-    borderTop: "1px solid rgba(103,232,249,0.72)",
-    borderRight: "1px solid rgba(245,158,11,0.38)",
-    boxShadow: "0 0 28px rgba(14,165,233,0.08)",
-    animation: "spin 1.4s linear infinite",
-  },
-
-  bootCenter: {
-    width: "158px",
-    height: "104px",
-    borderRadius: "18px",
-    background: "transparent",
-    border: "none",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: "none",
-    overflow: "hidden",
-  },
-
-  bootLogoImage: {
-    width: "148px",
-    height: "92px",
-    objectFit: "contain",
-    filter: "drop-shadow(0 8px 18px rgba(0,0,0,0.22))",
-  },
-
-  bootText: {
+  systemAdminNote: {
+    marginTop: "8px",
+    color: "#94a3b8",
     fontSize: "12px",
     lineHeight: 1.4,
-    color: "#94a3b8",
     fontWeight: 700,
-    textAlign: "center",
-    letterSpacing: 0,
+  },
+
+  adminProtectionCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.94), rgba(19,32,58,0.84))",
+    border: "1px solid #243b63",
+    borderRadius: "22px",
+    padding: "16px 18px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+    flexWrap: "wrap",
+  },
+
+  adminProtectionTitle: {
+    color: "#f8fafc",
+    fontSize: "15px",
+    fontWeight: 900,
+    marginBottom: "4px",
+  },
+
+  adminProtectionText: {
+    color: "#94a3b8",
+    fontSize: "12px",
+    lineHeight: 1.45,
+    fontWeight: 700,
+  },
+
+  adminProtectionBadge: {
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "7px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.05em",
+  },
+
+
+  versionBadge: {
+    display: "inline-flex",
+    marginTop: "10px",
+    border: "1px solid #243b63",
+    background: "#13203a",
+    color: "#93c5fd",
+    borderRadius: "999px",
+    padding: "6px 10px",
+    fontSize: "11px",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+  },
+
+  commandCenter: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(12,20,36,0.96))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "22px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0,1fr) minmax(340px,1fr)",
+    gap: "18px",
+    alignItems: "center",
+  },
+
+  commandEyebrow: {
+    fontSize: "11px",
+    fontWeight: 900,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "8px",
+  },
+
+  commandTitle: {
+    fontSize: "24px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    marginBottom: "8px",
+    letterSpacing: "-0.03em",
+  },
+
+  commandText: {
+    fontSize: "13px",
+    lineHeight: 1.5,
+    color: "#cbd5e1",
+    fontWeight: 700,
+  },
+
+  commandGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+    gap: "10px",
+  },
+
+  commandItem: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    color: "#e5edf7",
+    fontWeight: 800,
+    fontSize: "13px",
+  },
+
+  v2Panel: {
+    background: "rgba(17,24,39,0.92)",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    marginBottom: "20px",
+  },
+
+  v2Grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+    gap: "12px",
+  },
+
+  v2Item: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    color: "#e5edf7",
+    fontSize: "13px",
+    fontWeight: 800,
   },
 
   page: {
     minHeight: "100vh",
-    background:
-      "radial-gradient(circle at top, #101a2d 0%, #0b1220 35%, #07101b 100%)",
-    padding: "24px 16px 40px",
+    background: "#0b1220",
+    padding: "24px",
     color: "#e5edf7",
-    overflowX: "hidden",
-    scrollBehavior: "smooth",
   },
 
   container: {
-    width: "100%",
-    maxWidth: "1420px",
+    maxWidth: "1360px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
     gap: "18px",
-    overflowX: "hidden",
   },
 
-
-  dashboardShell: {
-    display: "grid",
-    gridTemplateColumns: "230px minmax(0, 1fr)",
-    gap: "18px",
-    alignItems: "start",
-  },
-
-  dashboardMain: {
+  headerBar: {
     display: "flex",
-    flexDirection: "column",
-    gap: "18px",
-    minWidth: 0,
-  },
-
-  sidebar: {
-    position: "sticky",
-    top: "18px",
-    background: "rgba(15, 23, 42, 0.94)",
-    border: "1px solid #223047",
-    borderRadius: "24px",
-    padding: "16px",
-    display: "flex",
-    flexDirection: "column",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: "16px",
-    backdropFilter: "blur(10px)",
-  },
-
-  sidebarMobile: {
-    background: "rgba(15, 23, 42, 0.94)",
-    border: "1px solid #223047",
-    borderRadius: "20px",
-    padding: "12px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-    overflowX: "auto",
-  },
-
-  sidebarBrand: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    paddingBottom: "10px",
-    borderBottom: "1px solid #223047",
-  },
-
-  sidebarProduct: {
-    color: "#f8fafc",
-    fontSize: "15px",
-    fontWeight: 900,
-    letterSpacing: "-0.02em",
-  },
-
-  sidebarVersion: {
-    color: "#93c5fd",
-    background: "#13203a",
-    border: "1px solid #243b63",
-    borderRadius: "999px",
-    padding: "4px 8px",
-    fontSize: "10px",
-    fontWeight: 900,
-  },
-
-  sidebarNav: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-
-  sidebarLink: {
-    textDecoration: "none",
-    color: "#cbd5e1",
-    background: "#0f172a",
-    border: "1px solid #1f2b3d",
-    borderRadius: "14px",
-    padding: "11px 12px",
-    fontSize: "13px",
-    fontWeight: 800,
-    transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
-  },
-
-  topBar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "20px",
     flexWrap: "wrap",
-    padding: "2px 0 4px",
   },
 
-  brandLockup: {
+  header: {
     display: "flex",
-    alignItems: "center",
-    gap: "13px",
-    minWidth: 0,
-    flex: "1 1 420px",
-  },
-
-  headerLogo: {
-    width: "112px",
-    height: "50px",
-    objectFit: "contain",
-    borderRadius: "10px",
-    background: "transparent",
-    border: "none",
-    boxShadow: "none",
-    padding: 0,
-    flexShrink: 0,
+    flexDirection: "column",
+    gap: "6px",
   },
 
   title: {
     margin: 0,
-    fontSize: "28px",
-    lineHeight: 1,
-    fontWeight: 900,
-    letterSpacing: 0,
+    fontSize: "30px",
+    fontWeight: 800,
     color: "#f8fafc",
   },
 
   subtitle: {
-    margin: "5px 0 0 0",
+    margin: 0,
     color: "#94a3b8",
     fontSize: "14px",
-    lineHeight: 1.35,
   },
 
   topActions: {
@@ -3670,61 +2061,6 @@ const styles = {
     gap: "10px",
     flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "flex-end",
-    flex: "0 1 auto",
-  },
-
-
-  versionBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: "8px",
-    border: "1px solid rgba(148,163,184,0.18)",
-    background: "rgba(15,23,42,0.42)",
-    color: "#94a3b8",
-    borderRadius: "999px",
-    padding: "5px 9px",
-    fontSize: "10px",
-    fontWeight: 900,
-    letterSpacing: "0.03em",
-  },
-
-  systemNav: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-    gap: "10px",
-    background: "rgba(15, 23, 42, 0.78)",
-    border: "1px solid #1f2937",
-    borderRadius: "22px",
-    padding: "12px",
-    backdropFilter: "blur(10px)",
-  },
-
-  systemNavItem: {
-    background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "16px",
-    padding: "12px",
-    minWidth: 0,
-  },
-
-  systemNavLabel: {
-    display: "block",
-    color: "#7c8aa0",
-    fontSize: "11px",
-    fontWeight: 900,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    marginBottom: "5px",
-  },
-
-  systemNavValue: {
-    display: "block",
-    color: "#f8fafc",
-    fontSize: "13px",
-    fontWeight: 900,
-    overflowWrap: "anywhere",
   },
 
   refreshingText: {
@@ -3733,985 +2069,518 @@ const styles = {
     fontWeight: 700,
   },
 
-  refreshButton: {
-    border: "1px solid #2a3547",
-    background: "#121a2b",
-    color: "#e5edf7",
-    borderRadius: "14px",
-    padding: "9px 14px",
+  topGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "18px",
+  },
+
+  secondaryButton: {
+    border: "1px solid #334155",
+    background: "#111c2e",
+    color: "#cbd5e1",
+    borderRadius: "12px",
+    padding: "12px 16px",
     cursor: "pointer",
     fontWeight: 700,
     fontSize: "14px",
-    minHeight: "38px",
-    transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
   },
 
-  smartInsightCard: {
-    background: "linear-gradient(135deg, rgba(9,21,29,0.98), rgba(15,23,42,0.96))",
-    border: "1px solid #24515c",
-    borderRadius: "20px",
-    padding: "18px 20px",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.18)",
-    overflow: "hidden",
+  primaryButton: {
+    border: "1px solid #2563eb",
+    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+    color: "#ffffff",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "14px",
   },
 
-  smartInsightTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginBottom: "8px",
-    flexWrap: "wrap",
-  },
-
-  smartInsightKicker: {
-    fontSize: "11px",
-    fontWeight: 900,
-    color: "#67e8f9",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-  },
-
-  smartInsightTag: {
-    border: "1px solid #24515c",
-    background: "rgba(8,47,73,0.35)",
-    color: "#67e8f9",
-    borderRadius: "999px",
-    padding: "5px 9px",
-    fontSize: "10px",
-    fontWeight: 900,
-  },
-
-  smartInsightLine: {
-    height: "1px",
-    width: "100%",
-    background: "linear-gradient(90deg, rgba(103,232,249,0.58), rgba(34,197,94,0.16), rgba(148,163,184,0))",
-    marginBottom: "12px",
-  },
-
-  smartInsightTitle: {
-    fontSize: "18px",
-    fontWeight: 900,
-    color: "#f8fafc",
-    letterSpacing: 0,
-    marginBottom: "6px",
-  },
-
-  smartInsightDetail: {
-    fontSize: "13px",
-    color: "#cbd5e1",
-    lineHeight: 1.5,
+  smallActionButton: {
+    border: "1px solid #475569",
+    background: "#0f172a",
+    color: "#e2e8f0",
+    borderRadius: "10px",
+    padding: "9px 12px",
+    cursor: "pointer",
     fontWeight: 700,
+    fontSize: "12px",
   },
 
-  readinessCard: {
-    background: "rgba(17, 24, 39, 0.88)",
-    border: "1px solid #223047",
-    borderRadius: "24px",
-    padding: "20px",
-    overflow: "hidden",
+  smallDangerButton: {
+    border: "1px solid #b91c1c",
+    background: "#7f1d1d",
+    color: "#fff",
+    borderRadius: "10px",
+    padding: "9px 12px",
+    cursor: "pointer",
+    fontWeight: 700,
+    fontSize: "12px",
   },
 
-  readinessGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-    gap: "12px",
+  disabledButton: {
+    opacity: 0.55,
+    cursor: "not-allowed",
   },
 
   card: {
-    background: "rgba(17, 24, 39, 0.92)",
+    background: "#111827",
     border: "1px solid #1f2937",
-    borderRadius: "24px",
-    padding: "20px",
-    overflow: "visible",
-    backdropFilter: "blur(10px)",
-    transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease",
+    borderRadius: "20px",
+    padding: "18px",
   },
 
-  cardHeader: {
-    display: "flex",
+
+  cardHint: {
+    marginTop: "4px",
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.4,
+    fontWeight: 600,
+  },
+
+  sectionStep: {
+    display: "inline-flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-    marginBottom: "16px",
-    flexWrap: "wrap",
+    justifyContent: "center",
+    width: "32px",
+    height: "32px",
+    borderRadius: "999px",
+    background: "#13203a",
+    color: "#93c5fd",
+    border: "1px solid #243b63",
+    fontSize: "12px",
+    fontWeight: 900,
+    marginBottom: "10px",
+  },
+
+  workflowCard: {
+    background: "linear-gradient(135deg, rgba(15,23,42,0.96), rgba(17,24,39,0.94))",
+    border: "1px solid #223047",
+    borderRadius: "24px",
+    padding: "20px",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(420px, 1.35fr)",
+    gap: "18px",
+    alignItems: "center",
+  },
+
+  workflowTitle: {
+    fontSize: "18px",
+    fontWeight: 900,
+    color: "#f8fafc",
+    letterSpacing: "-0.02em",
+  },
+
+  workflowHint: {
+    marginTop: "6px",
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.5,
+    fontWeight: 600,
+  },
+
+  workflowSteps: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "10px",
+  },
+
+
+  workflowNumber: {
+    width: "24px",
+    height: "24px",
+    borderRadius: "999px",
+    background: "#1d4ed8",
+    color: "#ffffff",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "11px",
+    fontWeight: 900,
+    marginBottom: "4px",
+  },
+
+  workflowStepTitle: {
+    color: "#f8fafc",
+    fontSize: "13px",
+    fontWeight: 900,
+  },
+
+  workflowStepText: {
+    color: "#94a3b8",
+    fontSize: "11px",
+    lineHeight: 1.35,
+    fontWeight: 700,
+  },
+
+  workflowStep: {
+    background: "#0f172a",
+    border: "1px solid #223047",
+    borderRadius: "16px",
+    padding: "13px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px",
+    minWidth: 0,
   },
 
   cardTitle: {
     fontSize: "18px",
     fontWeight: 800,
-    letterSpacing: "-0.02em",
+    marginBottom: "12px",
     color: "#f8fafc",
   },
 
-  cardHint: {
-    marginTop: "4px",
-    fontSize: "13px",
-    color: "#94a3b8",
+  loadingText: {
+    color: "#cbd5e1",
+    fontSize: "14px",
+    fontWeight: 700,
   },
 
-  errorBanner: {
+  accessDeniedTitle: {
+    color: "#f8fafc",
+    fontSize: "22px",
+    fontWeight: 900,
+    marginBottom: "8px",
+  },
+
+  accessDeniedText: {
+    color: "#cbd5e1",
+    fontSize: "14px",
+    lineHeight: 1.6,
+    marginBottom: "14px",
+  },
+
+  messageSuccess: {
+    background: "#0f172a",
+    border: "1px solid #1f3b2a",
+    color: "#86efac",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    fontWeight: 700,
+  },
+
+  messageError: {
     background: "#2a1316",
     border: "1px solid #4b1f24",
     color: "#fecaca",
-    borderRadius: "18px",
-    padding: "14px 16px",
+    borderRadius: "14px",
+    padding: "12px 14px",
     fontWeight: 700,
+  },
+
+  input: {
+    width: "100%",
+    border: "1px solid #253246",
+    background: "#0a1322",
+    color: "#f8fafc",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    fontSize: "14px",
+    outline: "none",
+    minHeight: "44px",
+    boxSizing: "border-box",
+  },
+
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "12px",
+  },
+
+  actionsRow: {
+    marginTop: "14px",
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+
+  checkboxRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginTop: "14px",
+    fontSize: "14px",
+    color: "#cbd5e1",
   },
 
   emptyState: {
     background: "#0f172a",
     border: "1px dashed #334155",
-    borderRadius: "18px",
+    color: "#94a3b8",
+    borderRadius: "16px",
     padding: "18px",
-    color: "#94a3b8",
-    textAlign: "center",
-    fontWeight: 700,
+    fontSize: "14px",
   },
 
-  emptyChartState: {
-    height: "320px",
+  emptyStateSmall: {
+    color: "#94a3b8",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+
+  devicePickerGrid: {
+    display: "grid",
+    gridTemplateColumns: "390px 1fr",
+    gap: "16px",
+  },
+
+  devicePickerLeft: {
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+    flexDirection: "column",
+    gap: "10px",
+  },
+
+  devicePickerRight: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  deviceQuickList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    maxHeight: "330px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  },
+
+  deviceQuickItem: {
+    textAlign: "left",
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "12px",
+    padding: "11px 12px",
+    cursor: "pointer",
+    color: "#e5edf7",
+  },
+
+  deviceQuickItemActive: {
+    border: "1px solid #3b82f6",
+    background: "#132033",
+    boxShadow: "0 0 0 1px rgba(59,130,246,0.25) inset",
+  },
+
+  deviceQuickName: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  deviceQuickMeta: {
+    fontSize: "12px",
     color: "#94a3b8",
+    marginTop: "4px",
+  },
+
+  selectedDeviceCard: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "16px",
+  },
+
+  selectedDeviceTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "14px",
+  },
+
+  selectedDeviceName: {
+    fontSize: "18px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  selectedDeviceStats: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: "10px",
+  },
+
+  statusBadgeNeutral: {
+    borderRadius: "999px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+    background: "#111c2e",
+    border: "1px solid #334155",
+    color: "#cbd5e1",
+  },
+
+  clientSectionGrid: {
+    display: "grid",
+    gridTemplateColumns: "370px 1fr",
+    gap: "16px",
+    alignItems: "start",
+  },
+
+  clientListPanel: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+
+  clientCardList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    maxHeight: "420px",
+    overflowY: "auto",
+    paddingRight: "4px",
+  },
+
+  clientCard: {
+    textAlign: "left",
+    background: "#0b1220",
+    border: "1px solid #223047",
+    borderRadius: "12px",
+    padding: "12px",
+    cursor: "pointer",
+    color: "#e5edf7",
+  },
+
+  clientCardActive: {
+    border: "1px solid #3b82f6",
+    background: "#132033",
+    boxShadow: "0 0 0 1px rgba(59,130,246,0.25) inset",
+  },
+
+  clientCardTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "10px",
+  },
+
+  clientCardName: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#f8fafc",
+  },
+
+  clientCardMeta: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginTop: "3px",
+  },
+
+  clientCardBottom: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+    marginTop: "10px",
+  },
+
+  mutedTag: {
+    fontSize: "11px",
     fontWeight: 700,
-    background: "#0c1424",
-    border: "1px dashed #243042",
-    borderRadius: "18px",
+    color: "#cbd5e1",
+    border: "1px solid #334155",
+    background: "#111c2e",
+    borderRadius: "999px",
+    padding: "5px 8px",
   },
 
-  selectorWrap: {
-    position: "relative",
+  miniStatusBadge: {
+    borderRadius: "999px",
+    padding: "5px 8px",
+    fontSize: "11px",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
   },
 
-  selectorSummaryPills: {
+  miniStatusBadgeActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
+  },
+
+  miniStatusBadgeInactive: {
+    background: "#3f1d1d",
+    border: "1px solid #ef4444",
+    color: "#fecaca",
+  },
+
+  clientDetailsPanel: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "16px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  clientDetailsHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+
+  clientActionRow: {
     display: "flex",
     gap: "8px",
     flexWrap: "wrap",
   },
 
-  selectorSummaryPill: {
-    border: "1px solid #243042",
-    background: "#0f172a",
-    color: "#cbd5e1",
-    borderRadius: "999px",
-    padding: "6px 10px",
-    fontSize: "11px",
-    fontWeight: 800,
-  },
-
-  selectorMainButton: {
-    width: "100%",
-    border: "1px solid #243042",
-    background: "#0f172a",
-    color: "#f8fafc",
-    borderRadius: "18px",
-    padding: "16px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "14px",
-    cursor: "pointer",
-    textAlign: "left",
-  },
-
-  selectorMainLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    minWidth: 0,
-  },
-
-  selectorStatusDot: {
-    width: "12px",
-    height: "12px",
-    borderRadius: "999px",
-    flexShrink: 0,
-  },
-
-  selectorMainText: {
-    minWidth: 0,
-  },
-
-  selectorMainName: {
+  selectedUserName: {
     fontSize: "18px",
     fontWeight: 800,
     color: "#f8fafc",
-    wordBreak: "break-word",
   },
 
-  selectorMainMeta: {
-    marginTop: "4px",
-    fontSize: "13px",
-    color: "#94a3b8",
-    wordBreak: "break-word",
-  },
-
-  selectorMainRight: {
-    display: "flex",
-    alignItems: "center",
+  clientMiniStats: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
     gap: "10px",
-    flexShrink: 0,
   },
 
-  selectorMainStatus: {
-    border: "1px solid transparent",
-    borderRadius: "999px",
-    padding: "6px 10px",
-    fontSize: "11px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  selectorChevron: {
-    fontSize: "14px",
-    color: "#cbd5e1",
-    transition: "transform 0.18s ease",
-  },
-
-  selectorDropdown: {
-    position: "absolute",
-    top: "calc(100% + 10px)",
-    left: 0,
-    right: 0,
-    zIndex: 50,
+  compactPanel: {
     background: "#0b1220",
-    border: "1px solid #243042",
-    borderRadius: "18px",
-    padding: "10px",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.35)",
-    overflowY: "auto",
-  },
-
-  selectorOption: {
-    width: "100%",
-    background: "#0f172a",
     border: "1px solid #1e293b",
     borderRadius: "14px",
-    padding: "12px",
-    color: "#f8fafc",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-    textAlign: "left",
-    marginBottom: "8px",
+    padding: "14px",
   },
 
-  selectorOptionActive: {
-    border: "1px solid #2563eb",
-    boxShadow: "0 0 0 1px rgba(37,99,235,0.22)",
-    background: "#101c34",
-  },
-
-  selectorOptionLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    minWidth: 0,
-  },
-
-  selectorOptionDot: {
-    width: "10px",
-    height: "10px",
-    borderRadius: "999px",
-    flexShrink: 0,
-  },
-
-  selectorOptionText: {
-    minWidth: 0,
-  },
-
-  selectorOptionName: {
-    fontSize: "14px",
-    fontWeight: 800,
-    color: "#f8fafc",
-    wordBreak: "break-word",
-  },
-
-  selectorOptionMeta: {
-    marginTop: "4px",
-    fontSize: "12px",
-    color: "#94a3b8",
-    wordBreak: "break-word",
-  },
-
-  selectorOptionRight: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: "6px",
-    flexShrink: 0,
-  },
-
-  selectorOptionTemp: {
+  compactPanelTitle: {
     fontSize: "13px",
     fontWeight: 800,
     color: "#e2e8f0",
-  },
-
-  selectorOptionStatus: {
-    border: "1px solid transparent",
-    borderRadius: "999px",
-    padding: "4px 8px",
-    fontSize: "10px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  heroCard: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1.8fr) minmax(340px, 1fr)",
-    gap: "18px",
-    border: "1px solid #1f2937",
-    borderRadius: "24px",
-    padding: "22px",
-    overflow: "hidden",
-  },
-
-  heroLeft: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-    minWidth: 0,
-  },
-
-  heroRight: {
-    borderLeft: "1px solid #243042",
-    paddingLeft: "18px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-    justifyContent: "center",
-    minWidth: 0,
-  },
-
-  heroHeaderTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "16px",
-    flexWrap: "wrap",
-  },
-
-  sectionEyebrow: {
-    fontSize: "12px",
-    fontWeight: 800,
-    color: "#7c8aa0",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    marginBottom: "8px",
-  },
-
-  deviceName: {
-    fontSize: "24px",
-    fontWeight: 900,
-    letterSpacing: "-0.03em",
-    color: "#f8fafc",
-    wordBreak: "break-word",
-  },
-
-  deviceMetaLine: {
-    marginTop: "10px",
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flexWrap: "wrap",
-    color: "#94a3b8",
-    fontSize: "13px",
-    fontWeight: 600,
-  },
-
-  deviceMetaBadge: {
-    background: "#162033",
-    border: "1px solid #243042",
-    color: "#cbd5e1",
-    borderRadius: "999px",
-    padding: "6px 10px",
-    fontSize: "12px",
-    fontWeight: 700,
-  },
-
-  deviceMetaDot: {
-    color: "#475569",
-  },
-
-  deviceMetaLocation: {
-    color: "#94a3b8",
-    wordBreak: "break-word",
-  },
-
-  statusPillLarge: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "10px 14px",
-    borderRadius: "999px",
-    border: "1px solid transparent",
-    fontSize: "13px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  metricsRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: "14px",
-  },
-
-  metricCard: {
-    background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "20px",
-    padding: "18px",
-    minWidth: 0,
-    transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease",
-  },
-
-  metricTopRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginBottom: "8px",
-    flexWrap: "wrap",
-  },
-
-  metricLabel: {
-    fontSize: "13px",
-    color: "#8fa1b9",
-    fontWeight: 700,
-  },
-
-  miniChip: {
-    border: "1px solid transparent",
-    borderRadius: "999px",
-    padding: "4px 8px",
-    fontSize: "10px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  metricValue: {
-    fontSize: "30px",
-    lineHeight: 1,
-    fontWeight: 900,
-    letterSpacing: "-0.03em",
-    color: "#f8fafc",
-    wordBreak: "break-word",
-    overflowWrap: "anywhere",
-  },
-
-  metricSubvalue: {
-    marginTop: "10px",
-    color: "#94a3b8",
-    fontSize: "12px",
-    fontWeight: 700,
-    lineHeight: 1.4,
-  },
-
-  heroMetaRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: "12px",
-  },
-
-  infoItem: {
-    background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "16px",
-    padding: "14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    minWidth: 0,
-  },
-
-  infoLabel: {
-    fontSize: "12px",
-    color: "#8fa1b9",
-    fontWeight: 700,
-  },
-
-  infoValue: {
-    fontSize: "15px",
-    fontWeight: 700,
-    color: "#f8fafc",
-    wordBreak: "break-word",
-    overflowWrap: "anywhere",
-  },
-
-  sideTitle: {
-    fontSize: "16px",
-    fontWeight: 800,
-    color: "#f8fafc",
-  },
-
-  sideSummary: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "10px",
-  },
-
-  summaryBlock: {
-    background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "16px",
-    padding: "14px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    minWidth: 0,
-    flexWrap: "wrap",
-  },
-
-  summaryLabel: {
-    color: "#8fa1b9",
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-
-  summaryValue: {
-    fontSize: "15px",
-    fontWeight: 800,
-    color: "#f8fafc",
-    wordBreak: "break-word",
-  },
-
-  insightGrid: {
-    display: "grid",
-    gap: "12px",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  },
-
-  insightCard: {
-    border: "1px solid #223047",
-    borderRadius: "18px",
-    padding: "16px",
-    background: "#0f172a",
-  },
-
-  insightTitle: {
-    fontSize: "15px",
-    fontWeight: 800,
-    marginBottom: "8px",
-  },
-
-  insightDetail: {
-    fontSize: "13px",
-    color: "#cbd5e1",
-    lineHeight: 1.5,
-    fontWeight: 600,
-  },
-
-  predictionMainTitle: {
-    fontSize: "30px",
-    lineHeight: 1.05,
-    fontWeight: 900,
-    letterSpacing: 0,
     marginBottom: "10px",
   },
 
-  predictionMainDetail: {
-    fontSize: "15px",
-    color: "#e5edf7",
-    fontWeight: 700,
-    marginBottom: "8px",
-  },
-
-  predictionSourceLabel: {
-    fontSize: "13px",
-    color: "#94a3b8",
-    fontWeight: 700,
-  },
-
-  predictionOfflineNoteGlobal: {
-    marginTop: "14px",
-    fontSize: "12px",
-    color: "#94a3b8",
-  },
-
-  smartSurfaceCard: {
-    border: "1px solid #243042",
-    borderRadius: "20px",
-    padding: "18px 20px",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.18)",
-    overflow: "hidden",
-  },
-
-  smartSurfaceHeader: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "14px",
-    marginBottom: "14px",
-    flexWrap: "wrap",
-  },
-
-  smartSurfaceEyebrow: {
-    fontSize: "10px",
-    fontWeight: 900,
-    color: "#67e8f9",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    marginBottom: "5px",
-  },
-
-  smartSurfaceHint: {
-    color: "#94a3b8",
-    fontSize: "13px",
-    lineHeight: 1.45,
-    fontWeight: 700,
-  },
-
-  smartSignalLine: {
-    height: "1px",
-    width: "100%",
-    background: "linear-gradient(90deg, rgba(103,232,249,0.58), rgba(34,197,94,0.16), rgba(148,163,184,0))",
-    marginBottom: "16px",
-  },
-
-  healthSummaryBanner: {
-    background: "#0f172a",
-    border: "1px solid #243042",
-    borderRadius: "16px",
-    padding: "14px 16px",
-    color: "#cbd5e1",
-    fontSize: "13px",
-    fontWeight: 700,
-    marginBottom: "14px",
-  },
-
-  healthGrid: {
-    display: "grid",
-    gap: "14px",
-  },
-
-  healthCard: {
-    background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "20px",
-    padding: "16px",
-    minWidth: 0,
-  },
-
-  healthTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-    marginBottom: "10px",
-  },
-
-  healthLabel: {
-    fontSize: "12px",
-    color: "#8fa1b9",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-  },
-
-  healthBadge: {
-    border: "1px solid transparent",
-    borderRadius: "999px",
-    padding: "5px 9px",
-    fontSize: "11px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  healthValue: {
-    fontSize: "26px",
-    fontWeight: 900,
-    letterSpacing: "-0.03em",
-    marginBottom: "8px",
-  },
-
-  healthHint: {
-    fontSize: "12px",
-    color: "#94a3b8",
-    lineHeight: 1.4,
-  },
-
-  chartGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: "18px",
-  },
-
-  chartCard: {
-    background: "linear-gradient(180deg, #0f172a 0%, #0c1424 100%)",
-    border: "1px solid #1f2937",
-    borderRadius: "24px",
-    padding: "18px",
-    overflow: "hidden",
-    minWidth: 0,
-  },
-
-  chartHeader: {
-    marginBottom: "10px",
-  },
-
-  chartTitle: {
-    fontSize: "18px",
-    fontWeight: 800,
-    color: "#f8fafc",
-  },
-
-  chartSubtitle: {
-    marginTop: "6px",
-    fontSize: "13px",
-    color: "#94a3b8",
-  },
-
-  chartHint: {
-    marginTop: "6px",
-    fontSize: "12px",
-    color: "#7c8aa0",
-  },
-
-  chartOfflineHint: {
-    marginTop: "6px",
-    fontSize: "12px",
-    color: "#cbd5e1",
-  },
-
-  chartWrap: {
-    width: "100%",
-    minWidth: 0,
-    overflow: "hidden",
-    paddingTop: "4px",
-  },
-
-  periodRow: {
+  inlineControls: {
     display: "flex",
     gap: "10px",
     flexWrap: "wrap",
+    alignItems: "center",
   },
 
-  periodButton: {
-    border: "1px solid #2a3547",
-    background: "#0f172a",
-    color: "#cbd5e1",
-    borderRadius: "14px",
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontWeight: 800,
-    minWidth: "64px",
-    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease",
-  },
-
-  periodButtonActive: {
-    background: "#1d4ed8",
-    color: "#ffffff",
-    border: "1px solid #1d4ed8",
-  },
-
-  alertList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-
-  alertListHint: {
-    color: "#94a3b8",
-    fontSize: "12px",
-    fontWeight: 700,
-    textAlign: "center",
-    padding: "4px 0",
-  },
-
-collapseButton: {
-  border: "1px solid #334155",
-  background: "#0f172a",
-  color: "#cbd5e1",
-  borderRadius: "10px",
-  padding: "8px 12px",
-  cursor: "pointer",
-  fontWeight: 800,
-  fontSize: "12px",
-},
-
-  alertRow: {
-    background: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "18px",
-    padding: "14px",
-  },
-
-  alertRowTop: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "12px",
-    flexWrap: "wrap",
-    marginBottom: "8px",
-  },
-
-  alertRowTitle: {
-    fontSize: "15px",
-    fontWeight: 800,
-    color: "#f8fafc",
-  },
-
-  alertBadge: {
-    border: "1px solid transparent",
-    borderRadius: "999px",
-    padding: "5px 9px",
-    fontSize: "11px",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  alertRowMeta: {
-    marginTop: "10px",
-    display: "flex",
-    gap: "12px",
-    flexWrap: "wrap",
-    fontSize: "12px",
-    color: "#94a3b8",
-    fontWeight: 700,
-  },
-
-  formGrid: {
+  statsGrid: {
     display: "grid",
-    gap: "12px",
-    alignItems: "end",
-    width: "100%",
-    minWidth: 0,
-  },
-
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    minWidth: 0,
-    width: "100%",
-  },
-
-  label: {
-    fontSize: "11px",
-    color: "#7f90a6",
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    lineHeight: 1.2,
-  },
-
-  configInput: {
-    width: "100%",
-    minWidth: 0,
-    maxWidth: "100%",
-    border: "1px solid #253246",
-    background: "#0a1322",
-    color: "#f8fafc",
-    borderRadius: "10px",
-    padding: "7px 10px",
-    fontSize: "13px",
-    outline: "none",
-    height: "34px",
-    boxSizing: "border-box",
-    textAlign: "center",
-    fontVariantNumeric: "tabular-nums",
-    display: "block",
-    overflow: "hidden",
-    appearance: "none",
-    WebkitAppearance: "none",
-  },
-
-  actionsRow: {
-    marginTop: "16px",
-    display: "flex",
-    gap: "14px",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-
-reportRow: {
-  display: "grid",
-  gap: "14px",
-  alignItems: "end",
-},
-
-reportActionWrap: {
-  display: "flex",
-  alignItems: "end",
-},
-
-  primaryButton: {
-    border: "1px solid #2563eb",
-    background: "#163b7a",
-    color: "#ffffff",
-    borderRadius: "10px",
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontWeight: 800,
-    fontSize: "13px",
-    minHeight: "36px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease",
-  },
-
-  readOnlyBadge: {
-    border: "1px solid #334155",
-    background: "#0f172a",
-    color: "#cbd5e1",
-    borderRadius: "999px",
-    padding: "7px 10px",
-    fontSize: "12px",
-    fontWeight: 800,
-  },
-
-  errorTextInline: {
-    color: "#f87171",
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-
-  successText: {
-    color: "#22c55e",
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-
-  adminPanel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-    minWidth: 0,
-  },
-
-  adminPanelTop: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-    flexWrap: "wrap",
-  },
-
-  adminActive: {
-    color: "#22c55e",
-    fontWeight: 800,
-  },
-
-  adminGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "12px",
-    width: "100%",
-    minWidth: 0,
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: "10px",
   },
 
   smallStat: {
     background: "#0f172a",
-    border: "1px solid #223047",
-    borderRadius: "18px",
-    padding: "16px",
+    border: "1px solid #1e293b",
+    borderRadius: "14px",
+    padding: "14px",
     minWidth: 0,
   },
 
@@ -4719,64 +2588,100 @@ reportActionWrap: {
     fontSize: "12px",
     color: "#8fa1b9",
     fontWeight: 700,
-    marginBottom: "8px",
+    marginBottom: "7px",
   },
 
   smallStatValue: {
-    fontSize: "15px",
+    fontSize: "14px",
     fontWeight: 800,
     color: "#f8fafc",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
 
-  subsection: {
+  alertsBoxLarge: {
     background: "#0b1220",
-    border: "1px solid #1f2937",
-    borderRadius: "20px",
-    padding: "18px",
-    overflow: "hidden",
+    border: "1px solid #1e293b",
+    borderRadius: "14px",
+    padding: "14px",
   },
 
-  subsectionTitle: {
-    fontSize: "16px",
-    fontWeight: 800,
-    color: "#f8fafc",
-    marginBottom: "16px",
+  toggleWrap: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
   },
 
-  tooltip: {
-    background: "#0f172a",
-    border: "1px solid #334155",
-    borderRadius: "12px",
+  togglePill: {
+    borderRadius: "999px",
     padding: "10px 12px",
-    color: "#f8fafc",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    transition: "all 0.15s ease",
   },
 
-  tooltipTitle: {
-    fontSize: "12px",
-    color: "#94a3b8",
-    marginBottom: "6px",
+  togglePillActive: {
+    background: "#0f3b22",
+    border: "1px solid #22c55e",
+    color: "#bbf7d0",
   },
 
-  tooltipValue: {
+  togglePillInactive: {
+    background: "#1f2937",
+    border: "1px solid #334155",
+    color: "#cbd5e1",
+  },
+
+  savingHint: {
+    marginTop: "10px",
     fontSize: "12px",
-    color: "#f8fafc",
+    color: "#93c5fd",
+    fontWeight: 700,
+  },
+
+  configSectionTitle: {
+    marginTop: "18px",
+    marginBottom: "12px",
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#cbd5e1",
+    letterSpacing: "0.02em",
+  },
+
+  configGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: "14px",
+  },
+
+  configField: {
+    background: "#0f172a",
+    border: "1px solid #1e293b",
+    borderRadius: "14px",
+    padding: "14px",
+  },
+
+  configFieldLabel: {
+    fontSize: "13px",
+    fontWeight: 800,
+    color: "#e2e8f0",
+    marginBottom: "10px",
+  },
+
+  fieldHelp: {
+    fontSize: "12px",
+    color: "#8fa1b9",
+    lineHeight: 1.5,
+    marginTop: "8px",
   },
 
   rawConfigWrap: {
     background: "#0b1220",
     border: "1px solid #1f2937",
-    borderRadius: "20px",
+    borderRadius: "14px",
     padding: "16px",
     overflow: "hidden",
-  },
-
-  rawConfigTitle: {
-    color: "#94a3b8",
-    fontSize: "13px",
-    fontWeight: 700,
-    marginBottom: "10px",
   },
 
   rawConfig: {
@@ -4787,5 +2692,22 @@ reportActionWrap: {
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  },
+
+  removeBtn: {
+    background: "#7f1d1d",
+    border: "1px solid #b91c1c",
+    padding: "8px 10px",
+    borderRadius: "8px",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+
+  meta: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    marginTop: "4px",
   },
 };

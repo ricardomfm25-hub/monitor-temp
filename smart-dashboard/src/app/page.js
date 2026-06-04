@@ -20,11 +20,12 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
+const STS_SYSTEM_VERSION = "V2.4.25";
 
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
-  version: "V2.3.4",
+  version: STS_SYSTEM_VERSION,
   domain: "stsapp.pt",
 };
 const STS_LOGO_SRC = "/sts-logo.png";
@@ -2365,6 +2366,22 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
               communication_health: overviewData?.communication_health || null,
               predictive_status: overviewData?.predictive_status || null,
+              telemetry_seq:
+                overviewData?.telemetry_seq ?? baseDeviceData?.telemetry_seq ?? null,
+              buffer_count:
+                overviewData?.buffer_count ?? baseDeviceData?.buffer_count ?? null,
+              post_ok_count:
+                overviewData?.post_ok_count ?? baseDeviceData?.post_ok_count ?? null,
+              post_fail_count:
+                overviewData?.post_fail_count ?? baseDeviceData?.post_fail_count ?? null,
+              boot_count:
+                overviewData?.boot_count ?? baseDeviceData?.boot_count ?? null,
+              reset_reason:
+                overviewData?.reset_reason ?? baseDeviceData?.reset_reason ?? null,
+              clock_synced:
+                overviewData?.clock_synced ?? baseDeviceData?.clock_synced ?? null,
+              clock_sync_age_s:
+                overviewData?.clock_sync_age_s ?? baseDeviceData?.clock_sync_age_s ?? null,
               alerts_24h: overviewData?.alerts_24h ?? 0,
               total_readings_24h: overviewData?.total_readings_24h ?? 0,
               last_seen:
@@ -3111,6 +3128,51 @@ async function downloadPdfReport() {
               hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
               tone={communicationHealth.tone}
               badge={communicationHealth.label}
+            />
+
+            <HealthStatCard
+              label="Seq. confirmada"
+              value={formatValue(device?.telemetry_seq, "", 0)}
+              hint="Ultima sequencia reportada pelo dispositivo"
+              tone="neutral"
+            />
+
+            <HealthStatCard
+              label="Buffer pendente"
+              value={formatValue(device?.buffer_count, "", 0)}
+              hint="Leituras guardadas para reenvio"
+              tone={Number(device?.buffer_count || 0) > 0 ? "warn" : "good"}
+            />
+
+            <HealthStatCard
+              label="Envios falhados"
+              value={formatValue(device?.post_fail_count, "", 0)}
+              hint={`Confirmados: ${formatValue(device?.post_ok_count, "", 0)}`}
+              tone={Number(device?.post_fail_count || 0) > 0 ? "warn" : "good"}
+            />
+
+            <HealthStatCard
+              label="Reinicios"
+              value={formatValue(device?.boot_count, "", 0)}
+              hint={`Ultima causa: ${device?.reset_reason || "-"}`}
+              tone={
+                String(device?.reset_reason || "").includes("watchdog") ||
+                String(device?.reset_reason || "").includes("brownout") ||
+                String(device?.reset_reason || "").includes("panic")
+                  ? "warn"
+                  : "neutral"
+              }
+            />
+
+            <HealthStatCard
+              label="Hora"
+              value={device?.clock_synced === false ? "Pendente" : "Sincronizada"}
+              hint={`Ultimo acerto: ${
+                device?.clock_sync_age_s !== null && device?.clock_sync_age_s !== undefined
+                  ? formatDurationCompact(Number(device.clock_sync_age_s) * 1000)
+                  : "-"
+              }`}
+              tone={device?.clock_synced === false ? "warn" : "good"}
             />
           </div>
         </section>
