@@ -2818,7 +2818,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       .fillColor("#475569")
       .fontSize(12)
       .font("Helvetica")
-      .text("Relatório de leituras", 42, 72);
+      .text("Relatório de leituras", 42, 92);
 
     doc
       .roundedRect(42, 108, 511, 110, 12)

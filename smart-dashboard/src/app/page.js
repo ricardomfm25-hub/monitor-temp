@@ -3214,10 +3214,10 @@ async function downloadPdfReport() {
             />
             <div>
             <h1 style={styles.title}>Cold</h1>
+            <div style={styles.tagline}>{STS_TAGLINE}</div>
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.tagline}>{STS_TAGLINE}</div>
             <div style={styles.versionBadge}>DASHBOARD · {STS_PRODUCT.version}</div>
             </div>
           </div>
