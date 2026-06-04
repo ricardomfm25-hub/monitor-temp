@@ -21,7 +21,7 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
-const STS_SYSTEM_VERSION = "V2.4.28";
+const STS_SYSTEM_VERSION = "V2.4.27";
 
 const STS_PRODUCT = {
   family: "STS",
