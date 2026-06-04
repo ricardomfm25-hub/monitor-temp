@@ -543,6 +543,119 @@ function getTrendDirectionLabel(direction, type) {
   return "Sem tendência relevante";
 }
 
+function getMetricLabel(type) {
+  return type === "temperature" ? "Temperatura" : "Humidade";
+}
+
+function getDeviationBand(type, deviation) {
+  const mild = type === "temperature" ? 0.8 : 5;
+  const moderate = type === "temperature" ? 2 : 12;
+
+  if (deviation >= moderate) return "grave";
+  if (deviation >= mild) return "moderado";
+  return "ligeiro";
+}
+
+function getConsecutiveBreachMinutes(clean, side, limit) {
+  if (!clean.length || !side || !Number.isFinite(limit)) return 0;
+
+  let first = clean[clean.length - 1];
+  for (let i = clean.length - 1; i >= 0; i -= 1) {
+    const row = clean[i];
+    const breached = side === "high" ? row.value > limit : row.value < limit;
+    if (!breached) break;
+    first = row;
+  }
+
+  return Math.max(
+    0,
+    Math.round(getMinutesDiff(first.created_at, clean[clean.length - 1].created_at))
+  );
+}
+
+function buildRiskNarrative({ type, side, deviation, durationMin, direction, etaMinutes }) {
+  const metric = getMetricLabel(type);
+  const isHigh = side === "high";
+  const band = getDeviationBand(type, deviation);
+  const persistent = durationMin >= 30;
+  const short = durationMin > 0 && durationMin < 15 && band === "ligeiro";
+  const trendText = getTrendDirectionLabel(direction, type).toLowerCase();
+
+  if (side) {
+    const title =
+      band === "grave"
+        ? "Risco elevado"
+        : band === "moderado" || persistent
+        ? "Risco moderado"
+        : "Risco ligeiro";
+
+    const detail = short
+      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite, mas ainda por curta duração.`
+      : persistent
+      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite há ~${durationMin} min.`
+      : `${metric} ${isHigh ? "acima" : "abaixo"} do limite com desvio ${band}.`;
+
+    let cause = `${metric} fora do limite definido.`;
+    let action = "Confirmar condições do equipamento e acompanhar a próxima leitura.";
+
+    if (type === "temperature" && isHigh) {
+      cause = direction === "up"
+        ? "Subida gradual compatível com abertura prolongada, carga recente ou refrigeração insuficiente."
+        : "Valor acima do limite sem subida forte; pode ser exposição curta ou recuperação lenta.";
+      action = persistent || band !== "ligeiro"
+        ? "Verificar porta, ventilação e carga; reduzir aberturas até normalizar."
+        : "Confirmar fecho da porta e aguardar a próxima leitura.";
+    } else if (type === "temperature" && !isHigh) {
+      cause = direction === "down"
+        ? "Descida gradual compatível com regulação demasiado baixa ou zona fria."
+        : "Valor abaixo do limite sem tendência forte; pode ser oscilação curta.";
+      action = persistent || band !== "ligeiro"
+        ? "Confirmar setpoint e posição do sensor; ajustar refrigeração se necessário."
+        : "Acompanhar a próxima leitura antes de alterar configuração.";
+    } else if (type === "humidity" && isHigh) {
+      cause = direction === "up"
+        ? "Humidade a subir, compatível com entrada de ar húmido, porta aberta ou condensação."
+        : "Humidade acima do limite, possivelmente por condensação ou ventilação reduzida.";
+      action = persistent || band !== "ligeiro"
+        ? "Verificar vedação, condensação e tempo de porta aberta."
+        : "Confirmar fecho e observar se baixa nas próximas leituras.";
+    } else if (type === "humidity" && !isHigh) {
+      cause = direction === "down"
+        ? "Humidade a descer, compatível com secagem excessiva ou circulação intensa."
+        : "Humidade abaixo do limite sem tendência forte; pode ser variação pontual.";
+      action = persistent || band !== "ligeiro"
+        ? "Rever ventilação e exposição do produto; confirmar posição do sensor."
+        : "Acompanhar sem intervenção imediata se recuperar.";
+    }
+
+    return { title, detail, cause, action, band, persistent, short };
+  }
+
+  if (Number.isFinite(etaMinutes)) {
+    return {
+      title: etaMinutes <= 45 ? "Risco elevado" : "Risco moderado",
+      detail: `${metric} aproxima-se do limite; possível alerta em ~${Math.max(1, Math.round(etaMinutes))} min.`,
+      cause: `${trendText}; ainda dentro do limite, mas com aproximação consistente.`,
+      action: type === "temperature"
+        ? "Reduzir aberturas e confirmar se a refrigeração está estável."
+        : "Confirmar porta, condensação e circulação de ar.",
+      band: etaMinutes <= 45 ? "grave" : "moderado",
+      persistent: false,
+      short: false,
+    };
+  }
+
+  return {
+    title: "Risco baixo",
+    detail: "Sem tendência relevante nas últimas leituras recentes.",
+    cause: "Dados dentro do comportamento esperado.",
+    action: "Manter monitorização normal.",
+    band: "baixo",
+    persistent: false,
+    short: false,
+  };
+}
+
 function buildPredictiveSignal({
   readings,
   valueKey,
@@ -557,6 +670,51 @@ function buildPredictiveSignal({
     }))
     .filter((r) => r.created_at && Number.isFinite(r.value))
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  const latest = clean[clean.length - 1] || null;
+  const latestSide =
+    latest && Number.isFinite(highLimit) && latest.value > highLimit
+      ? "high"
+      : latest && Number.isFinite(lowLimit) && latest.value < lowLimit
+      ? "low"
+      : null;
+
+  if (latestSide) {
+    const latestLimit = latestSide === "high" ? highLimit : lowLimit;
+    const latestDeviation = Math.abs(latest.value - latestLimit);
+    const latestDurationMin = getConsecutiveBreachMinutes(clean, latestSide, latestLimit);
+    const narrative = buildRiskNarrative({
+      type,
+      side: latestSide,
+      deviation: latestDeviation,
+      durationMin: latestDurationMin,
+      direction: "flat",
+      etaMinutes: 0,
+    });
+    const severity =
+      narrative.band === "grave" || narrative.persistent
+        ? "high"
+        : narrative.band === "moderado"
+        ? "medium"
+        : "low";
+
+    return {
+      active: true,
+      severity,
+      eta_minutes: 0,
+      title: narrative.title,
+      detail: narrative.detail,
+      cause: narrative.cause,
+      action: narrative.action,
+      source: type,
+      score: severity === "high" ? 100 : severity === "medium" ? 78 : 55,
+      current_value: latest.value,
+      limit: latestLimit,
+      deviation: latestDeviation,
+      duration_minutes: latestDurationMin,
+      state: latestSide,
+    };
+  }
 
   if (clean.length < 6) {
     return {
@@ -608,6 +766,54 @@ function buildPredictiveSignal({
   if (upCount >= 5) direction = "up";
   if (downCount >= 5) direction = "down";
 
+  const immediateSide =
+    Number.isFinite(highLimit) && current.value > highLimit
+      ? "high"
+      : Number.isFinite(lowLimit) && current.value < lowLimit
+      ? "low"
+      : null;
+
+  if (immediateSide) {
+    const immediateLimit = immediateSide === "high" ? highLimit : lowLimit;
+    const immediateDeviation = Math.abs(current.value - immediateLimit);
+    const immediateDurationMin = getConsecutiveBreachMinutes(
+      clean,
+      immediateSide,
+      immediateLimit
+    );
+    const narrative = buildRiskNarrative({
+      type,
+      side: immediateSide,
+      deviation: immediateDeviation,
+      durationMin: immediateDurationMin,
+      direction,
+      etaMinutes: 0,
+    });
+    const severity =
+      narrative.band === "grave" || narrative.persistent
+        ? "high"
+        : narrative.band === "moderado"
+        ? "medium"
+        : "low";
+
+    return {
+      active: true,
+      severity,
+      eta_minutes: 0,
+      title: narrative.title,
+      detail: narrative.detail,
+      cause: narrative.cause,
+      action: narrative.action,
+      source: type,
+      score: severity === "high" ? 100 : severity === "medium" ? 78 : 55,
+      current_value: current.value,
+      limit: immediateLimit,
+      deviation: immediateDeviation,
+      duration_minutes: immediateDurationMin,
+      state: immediateSide,
+    };
+  }
+
   if (direction === "flat") {
     return {
       active: false,
@@ -639,8 +845,52 @@ function buildPredictiveSignal({
     };
   }
 
+  const currentSide =
+    Number.isFinite(highLimit) && current.value > highLimit
+      ? "high"
+      : Number.isFinite(lowLimit) && current.value < lowLimit
+      ? "low"
+      : null;
+  const currentLimit =
+    currentSide === "high" ? highLimit : currentSide === "low" ? lowLimit : targetLimit;
+  const currentDeviation = currentSide ? Math.abs(current.value - currentLimit) : 0;
+  const durationMin = getConsecutiveBreachMinutes(clean, currentSide, currentLimit);
   const distance = Math.abs(targetLimit - current.value);
   const speedThreshold = type === "temperature" ? 0.03 : 0.18;
+
+  if (currentSide) {
+    const narrative = buildRiskNarrative({
+      type,
+      side: currentSide,
+      deviation: currentDeviation,
+      durationMin,
+      direction,
+      etaMinutes: 0,
+    });
+    const severity =
+      narrative.band === "grave" || narrative.persistent
+        ? "high"
+        : narrative.band === "moderado"
+        ? "medium"
+        : "low";
+
+    return {
+      active: true,
+      severity,
+      eta_minutes: 0,
+      title: narrative.title,
+      detail: narrative.detail,
+      cause: narrative.cause,
+      action: narrative.action,
+      source: type,
+      score: severity === "high" ? 100 : severity === "medium" ? 78 : 55,
+      current_value: current.value,
+      limit: currentLimit,
+      deviation: currentDeviation,
+      duration_minutes: durationMin,
+      state: currentSide,
+    };
+  }
 
   if (absAvgSlope < speedThreshold) {
     return {
@@ -683,6 +933,15 @@ function buildPredictiveSignal({
   const closeToLimit = distance <= closeMargin;
 
   if (etaMinutes <= 45 && closeToLimit) {
+    const narrative = buildRiskNarrative({
+      type,
+      side: null,
+      deviation: 0,
+      durationMin: 0,
+      direction,
+      etaMinutes,
+    });
+
     return {
       active: true,
       severity: "high",
@@ -692,18 +951,31 @@ function buildPredictiveSignal({
         1,
         Math.round(etaMinutes)
       )} min`,
+      cause: narrative.cause,
+      action: narrative.action,
       source: type,
       score: 90,
     };
   }
 
   if (etaMinutes <= 120 && closeToLimit) {
+    const narrative = buildRiskNarrative({
+      type,
+      side: null,
+      deviation: 0,
+      durationMin: 0,
+      direction,
+      etaMinutes,
+    });
+
     return {
       active: true,
       severity: "medium",
       eta_minutes: Math.max(1, Math.round(etaMinutes)),
       title: "Risco moderado",
       detail: `${getTrendDirectionLabel(direction, type)} · aproximação ao limite`,
+      cause: narrative.cause,
+      action: narrative.action,
       source: type,
       score: 65,
     };
@@ -744,6 +1016,8 @@ function getPredictiveStatus(readings, cfg) {
       level: "low",
       title: "Risco baixo",
       detail: "Sem tendência relevante nas últimas leituras",
+      cause: "Valores dentro do comportamento esperado face aos limites definidos.",
+      action: "Manter monitorização normal.",
       chip: "Baixo",
       source: "none",
       source_label: "Sem variável crítica",
@@ -759,6 +1033,8 @@ function getPredictiveStatus(readings, cfg) {
       level: "high",
       title: best.title,
       detail: best.detail,
+      cause: best.cause,
+      action: best.action,
       chip: "Elevado",
       source: best.source,
       source_label: isTemperature
@@ -773,6 +1049,8 @@ function getPredictiveStatus(readings, cfg) {
     level: "medium",
     title: best.title,
     detail: best.detail,
+    cause: best.cause,
+    action: best.action,
     chip: "Moderado",
     source: best.source,
     source_label: isTemperature
