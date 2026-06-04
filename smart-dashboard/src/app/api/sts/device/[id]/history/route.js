@@ -75,7 +75,9 @@ export async function GET(request, context) {
     const limit = parseLimit(request);
     const { data, error } = await supabase
       .from("readings")
-      .select("temperature, humidity, created_at")
+      .select(
+        "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason"
+      )
       .eq("device_id", deviceId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -95,6 +97,31 @@ export async function GET(request, context) {
           row.humidity === null || row.humidity === undefined
             ? null
             : Number(row.humidity),
+        device_status: row.device_status,
+        alarm_ack: row.alarm_ack,
+        alarm_ack_count:
+          row.alarm_ack_count === null || row.alarm_ack_count === undefined
+            ? null
+            : Number(row.alarm_ack_count),
+        alarm_ack_time: row.alarm_ack_time,
+        alarm_ack_age_s:
+          row.alarm_ack_age_s === null || row.alarm_ack_age_s === undefined
+            ? null
+            : Number(row.alarm_ack_age_s),
+        alarm_event_count:
+          row.alarm_event_count === null || row.alarm_event_count === undefined
+            ? null
+            : Number(row.alarm_event_count),
+        alarm_event_time: row.alarm_event_time,
+        alarm_event_age_s:
+          row.alarm_event_age_s === null || row.alarm_event_age_s === undefined
+            ? null
+            : Number(row.alarm_event_age_s),
+        alarm_mask:
+          row.alarm_mask === null || row.alarm_mask === undefined
+            ? null
+            : Number(row.alarm_mask),
+        alarm_reason: row.alarm_reason,
       }))
       .filter((row) => Number.isFinite(row.timestamp));
 
