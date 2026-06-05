@@ -1474,7 +1474,7 @@ function getEffectiveReadingAlertState(reading, config, key) {
   return maskState || getReadingAlertState(reading, config, key);
 }
 
-function buildDerivedAlertEvent(reading, type, level, state, source) {
+function buildDerivedAlertEvent(reading, type, level, state, source, derived = true) {
   return {
     id: `derived-${type}-${level}-${state || "state"}-${reading?.created_at || reading?.timestamp}`,
     type,
@@ -1487,7 +1487,7 @@ function buildDerivedAlertEvent(reading, type, level, state, source) {
     humidity: parseNumber(reading?.humidity),
     alarm_mask: parseNumber(reading?.alarm_mask),
     alarm_reason: reading?.alarm_reason || null,
-    derived: true,
+    derived,
   };
 }
 
@@ -1516,23 +1516,42 @@ function deriveAlertEventsFromReadings(readings, config) {
     temperature: null,
     humidity: null,
   };
+  const activeSource = {
+    temperature: null,
+    humidity: null,
+  };
   let ackActive = false;
   let lastAckCount = null;
 
   ordered.forEach((reading) => {
     ["temperature", "humidity"].forEach((type) => {
-      const nextState = getEffectiveReadingAlertState(reading, config, type);
+      const maskState = getMaskAlertState(getReadingAlarmMask(reading), type);
+      const thresholdState = getReadingAlertState(reading, config, type);
+      const nextState = maskState || thresholdState;
+      const nextSource = maskState ? "firmware_alarm" : nextState ? "reading" : null;
       const previousState = activeState[type];
+      const previousSource = activeSource[type];
+      const isDerived = nextSource !== "firmware_alarm";
 
       if (nextState && nextState !== previousState) {
-        events.push(buildDerivedAlertEvent(reading, type, "alert", nextState, "reading"));
+        events.push(buildDerivedAlertEvent(reading, type, "alert", nextState, nextSource, isDerived));
       }
 
       if (!nextState && previousState) {
-        events.push(buildDerivedAlertEvent(reading, type, "normal", previousState, "reading"));
+        events.push(
+          buildDerivedAlertEvent(
+            reading,
+            type,
+            "normal",
+            previousState,
+            previousSource || "reading",
+            previousSource !== "firmware_alarm"
+          )
+        );
       }
 
       activeState[type] = nextState;
+      activeSource[type] = nextSource;
     });
 
     const readingAckCount = parseNumber(reading?.alarm_ack_count);
@@ -1547,9 +1566,9 @@ function deriveAlertEventsFromReadings(readings, config) {
       ((lastAckCount === null && readingAckCount > 0) ||
         (lastAckCount !== null && readingAckCount > lastAckCount))
     ) {
-      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status"));
+      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status", false));
     } else if (readingAckCount === null && readingAck && !ackActive) {
-      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status"));
+      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status", false));
     }
 
     if (readingAckCount !== null) lastAckCount = readingAckCount;
