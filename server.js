@@ -206,11 +206,30 @@ function getReadingAlarmMask(row, cfg) {
   return mask;
 }
 
-function buildReportAlertHistory(rows, cfg) {
+function getEventTimeFromAge(createdAt, ageSeconds) {
+  const createdTs = new Date(createdAt).getTime();
+  const age = toOptionalNumber(ageSeconds);
+
+  if (!Number.isFinite(createdTs) || age === null || age < 0) return createdAt;
+
+  return new Date(createdTs - age * 1000).toISOString();
+}
+
+function buildReportAlertHistory(rows, cfg, sinceIso = null) {
   const events = [];
   let previousMask = 0;
-  let lastAckCount = 0;
+  let lastAlarmEventCount = null;
+  let lastAckCount = null;
   let ackWasActive = false;
+  const sinceTs = sinceIso ? new Date(sinceIso).getTime() : null;
+
+  const pushEvent = (event) => {
+    const eventTs = new Date(event.when).getTime();
+    if (Number.isFinite(sinceTs) && Number.isFinite(eventTs) && eventTs < sinceTs) {
+      return;
+    }
+    events.push(event);
+  };
 
   (rows || []).forEach((row) => {
     const currentMask = getReadingAlarmMask(row, cfg);
@@ -224,13 +243,26 @@ function buildReportAlertHistory(rows, cfg) {
       .filter(Boolean)
       .join(" | ");
 
-    if (currentMask > 0 && (previousMask === 0 || currentMask !== previousMask)) {
-      events.push({
+    const alarmEventCount = toOptionalNumber(row?.alarm_event_count);
+    const alarmCounterAdvanced =
+      currentMask > 0 &&
+      alarmEventCount !== null &&
+      alarmEventCount > 0 &&
+      (lastAlarmEventCount === null
+        ? previousMask === 0
+        : alarmEventCount > lastAlarmEventCount);
+    const maskChangedWithoutCounter =
+      currentMask > 0 &&
+      alarmEventCount === null &&
+      (previousMask === 0 || currentMask !== previousMask);
+
+    if (alarmCounterAdvanced || maskChangedWithoutCounter) {
+      pushEvent({
         kind: "alert",
         color: "#fee2e2",
         stroke: "#fecaca",
         title: row?.alarm_reason || getAlarmMaskLabel(currentMask),
-        when: createdAt,
+        when: getEventTimeFromAge(createdAt, row?.alarm_event_age_s),
         deviceTime: row?.alarm_event_time || null,
         detail: valueText || "-",
       });
@@ -241,24 +273,26 @@ function buildReportAlertHistory(rows, cfg) {
       row?.alarm_ack === true ||
       String(row?.alarm_ack || "").toLowerCase() === "true" ||
       String(row?.device_status || "").toLowerCase().includes("ack");
+    const ackCounterAdvanced =
+      ackCount > 0 &&
+      (lastAckCount === null
+        ? ackActive || row?.alarm_ack_time || row?.alarm_ack_age_s !== null
+        : ackCount > lastAckCount);
 
-    if (
-      ackActive &&
-      ((ackCount > 0 && ackCount > lastAckCount) || (ackCount === 0 && !ackWasActive))
-    ) {
-      events.push({
+    if (ackCounterAdvanced || (ackCount === 0 && ackActive && !ackWasActive)) {
+      pushEvent({
         kind: "ack",
         color: "#dbeafe",
         stroke: "#bfdbfe",
         title: "ACK confirmado",
-        when: createdAt,
+        when: getEventTimeFromAge(createdAt, row?.alarm_ack_age_s),
         deviceTime: row?.alarm_ack_time || null,
         detail: valueText || "Alerta reconhecido no dispositivo",
       });
     }
 
     if (currentMask === 0 && previousMask > 0) {
-      events.push({
+      pushEvent({
         kind: "normal",
         color: "#dcfce7",
         stroke: "#bbf7d0",
@@ -269,7 +303,8 @@ function buildReportAlertHistory(rows, cfg) {
       });
     }
 
-    if (ackCount > lastAckCount) lastAckCount = ackCount;
+    if (alarmEventCount !== null) lastAlarmEventCount = alarmEventCount;
+    if (ackCount !== null) lastAckCount = Math.max(lastAckCount || 0, ackCount);
     ackWasActive = ackActive;
     previousMask = currentMask;
   });
@@ -350,10 +385,11 @@ function buildStoredReportAlertHistory(alertRows) {
 
 function mergeReportAlertHistory(storedEvents, derivedEvents) {
   const merged = [...(storedEvents || [])];
+  const storedSourceEvents = storedEvents || [];
 
   (derivedEvents || []).forEach((event) => {
     const eventTs = new Date(event.when).getTime();
-    const alreadyStored = merged.some((storedEvent) => {
+    const alreadyStored = storedSourceEvents.some((storedEvent) => {
       const storedTs = new Date(storedEvent.when).getTime();
       if (!Number.isFinite(eventTs) || !Number.isFinite(storedTs)) return false;
       if (storedEvent.kind !== event.kind) return false;
@@ -3104,7 +3140,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       supabase
         .from("readings")
         .select(
-          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_event_count, alarm_event_time, alarm_mask, alarm_reason"
+          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason"
         )
         .eq("device_id", deviceId)
         .gte("created_at", sinceIso)
@@ -3114,7 +3150,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
         .from("alerts")
         .select("*")
         .eq("device_id", deviceId)
-        .gte("sent_at", sinceIso)
+        .or(`sent_at.gte.${sinceIso},created_at.gte.${sinceIso}`)
         .order("sent_at", { ascending: true }),
     ]);
 
@@ -3163,7 +3199,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     });
     const alertHistory = mergeReportAlertHistory(
       buildStoredReportAlertHistory(storedAlerts || []),
-      buildReportAlertHistory(rows, cfg)
+      buildReportAlertHistory(rows, cfg, sinceIso)
     );
 
     const temperatures = rows
@@ -3402,7 +3438,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       .fillAndStroke("#ffffff", "#e2e8f0");
 
     doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
-    doc.text("Intervalos configurados", 62, y + 18);
+    doc.text("Intervalos configurados", 62, y + 20, { width: 180 });
 
     doc.fillColor("#0f172a").font("Helvetica").fontSize(11);
     doc.text(
@@ -3413,8 +3449,12 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
         cfg.hum_high,
         0
       )} %`,
-      190,
-      y + 76
+      242,
+      y + 18,
+      {
+        width: 285,
+        align: "right",
+      }
     );
 
     const drawFooter = () => {

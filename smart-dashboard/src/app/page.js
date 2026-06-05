@@ -1473,15 +1473,34 @@ function getEffectiveReadingAlertState(reading, config, key) {
   return maskState || getReadingAlertState(reading, config, key);
 }
 
-function buildDerivedAlertEvent(reading, type, level, state, source, derived = true) {
+function getReadingEventIso(reading, ageKey) {
+  const createdTs = new Date(reading?.created_at).getTime();
+  const ageSeconds = parseNumber(reading?.[ageKey]);
+
+  if (!Number.isFinite(createdTs) || ageSeconds === null || ageSeconds < 0) {
+    return reading?.created_at || new Date(reading?.timestamp || Date.now()).toISOString();
+  }
+
+  return new Date(createdTs - ageSeconds * 1000).toISOString();
+}
+
+function buildDerivedAlertEvent(reading, type, level, state, source, derived = true, options = {}) {
+  const eventAt =
+    options.eventAt ||
+    reading?.created_at ||
+    new Date(reading?.timestamp || Date.now()).toISOString();
+
   return {
-    id: `derived-${type}-${level}-${state || "state"}-${reading?.created_at || reading?.timestamp}`,
+    id: `derived-${type}-${level}-${state || "state"}-${eventAt}`,
     type,
     level,
     state,
     source,
-    created_at: reading?.created_at || new Date(reading.timestamp).toISOString(),
-    sent_at: reading?.sent_at || reading?.created_at || null,
+    created_at: eventAt,
+    sent_at: eventAt,
+    detected_at: eventAt,
+    received_at: reading?.created_at || null,
+    device_time: options.deviceTime || null,
     temperature: parseNumber(reading?.temperature),
     humidity: parseNumber(reading?.humidity),
     alarm_mask: parseNumber(reading?.alarm_mask),
@@ -1533,7 +1552,12 @@ function deriveAlertEventsFromReadings(readings, config) {
       const isDerived = nextSource !== "firmware_alarm";
 
       if (nextState && nextState !== previousState) {
-        events.push(buildDerivedAlertEvent(reading, type, "alert", nextState, nextSource, isDerived));
+        events.push(
+          buildDerivedAlertEvent(reading, type, "alert", nextState, nextSource, isDerived, {
+            eventAt: getReadingEventIso(reading, "alarm_event_age_s"),
+            deviceTime: reading?.alarm_event_time || null,
+          })
+        );
       }
 
       if (!nextState && previousState) {
@@ -1565,9 +1589,19 @@ function deriveAlertEventsFromReadings(readings, config) {
       ((lastAckCount === null && readingAckCount > 0) ||
         (lastAckCount !== null && readingAckCount > lastAckCount))
     ) {
-      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status", false));
+      events.push(
+        buildDerivedAlertEvent(reading, "system", "ack", null, "device_status", false, {
+          eventAt: getReadingEventIso(reading, "alarm_ack_age_s"),
+          deviceTime: reading?.alarm_ack_time || null,
+        })
+      );
     } else if (readingAckCount === null && readingAck && !ackActive) {
-      events.push(buildDerivedAlertEvent(reading, "system", "ack", null, "device_status", false));
+      events.push(
+        buildDerivedAlertEvent(reading, "system", "ack", null, "device_status", false, {
+          eventAt: getReadingEventIso(reading, "alarm_ack_age_s"),
+          deviceTime: reading?.alarm_ack_time || null,
+        })
+      );
     }
 
     if (readingAckCount !== null) lastAckCount = readingAckCount;
@@ -1603,7 +1637,9 @@ function deriveCurrentAlertEvents(device, config, existingEvents) {
 }
 
 function getAlertTimestamp(item) {
-  const ts = new Date(item?.sent_at || item?.created_at).getTime();
+  const ts = new Date(
+    item?.detected_at || item?.event_at || item?.sent_at || item?.created_at
+  ).getTime();
   return Number.isFinite(ts) ? ts : 0;
 }
 
@@ -1621,7 +1657,7 @@ function mergeAlertEvents(backendAlerts, derivedAlerts) {
   const merged = [];
   const seen = new Set();
 
-  [...normalizeAlertRows(backendAlerts), ...(derivedAlerts || [])]
+  [...(derivedAlerts || []), ...normalizeAlertRows(backendAlerts)]
     .filter(Boolean)
     .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
     .forEach((item) => {
@@ -2097,7 +2133,7 @@ function AlertRow({ item }) {
       </div>
 
       <div style={styles.alertRowMeta}>
-        <span>{formatDateTime(item?.sent_at || item?.created_at)}</span>
+        <span>{formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)}</span>
 
         {item?.temperature !== null && item?.temperature !== undefined ? (
           <span>Temp: {formatValue(item.temperature, " °C")}</span>
