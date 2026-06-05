@@ -254,13 +254,25 @@ function buildReportAlertHistory(rows, cfg) {
     previousMask = currentMask;
   });
 
-  return events.slice(-8).reverse();
+  return events;
 }
 
 function formatReportAlertTime(event) {
   const deviceTime = String(event?.deviceTime || "").trim();
   if (deviceTime && deviceTime !== "-") return deviceTime;
   return formatDateTimePt(event?.when, true);
+}
+
+function formatReportAlertDate(event) {
+  const d = new Date(event?.when);
+  if (Number.isNaN(d.getTime())) return "Data por confirmar";
+
+  return d.toLocaleDateString("pt-PT", {
+    timeZone: "Europe/Lisbon",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function validateConfigNumbers(payload) {
@@ -3095,50 +3107,93 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       drawFooter();
       doc.addPage();
 
+      const groupedAlertHistory = alertHistory.reduce((groups, event) => {
+        const dateLabel = formatReportAlertDate(event);
+        const lastGroup = groups[groups.length - 1];
+
+        if (lastGroup?.dateLabel === dateLabel) {
+          lastGroup.events.push(event);
+        } else {
+          groups.push({ dateLabel, events: [event] });
+        }
+
+        return groups;
+      }, []);
+
       let alertY = 54;
-      doc
-        .fillColor("#0f172a")
-        .font("Helvetica-Bold")
-        .fontSize(18)
-        .text("Histórico de alertas", 42, alertY);
-
-      alertY += 24;
-
-      doc
-        .fillColor("#64748b")
-        .font("Helvetica")
-        .fontSize(10)
-        .text("Eventos mais recentes do período analisado.", 42, alertY);
-
-      alertY += 30;
-
-      alertHistory.forEach((event) => {
+      const startAlertHistoryPage = (showIntro = false) => {
+        alertY = 54;
         doc
-          .roundedRect(42, alertY, 511, 46, 8)
-          .fillAndStroke(event.color, event.stroke);
+          .fillColor("#0f172a")
+          .font("Helvetica-Bold")
+          .fontSize(18)
+          .text("Histórico de alertas", 42, alertY);
+
+        alertY += 24;
+
+        if (showIntro) {
+          doc
+            .fillColor("#64748b")
+            .font("Helvetica")
+            .fontSize(10)
+            .text("Todos os eventos registados no período analisado.", 42, alertY);
+
+          alertY += 30;
+        } else {
+          alertY += 14;
+        }
+      };
+
+      const ensureAlertSpace = (height) => {
+        if (alertY + height <= 760) return;
+        drawFooter();
+        doc.addPage();
+        startAlertHistoryPage(false);
+      };
+
+      startAlertHistoryPage(true);
+
+      groupedAlertHistory.forEach((group) => {
+        ensureAlertSpace(32);
 
         doc
           .fillColor("#0f172a")
           .font("Helvetica-Bold")
-          .fontSize(11)
-          .text(event.title, 58, alertY + 10, { width: 260 });
+          .fontSize(12)
+          .text(group.dateLabel, 42, alertY);
 
-        doc
-          .fillColor("#334155")
-          .font("Helvetica")
-          .fontSize(10)
-          .text(event.detail, 58, alertY + 27, { width: 330 });
+        alertY += 20;
 
-        doc
-          .fillColor("#475569")
-          .font("Helvetica-Bold")
-          .fontSize(10)
-          .text(formatReportAlertTime(event), 410, alertY + 10, {
-            width: 120,
-            align: "right",
-          });
+        group.events.forEach((event) => {
+          ensureAlertSpace(56);
 
-        alertY += 56;
+          doc
+            .roundedRect(42, alertY, 511, 46, 8)
+            .fillAndStroke(event.color, event.stroke);
+
+          doc
+            .fillColor("#0f172a")
+            .font("Helvetica-Bold")
+            .fontSize(11)
+            .text(event.title, 58, alertY + 10, { width: 260 });
+
+          doc
+            .fillColor("#334155")
+            .font("Helvetica")
+            .fontSize(10)
+            .text(event.detail, 58, alertY + 27, { width: 330 });
+
+          doc
+            .fillColor("#475569")
+            .font("Helvetica-Bold")
+            .fontSize(10)
+            .text(formatReportAlertTime(event), 410, alertY + 10, {
+              width: 120,
+              align: "right",
+            });
+
+          alertY += 56;
+        });
       });
 
       drawFooter();
