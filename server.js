@@ -24,6 +24,10 @@ const OFFLINE_ALERT_SECONDS = parseInt(
   process.env.OFFLINE_ALERT_SECONDS || "180",
   10
 );
+const HEALTH_CHECK_INTERVAL_SECONDS = parseInt(
+  process.env.HEALTH_CHECK_INTERVAL_SECONDS || "60",
+  10
+);
 const READING_MIN_INTERVAL_FACTOR = clamp(
   Number(process.env.READING_MIN_INTERVAL_FACTOR || "0.5"),
   0.5,
@@ -465,6 +469,9 @@ function getDeviceConfig(deviceRow) {
       temp_last_sent_at: alertState.temp_last_sent_at || null,
       hum_last_sent_at: alertState.hum_last_sent_at || null,
       offline_last_sent_at: alertState.offline_last_sent_at || null,
+      temp_last_email_attempt_at: alertState.temp_last_email_attempt_at || null,
+      hum_last_email_attempt_at: alertState.hum_last_email_attempt_at || null,
+      offline_last_email_attempt_at: alertState.offline_last_email_attempt_at || null,
       temp_last_resolved_at: alertState.temp_last_resolved_at || null,
       hum_last_resolved_at: alertState.hum_last_resolved_at || null,
       offline_last_resolved_at: alertState.offline_last_resolved_at || null,
@@ -1355,31 +1362,67 @@ async function fetchAllReadingsSince(deviceId, sinceIso) {
 }
 
 // -------------------- RECIPIENTS / EMAIL --------------------
-async function getDeviceAlertRecipients(deviceId, alertType = "general") {
-  let query = supabase
-    .from("device_alert_recipients")
-    .select("email, name")
+function isAlertTypeEnabled(row, alertType) {
+  if (!row?.is_active) return false;
+  if (alertType === "temperature") return row.temp_alerts === true;
+  if (alertType === "humidity") return row.humidity_alerts === true;
+  if (alertType === "offline") return row.offline_alerts === true;
+  if (alertType === "predictive") return row.predictive_alerts === true;
+  return true;
+}
+
+async function getDeviceAccessRecipients(deviceId, excludeUserIds = new Set()) {
+  const { data: accessRows, error: accessError } = await supabase
+    .from("device_access")
+    .select("user_id, can_view")
     .eq("device_id", deviceId)
-    .eq("is_active", true);
+    .eq("can_view", true);
 
-  if (alertType === "temperature") {
-    query = query.eq("temp_alerts", true);
-  } else if (alertType === "humidity") {
-    query = query.eq("humidity_alerts", true);
-  } else if (alertType === "offline") {
-    query = query.eq("offline_alerts", true);
-  } else if (alertType === "predictive") {
-    query = query.eq("predictive_alerts", true);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Erro ao obter recipients do dispositivo:", error);
+  if (accessError) {
+    console.error("Erro ao obter acessos do dispositivo para alertas:", accessError);
     return [];
   }
 
+  const userIds = (accessRows || [])
+    .map((row) => row.user_id)
+    .filter((userId) => userId && !excludeUserIds.has(userId));
+
+  if (!userIds.length) return [];
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, is_active")
+    .in("id", userIds)
+    .eq("is_active", true);
+
+  if (profilesError) {
+    console.error("Erro ao obter perfis para alertas:", profilesError);
+    return [];
+  }
+
+  return (profiles || [])
+    .map((profile) => ({
+      email: String(profile.email || "").trim(),
+      name: String(profile.full_name || "").trim() || undefined,
+    }))
+    .filter((row) => row.email);
+}
+
+async function getDeviceAlertRecipients(deviceId, alertType = "general") {
+  const { data, error } = await supabase
+    .from("device_alert_recipients")
+    .select("user_id, email, name, is_active, temp_alerts, humidity_alerts, offline_alerts, predictive_alerts")
+    .eq("device_id", deviceId);
+
+  if (error) {
+    console.error("Erro ao obter recipients do dispositivo:", error);
+    const accessRecipients = await getDeviceAccessRecipients(deviceId);
+    if (accessRecipients.length > 0) return accessRecipients;
+    return ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
+  }
+
   const recipients = (data || [])
+    .filter((row) => isAlertTypeEnabled(row, alertType))
     .map((row) => ({
       email: String(row.email || "").trim(),
       name: String(row.name || "").trim() || undefined,
@@ -1387,6 +1430,13 @@ async function getDeviceAlertRecipients(deviceId, alertType = "general") {
     .filter((row) => row.email);
 
   if (recipients.length > 0) return recipients;
+
+  const configuredUserIds = new Set(
+    (data || []).map((row) => row.user_id).filter(Boolean)
+  );
+  const accessRecipients = await getDeviceAccessRecipients(deviceId, configuredUserIds);
+  if (accessRecipients.length > 0) return accessRecipients;
+
   if (ALERT_TO_EMAIL) return [{ email: ALERT_TO_EMAIL }];
   return [];
 }
@@ -1423,8 +1473,8 @@ async function getWeeklyReportRecipients() {
 
 async function sendEmail({ to, subject, htmlContent, attachment = [] }) {
   if (!BREVO_API_KEY || !ALERT_FROM_EMAIL) {
-    console.warn("Brevo/email não configurado. Email não enviado.");
-    return;
+    console.warn("Brevo/email nao configurado. Email nao enviado.");
+    return { ok: false, reason: "missing_email_config" };
   }
 
   const normalizedTo = (to || [])
@@ -1435,29 +1485,40 @@ async function sendEmail({ to, subject, htmlContent, attachment = [] }) {
     .filter((row) => row.email);
 
   if (!normalizedTo.length) {
-    console.warn("Sem destinatários para envio de email.");
-    return;
+    console.warn("Sem destinatarios para envio de email.");
+    return { ok: false, reason: "missing_recipients" };
   }
 
-  await axios.post(
-    "https://api.brevo.com/v3/smtp/email",
-    {
-      sender: { email: ALERT_FROM_EMAIL, name: "SmartTempSystems" },
-      to: normalizedTo,
-      subject,
-      htmlContent,
-      attachment: attachment || [],
-    },
-    {
-      headers: {
-        "api-key": BREVO_API_KEY,
-        "Content-Type": "application/json",
+  try {
+    const response = await axios.post(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        sender: { email: ALERT_FROM_EMAIL, name: "SmartTempSystems" },
+        to: normalizedTo,
+        subject,
+        htmlContent,
+        attachment: attachment || [],
       },
-      timeout: 20000,
-    }
-  );
-}
+      {
+        headers: {
+          "api-key": BREVO_API_KEY,
+          "Content-Type": "application/json",
+        },
+        timeout: 20000,
+      }
+    );
 
+    return { ok: true, messageId: response?.data?.messageId || null };
+  } catch (error) {
+    console.error("Erro ao enviar email:", {
+      subject,
+      status: error?.response?.status,
+      data: error?.response?.data,
+      message: error?.message,
+    });
+    return { ok: false, reason: "send_failed" };
+  }
+}
 async function insertAlertHistory({
   device_id,
   type,
@@ -1541,7 +1602,7 @@ async function sendTemperatureTriggeredEmail({
     "temperature"
   );
 
-  await sendEmail({
+  return sendEmail({
     to: recipients,
     subject,
     htmlContent: buildEmailShell({
@@ -1590,7 +1651,7 @@ async function sendTemperatureResolvedEmail({
     "temperature"
   );
 
-  await sendEmail({
+  return sendEmail({
     to: recipients,
     subject,
     htmlContent: buildEmailShell({
@@ -1636,7 +1697,7 @@ async function sendHumidityTriggeredEmail({
     "humidity"
   );
 
-  await sendEmail({
+  return sendEmail({
     to: recipients,
     subject,
     htmlContent: buildEmailShell({
@@ -1685,7 +1746,7 @@ async function sendHumidityResolvedEmail({
     "humidity"
   );
 
-  await sendEmail({
+  return sendEmail({
     to: recipients,
     subject,
     htmlContent: buildEmailShell({
@@ -1723,7 +1784,7 @@ async function sendOfflineTriggeredEmail({ device, cfg }) {
   const subject = `[STS] Dispositivo offline — ${deviceName}`;
   const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
 
-  await sendEmail({
+  return sendEmail({
     to: recipients,
     subject,
     htmlContent: buildEmailShell({
@@ -1770,7 +1831,7 @@ async function sendOnlineRecoveredEmail({ device }) {
   const subject = `[STS] Dispositivo novamente online — ${deviceName}`;
   const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
 
-  await sendEmail({
+  return sendEmail({
     to: recipients,
     subject,
     htmlContent: buildEmailShell({
@@ -1845,8 +1906,9 @@ async function processTriggeredAndResolvedAlerts({
   let nextAlertState = { ...alertState };
 
   if (tempInfo.breached && !alertState.temp_active) {
-    if (canSendByCooldown(alertState.temp_last_sent_at)) {
-      await sendTemperatureTriggeredEmail({
+    nextAlertState.temp_last_sent_at = null;
+    if (canSendByCooldown(alertState.temp_last_email_attempt_at)) {
+      const emailResult = await sendTemperatureTriggeredEmail({
         device: deviceRow,
         temperature: numericTemperature,
         humidity: numericHumidity,
@@ -1854,7 +1916,8 @@ async function processTriggeredAndResolvedAlerts({
         cfg,
       });
 
-      nextAlertState.temp_last_sent_at = nowIso();
+      nextAlertState.temp_last_email_attempt_at = nowIso();
+      if (emailResult?.ok) nextAlertState.temp_last_sent_at = nowIso();
     }
 
     await insertAlertHistory({
@@ -1871,6 +1934,21 @@ async function processTriggeredAndResolvedAlerts({
     });
 
     nextAlertState.temp_active = true;
+  }
+
+  if (tempInfo.breached && alertState.temp_active && !alertState.temp_last_sent_at) {
+    if (canSendByCooldown(alertState.temp_last_email_attempt_at)) {
+      const emailResult = await sendTemperatureTriggeredEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        direction: tempInfo,
+        cfg,
+      });
+
+      nextAlertState.temp_last_email_attempt_at = nowIso();
+      if (emailResult?.ok) nextAlertState.temp_last_sent_at = nowIso();
+    }
   }
 
   if (!tempInfo.breached && alertState.temp_active) {
@@ -1899,8 +1977,9 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (humInfo.breached && !alertState.hum_active) {
-    if (canSendByCooldown(alertState.hum_last_sent_at)) {
-      await sendHumidityTriggeredEmail({
+    nextAlertState.hum_last_sent_at = null;
+    if (canSendByCooldown(alertState.hum_last_email_attempt_at)) {
+      const emailResult = await sendHumidityTriggeredEmail({
         device: deviceRow,
         temperature: numericTemperature,
         humidity: numericHumidity,
@@ -1908,7 +1987,8 @@ async function processTriggeredAndResolvedAlerts({
         cfg,
       });
 
-      nextAlertState.hum_last_sent_at = nowIso();
+      nextAlertState.hum_last_email_attempt_at = nowIso();
+      if (emailResult?.ok) nextAlertState.hum_last_sent_at = nowIso();
     }
 
     await insertAlertHistory({
@@ -1925,6 +2005,21 @@ async function processTriggeredAndResolvedAlerts({
     });
 
     nextAlertState.hum_active = true;
+  }
+
+  if (humInfo.breached && alertState.hum_active && !alertState.hum_last_sent_at) {
+    if (canSendByCooldown(alertState.hum_last_email_attempt_at)) {
+      const emailResult = await sendHumidityTriggeredEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        direction: humInfo,
+        cfg,
+      });
+
+      nextAlertState.hum_last_email_attempt_at = nowIso();
+      if (emailResult?.ok) nextAlertState.hum_last_sent_at = nowIso();
+    }
   }
 
   if (!humInfo.breached && alertState.hum_active) {
@@ -2004,10 +2099,27 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
     const isOffline = !lastSeenTs || Date.now() - lastSeenTs > thresholdMs;
 
     if (!isOffline) continue;
-    if (alertState.offline_active) continue;
-    if (!canSendByCooldown(alertState.offline_last_sent_at)) continue;
+    if (alertState.offline_active) {
+      if (
+        !alertState.offline_last_sent_at &&
+        canSendByCooldown(alertState.offline_last_email_attempt_at)
+      ) {
+        const retryResult = await sendOfflineTriggeredEmail({ device: deviceRow, cfg });
+        const retryConfig = mergeAlertStateIntoConfig(deviceRow, {
+          offline_last_email_attempt_at: nowIso(),
+          ...(retryResult?.ok ? { offline_last_sent_at: nowIso() } : {}),
+        });
 
-    await sendOfflineTriggeredEmail({ device: deviceRow, cfg });
+        await updateDeviceConfigAndStatus(deviceRow, {
+          configPatch: retryConfig,
+          status: "OFFLINE",
+        });
+      }
+      continue;
+    }
+    if (!canSendByCooldown(alertState.offline_last_email_attempt_at)) continue;
+
+    const emailResult = await sendOfflineTriggeredEmail({ device: deviceRow, cfg });
 
     await insertAlertHistory({
       device_id: deviceRow.device_id,
@@ -2023,7 +2135,9 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
 
     const nextConfig = mergeAlertStateIntoConfig(deviceRow, {
       offline_active: true,
-      offline_last_sent_at: nowIso(),
+      offline_last_sent_at: null,
+      offline_last_email_attempt_at: nowIso(),
+      ...(emailResult?.ok ? { offline_last_sent_at: nowIso() } : {}),
     });
 
     await updateDeviceConfigAndStatus(deviceRow, {
@@ -3577,6 +3691,39 @@ app.get("/api/device/:id/config", async (req, res) => {
   }
 });
 
+function startHealthCheckScheduler() {
+  if (
+    !Number.isFinite(HEALTH_CHECK_INTERVAL_SECONDS) ||
+    HEALTH_CHECK_INTERVAL_SECONDS <= 0
+  ) {
+    console.log("Verificacao automatica de offline desativada.");
+    return;
+  }
+
+  const intervalMs = HEALTH_CHECK_INTERVAL_SECONDS * 1000;
+  const runHealthCheck = async () => {
+    try {
+      const result = await checkDevicesHealthAndSendOfflineAlerts();
+      if (result.offlineTriggered > 0) {
+        console.log(
+          `Alertas offline processados: ${result.offlineTriggered}/${result.processed}`
+        );
+      }
+    } catch (error) {
+      console.error("Erro na verificacao automatica de offline:", error);
+    }
+  };
+
+  setTimeout(runHealthCheck, 5000);
+  setInterval(runHealthCheck, intervalMs);
+}
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log("Servidor SmartTempSystems ativo na porta " + PORT);
+  if (!BREVO_API_KEY || !ALERT_FROM_EMAIL) {
+    console.warn(
+      "Email de alertas incompleto: configurar BREVO_API_KEY e ALERT_FROM_EMAIL."
+    );
+  }
+  startHealthCheckScheduler();
 });
