@@ -1451,6 +1451,32 @@ function getReadingAlertState(reading, config, key) {
   return null;
 }
 
+function getReadingAlarmMask(reading) {
+  const mask = parseNumber(reading?.alarm_mask);
+  return mask !== null && mask > 0 ? mask : null;
+}
+
+function getMaskAlertState(mask, key) {
+  if (mask === null) return null;
+
+  if (key === "temperature") {
+    if (mask & 0x01) return "high";
+    if (mask & 0x02) return "low";
+  }
+
+  if (key === "humidity") {
+    if (mask & 0x04) return "high";
+    if (mask & 0x08) return "low";
+  }
+
+  return null;
+}
+
+function getEffectiveReadingAlertState(reading, config, key) {
+  const maskState = getMaskAlertState(getReadingAlarmMask(reading), key);
+  return maskState || getReadingAlertState(reading, config, key);
+}
+
 function buildDerivedAlertEvent(reading, type, level, state, source) {
   return {
     id: `derived-${type}-${level}-${state || "state"}-${reading?.created_at || reading?.timestamp}`,
@@ -1462,6 +1488,8 @@ function buildDerivedAlertEvent(reading, type, level, state, source) {
     sent_at: reading?.sent_at || reading?.created_at || null,
     temperature: parseNumber(reading?.temperature),
     humidity: parseNumber(reading?.humidity),
+    alarm_mask: parseNumber(reading?.alarm_mask),
+    alarm_reason: reading?.alarm_reason || null,
     derived: true,
   };
 }
@@ -1496,7 +1524,7 @@ function deriveAlertEventsFromReadings(readings, config) {
 
   ordered.forEach((reading) => {
     ["temperature", "humidity"].forEach((type) => {
-      const nextState = getReadingAlertState(reading, config, type);
+      const nextState = getEffectiveReadingAlertState(reading, config, type);
       const previousState = activeState[type];
 
       if (nextState && nextState !== previousState) {

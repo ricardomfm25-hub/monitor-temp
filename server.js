@@ -361,6 +361,7 @@ function getDeviceConfig(deviceRow) {
       temp_last_resolved_at: alertState.temp_last_resolved_at || null,
       hum_last_resolved_at: alertState.hum_last_resolved_at || null,
       offline_last_resolved_at: alertState.offline_last_resolved_at || null,
+      alarm_last_ack_count: toOptionalNumber(alertState.alarm_last_ack_count) || 0,
     },
   };
 }
@@ -1696,18 +1697,18 @@ async function processTriggeredAndResolvedAlerts({
 
   let nextAlertState = { ...alertState };
 
-  if (
-    tempInfo.breached &&
-    !alertState.temp_active &&
-    canSendByCooldown(alertState.temp_last_sent_at)
-  ) {
-    await sendTemperatureTriggeredEmail({
-      device: deviceRow,
-      temperature: numericTemperature,
-      humidity: numericHumidity,
-      direction: tempInfo,
-      cfg,
-    });
+  if (tempInfo.breached && !alertState.temp_active) {
+    if (canSendByCooldown(alertState.temp_last_sent_at)) {
+      await sendTemperatureTriggeredEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        direction: tempInfo,
+        cfg,
+      });
+
+      nextAlertState.temp_last_sent_at = nowIso();
+    }
 
     await insertAlertHistory({
       device_id: deviceRow.device_id,
@@ -1723,7 +1724,6 @@ async function processTriggeredAndResolvedAlerts({
     });
 
     nextAlertState.temp_active = true;
-    nextAlertState.temp_last_sent_at = nowIso();
   }
 
   if (!tempInfo.breached && alertState.temp_active) {
@@ -1751,18 +1751,18 @@ async function processTriggeredAndResolvedAlerts({
     nextAlertState.temp_last_resolved_at = nowIso();
   }
 
-  if (
-    humInfo.breached &&
-    !alertState.hum_active &&
-    canSendByCooldown(alertState.hum_last_sent_at)
-  ) {
-    await sendHumidityTriggeredEmail({
-      device: deviceRow,
-      temperature: numericTemperature,
-      humidity: numericHumidity,
-      direction: humInfo,
-      cfg,
-    });
+  if (humInfo.breached && !alertState.hum_active) {
+    if (canSendByCooldown(alertState.hum_last_sent_at)) {
+      await sendHumidityTriggeredEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        direction: humInfo,
+        cfg,
+      });
+
+      nextAlertState.hum_last_sent_at = nowIso();
+    }
 
     await insertAlertHistory({
       device_id: deviceRow.device_id,
@@ -1778,7 +1778,6 @@ async function processTriggeredAndResolvedAlerts({
     });
 
     nextAlertState.hum_active = true;
-    nextAlertState.hum_last_sent_at = nowIso();
   }
 
   if (!humInfo.breached && alertState.hum_active) {
@@ -2358,6 +2357,29 @@ app.post("/api/temperature", async (req, res) => {
       numericHumidity,
       cfg: refreshedCfg,
     });
+
+    const incomingAckCount = toOptionalNumber(alarm_ack_count) || 0;
+    const lastStoredAckCount =
+      toOptionalNumber(refreshedCfg.alert_state.alarm_last_ack_count) || 0;
+    const ackReceived =
+      toBoolean(alarm_ack) ||
+      String(device_status || "").toLowerCase().includes("ack");
+
+    if (ackReceived && incomingAckCount > lastStoredAckCount) {
+      await insertAlertHistory({
+        device_id,
+        type: "system",
+        event: "ack",
+        title: "ACK confirmado",
+        message: alarm_ack_time
+          ? `Alerta reconhecido no dispositivo às ${alarm_ack_time}.`
+          : "Alerta reconhecido no dispositivo.",
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+      });
+
+      nextAlertState.alarm_last_ack_count = incomingAckCount;
+    }
 
     const finalConfig = mergeAlertStateIntoConfig(freshDeviceRow, nextAlertState);
 
