@@ -94,12 +94,19 @@ export async function GET(_request, context) {
   }
 
   try {
+    const hoursParam = Number(_request.nextUrl.searchParams.get("hours") || 24);
+    const hours = Number.isFinite(hoursParam)
+      ? Math.min(Math.max(hoursParam, 1), 24 * 30)
+      : 24;
+    const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
     const { data, error } = await supabase
       .from("alerts")
       .select("*")
       .eq("device_id", deviceId)
+      .or(`sent_at.gte.${sinceIso},created_at.gte.${sinceIso}`)
       .order("sent_at", { ascending: false })
-      .limit(50);
+      .limit(500);
 
     if (error) throw error;
 

@@ -788,7 +788,7 @@ function getCommunicationHealth({
     label = "Estável";
     tone = "good";
     summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
+  } else if (deliveryPct >= 80 && severeGapCount <= 2) {
     label = "Com falhas";
     tone = "warn";
     summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
@@ -2988,13 +2988,16 @@ app.get("/api/dashboard/device/:id/alerts", async (req, res) => {
 
   try {
     const deviceId = req.params.id;
+    const hours = Math.min(Math.max(Number(req.query.hours) || 24, 1), 24 * 30);
+    const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
     const { data, error } = await supabase
       .from("alerts")
       .select("*")
       .eq("device_id", deviceId)
+      .or(`sent_at.gte.${sinceIso},created_at.gte.${sinceIso}`)
       .order("sent_at", { ascending: false })
-      .limit(50);
+      .limit(500);
 
     if (error) {
       console.error("Erro ao obter alertas:", error);

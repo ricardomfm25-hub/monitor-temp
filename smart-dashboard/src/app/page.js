@@ -653,7 +653,7 @@ function getCommunicationHealth({
     label = "Estável";
     tone = "good";
     summary = "Boa cobertura com apenas pequenas falhas pontuais.";
-  } else if (deliveryPct >= 88 && severeGapCount <= 2) {
+  } else if (deliveryPct >= 80 && severeGapCount <= 2) {
     label = "Com falhas";
     tone = "warn";
     summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
@@ -2324,7 +2324,7 @@ function OperationalInsightCard({ items }) {
 
 
 function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summary24h }) {
-  const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 88;
+  const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 90;
   const noReadings24h = (summary24h?.totalReadings ?? 0) === 0;
 
   let title = "Recomendação STS";
@@ -2768,7 +2768,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve([]),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/alerts`).catch((error) => {
+            ? fetchJsonOrThrow(
+                `/api/sts/device/${nextSelectedDeviceId}/alerts?hours=${getPeriodConfig(period).hours}`
+              ).catch((error) => {
                 console.warn("alerts:", error);
                 return [];
               })
@@ -2847,10 +2849,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           deviceData?.config ?? {},
           [...normalizeAlertRows(alertsRows), ...derivedAlerts]
         );
+        const alertWindow = getPeriodWindow(period);
         const alertsData = mergeAlertEvents(alertsRows, [
           ...derivedAlerts,
           ...currentAlerts,
-        ]);
+        ]).filter((item) => {
+          const timestamp = getAlertTimestamp(item);
+          return timestamp >= alertWindow.start && timestamp <= alertWindow.end;
+        });
 
         if (!mountedRef.current) return;
 
@@ -2901,7 +2907,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         }
       }
     },
-    [selectedDeviceId, supabase, router, initialLoaded]
+    [selectedDeviceId, supabase, router, initialLoaded, period]
   );
 
   useEffect(() => {
@@ -3555,7 +3561,7 @@ async function downloadPdfReport() {
               value={`${communicationHealth.delivery_pct ?? 0}%`}
               hint={`${communicationHealth.received_readings} de ${communicationHealth.expected_readings} leituras esperadas`}
               tone={
-                (communicationHealth.delivery_pct ?? 0) < 88
+                (communicationHealth.delivery_pct ?? 0) < 80
                   ? "bad"
                   : (communicationHealth.delivery_pct ?? 0) < 90
                   ? "warn"
@@ -3685,7 +3691,7 @@ async function downloadPdfReport() {
     <div>
       <div style={styles.cardTitle}>Histórico de alertas</div>
       <div style={styles.cardHint}>
-        Últimos eventos registados para este dispositivo
+        Eventos registados no período selecionado ({period.toUpperCase()})
       </div>
     </div>
 
