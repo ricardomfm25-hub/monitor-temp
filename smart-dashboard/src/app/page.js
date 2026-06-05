@@ -647,7 +647,7 @@ function getCommunicationHealth({
     tone = "good";
     summary = "Cobertura muito alta e comunicação muito consistente.";
   } else if (
-    deliveryPct >= 94 &&
+    deliveryPct >= 90 &&
     relevantGapCount <= 5 &&
     severeGapCount <= 1
   ) {
@@ -3522,7 +3522,7 @@ async function downloadPdfReport() {
               tone={
                 (communicationHealth.delivery_pct ?? 0) < 88
                   ? "bad"
-                  : (communicationHealth.delivery_pct ?? 0) < 94
+                  : (communicationHealth.delivery_pct ?? 0) < 90
                   ? "warn"
                   : "good"
               }
