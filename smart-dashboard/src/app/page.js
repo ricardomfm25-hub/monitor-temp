@@ -167,6 +167,19 @@ function getEffectiveStatus(device, sendIntervalS) {
 function getStatusInfo(status) {
   const s = String(status || "").toLowerCase();
 
+  if (s.includes("ack")) {
+    return {
+      label: "ACK",
+      color: "#60a5fa",
+      soft: "#172554",
+      border: "#1d4ed8",
+      glow: "0 0 0 1px rgba(96,165,250,0.12)",
+      priority: 1,
+      dot: "#60a5fa",
+      panel: "#101a2d",
+    };
+  }
+
   if (s.includes("offline")) {
     return {
       label: "OFFLINE",
@@ -739,12 +752,38 @@ function getConsecutiveBreachMinutes(clean, side, limit) {
   );
 }
 
+function getTrustedBreachMinutes(clean, type, side) {
+  if (!clean.length || !side) return null;
+
+  const latest = clean[clean.length - 1];
+  const ageSeconds = parseNumber(latest?.alarm_event_age_s);
+  const mask = parseNumber(latest?.alarm_mask);
+
+  if (ageSeconds === null || ageSeconds < 0 || mask === null || mask <= 0) {
+    return null;
+  }
+
+  const expectedMask =
+    type === "temperature"
+      ? side === "high"
+        ? 0x01
+        : 0x02
+      : side === "high"
+      ? 0x04
+      : 0x08;
+
+  if ((mask & expectedMask) === 0) return null;
+
+  return Math.max(0, Math.round(ageSeconds / 60));
+}
+
 function buildRiskNarrative({ type, side, deviation, durationMin, direction, etaMinutes }) {
   const metric = getMetricLabel(type);
   const isHigh = side === "high";
   const band = getDeviationBand(type, deviation);
-  const persistent = durationMin >= 30;
-  const short = durationMin > 0 && durationMin < 15 && band === "ligeiro";
+  const hasTrustedDuration = Number.isFinite(durationMin);
+  const persistent = hasTrustedDuration && durationMin >= 30;
+  const short = hasTrustedDuration && durationMin > 0 && durationMin < 15 && band === "ligeiro";
   const trendText = getTrendDirectionLabel(direction, type).toLowerCase();
 
   if (side) {
@@ -759,6 +798,8 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
       ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite, mas ainda por curta duração.`
       : persistent
       ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite há ~${durationMin} min.`
+      : !hasTrustedDuration
+      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite na leitura atual.`
       : `${metric} ${isHigh ? "acima" : "abaixo"} do limite com desvio ${band}.`;
 
     let cause = `${metric} fora do limite definido.`;
@@ -833,6 +874,8 @@ function buildPredictiveSignal({
     .map((r) => ({
       created_at: r.created_at,
       value: parseNumber(r?.[valueKey]),
+      alarm_mask: parseNumber(r?.alarm_mask),
+      alarm_event_age_s: parseNumber(r?.alarm_event_age_s),
     }))
     .filter((r) => r.created_at && r.value !== null)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -848,7 +891,7 @@ function buildPredictiveSignal({
   if (latestSide) {
     const latestLimit = latestSide === "high" ? highLimit : lowLimit;
     const latestDeviation = Math.abs(latest.value - latestLimit);
-    const latestDurationMin = getConsecutiveBreachMinutes(clean, latestSide, latestLimit);
+    const latestDurationMin = getTrustedBreachMinutes(clean, type, latestSide);
     const narrative = buildRiskNarrative({
       type,
       side: latestSide,
@@ -946,11 +989,7 @@ function buildPredictiveSignal({
   if (immediateSide) {
     const immediateLimit = immediateSide === "high" ? highLimit : lowLimit;
     const immediateDeviation = Math.abs(current.value - immediateLimit);
-    const immediateDurationMin = getConsecutiveBreachMinutes(
-      clean,
-      immediateSide,
-      immediateLimit
-    );
+    const immediateDurationMin = getTrustedBreachMinutes(clean, type, immediateSide);
     const narrative = buildRiskNarrative({
       type,
       side: immediateSide,
@@ -1027,7 +1066,7 @@ function buildPredictiveSignal({
       : null;
   const currentLimit = currentSide === "high" ? highLimit : currentSide === "low" ? lowLimit : targetLimit;
   const currentDeviation = currentSide ? Math.abs(current.value - currentLimit) : 0;
-  const durationMin = getConsecutiveBreachMinutes(clean, currentSide, currentLimit);
+  const durationMin = getTrustedBreachMinutes(clean, type, currentSide);
   const distance = Math.abs(targetLimit - current.value);
   const speedThreshold = type === "temperature" ? 0.03 : 0.18;
 

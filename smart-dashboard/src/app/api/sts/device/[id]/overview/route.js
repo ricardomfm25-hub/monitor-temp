@@ -11,6 +11,75 @@ function parseNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return ["1", "true", "yes", "sim", "ack"].includes(normalized);
+  }
+  return false;
+}
+
+function normalizeDeviceStatus(status) {
+  const value = String(status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (!value) return "normal";
+  if (value.includes("ack")) return "alarm_ack";
+  if (value.includes("sensor")) return "sensor_fail";
+  if (value.includes("setup")) return "setup_wifi";
+  if (value.includes("offline") || value.includes("no_wifi")) return "offline";
+  if (value.includes("alarm") || value.includes("critical")) return "alarm";
+  if (value.includes("alert") || value.includes("warning")) return "alert";
+  if (value.includes("normal") || value.includes("online") || value.includes("ok")) {
+    return "normal";
+  }
+
+  return "normal";
+}
+
+function resolveTelemetryStatus({
+  online = true,
+  incomingStatus,
+  alarmAck = false,
+  alarmMask = null,
+  computedStatus = "normal",
+}) {
+  if (!online) return "offline";
+
+  const normalizedIncoming = normalizeDeviceStatus(incomingStatus);
+  const normalizedComputed = normalizeDeviceStatus(computedStatus);
+  const numericAlarmMask = parseNumber(alarmMask);
+  const hasActiveAlarmMask = numericAlarmMask !== null && numericAlarmMask > 0;
+  const computedHasBreach =
+    normalizedComputed === "alarm" || normalizedComputed === "alert";
+
+  if (
+    normalizedIncoming === "alarm_ack" ||
+    (toBoolean(alarmAck) && (hasActiveAlarmMask || computedHasBreach))
+  ) {
+    return "alarm_ack";
+  }
+
+  if (
+    normalizedIncoming === "sensor_fail" ||
+    normalizedIncoming === "setup_wifi" ||
+    normalizedIncoming === "offline"
+  ) {
+    return normalizedIncoming;
+  }
+
+  if (hasActiveAlarmMask) return "alarm";
+
+  if (normalizedIncoming === "alarm" && computedHasBreach) return "alarm";
+  if (normalizedIncoming === "alert" && computedHasBreach) return "alert";
+
+  return normalizedComputed;
+}
+
 function normalizeConfig(config = {}) {
   return {
     ...config,
@@ -167,7 +236,7 @@ export async function GET(_request, context) {
     ] = await Promise.all([
       supabase
         .from("readings")
-        .select("temperature, humidity, created_at")
+        .select("temperature, humidity, created_at, device_status, alarm_ack, alarm_mask")
         .eq("device_id", deviceId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -203,7 +272,14 @@ export async function GET(_request, context) {
       parseNumber(device.last_temperature);
     const humidity =
       parseNumber(latestReading?.humidity) ?? parseNumber(device.last_humidity);
-    const status = getStatus({ online, temperature, humidity, config });
+    const computedStatus = getStatus({ online, temperature, humidity, config });
+    const status = resolveTelemetryStatus({
+      online,
+      incomingStatus: device.status || latestReading?.device_status,
+      alarmAck: latestReading?.alarm_ack,
+      alarmMask: latestReading?.alarm_mask,
+      computedStatus,
+    });
     const diagnostics = getDiagnostics(device, config);
 
     return Response.json({

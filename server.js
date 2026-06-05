@@ -584,7 +584,7 @@ function getDeviceStatus({
     temperature > temp_high_c + 2 || temperature < temp_low_c - 2;
   const humCritical = humidity > hum_high + 5 || humidity < hum_low - 5;
 
-  if (tempCritical || humCritical) return "critical";
+  if (tempCritical || humCritical) return "alarm";
 
   const tempAlert = temperature > temp_high_c || temperature < temp_low_c;
   const humAlert = humidity > hum_high || humidity < hum_low;
@@ -658,23 +658,90 @@ function getHumidityAlertDirection(humidity, cfg) {
 }
 
 function statusToDbLabel(status) {
+  const normalizedStatus = normalizeDeviceStatus(status);
   const map = {
     normal: "NORMAL",
     alert: "ALERT",
-    critical: "ALARM",
+    alarm: "ALARM",
+    alarm_ack: "ALARM_ACK",
     offline: "OFFLINE",
+    sensor_fail: "SENSOR_FAIL",
+    setup_wifi: "SETUP_WIFI",
   };
-  return map[status] || "NORMAL";
+  return map[normalizedStatus] || "NORMAL";
 }
 
 function statusToApiLabel(status) {
+  const normalizedStatus = normalizeDeviceStatus(status);
   const map = {
     normal: "normal",
     alert: "alert",
-    critical: "alarm",
+    alarm: "alarm",
+    alarm_ack: "alarm_ack",
     offline: "offline",
+    sensor_fail: "sensor_fail",
+    setup_wifi: "setup_wifi",
   };
-  return map[status] || "normal";
+  return map[normalizedStatus] || "normal";
+}
+
+function normalizeDeviceStatus(status) {
+  const value = String(status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (!value) return "normal";
+  if (value.includes("ack")) return "alarm_ack";
+  if (value.includes("sensor")) return "sensor_fail";
+  if (value.includes("setup")) return "setup_wifi";
+  if (value.includes("offline") || value.includes("no_wifi")) return "offline";
+  if (value.includes("alarm") || value.includes("critical")) return "alarm";
+  if (value.includes("alert") || value.includes("warning")) return "alert";
+  if (value.includes("normal") || value.includes("online") || value.includes("ok")) {
+    return "normal";
+  }
+
+  return "normal";
+}
+
+function resolveTelemetryStatus({
+  online = true,
+  incomingStatus,
+  alarmAck = false,
+  alarmMask = null,
+  computedStatus = "normal",
+}) {
+  if (!online) return "offline";
+
+  const normalizedIncoming = normalizeDeviceStatus(incomingStatus);
+  const normalizedComputed = normalizeDeviceStatus(computedStatus);
+  const numericAlarmMask = toOptionalNumber(alarmMask);
+  const hasActiveAlarmMask = numericAlarmMask !== null && numericAlarmMask > 0;
+  const computedHasBreach =
+    normalizedComputed === "alarm" || normalizedComputed === "alert";
+
+  if (
+    normalizedIncoming === "alarm_ack" ||
+    (toBoolean(alarmAck) && (hasActiveAlarmMask || computedHasBreach))
+  ) {
+    return "alarm_ack";
+  }
+
+  if (
+    normalizedIncoming === "sensor_fail" ||
+    normalizedIncoming === "setup_wifi" ||
+    normalizedIncoming === "offline"
+  ) {
+    return normalizedIncoming;
+  }
+
+  if (hasActiveAlarmMask) return "alarm";
+
+  if (normalizedIncoming === "alarm" && computedHasBreach) return "alarm";
+  if (normalizedIncoming === "alert" && computedHasBreach) return "alert";
+
+  return normalizedComputed;
 }
 
 function canSendByCooldown(lastSentAt) {
@@ -868,12 +935,38 @@ function getConsecutiveBreachMinutes(clean, side, limit) {
   );
 }
 
+function getTrustedBreachMinutes(clean, type, side) {
+  if (!clean.length || !side) return null;
+
+  const latest = clean[clean.length - 1];
+  const ageSeconds = toOptionalNumber(latest?.alarm_event_age_s);
+  const mask = toOptionalNumber(latest?.alarm_mask);
+
+  if (ageSeconds === null || ageSeconds < 0 || mask === null || mask <= 0) {
+    return null;
+  }
+
+  const expectedMask =
+    type === "temperature"
+      ? side === "high"
+        ? 0x01
+        : 0x02
+      : side === "high"
+      ? 0x04
+      : 0x08;
+
+  if ((mask & expectedMask) === 0) return null;
+
+  return Math.max(0, Math.round(ageSeconds / 60));
+}
+
 function buildRiskNarrative({ type, side, deviation, durationMin, direction, etaMinutes }) {
   const metric = getMetricLabel(type);
   const isHigh = side === "high";
   const band = getDeviationBand(type, deviation);
-  const persistent = durationMin >= 30;
-  const short = durationMin > 0 && durationMin < 15 && band === "ligeiro";
+  const hasTrustedDuration = Number.isFinite(durationMin);
+  const persistent = hasTrustedDuration && durationMin >= 30;
+  const short = hasTrustedDuration && durationMin > 0 && durationMin < 15 && band === "ligeiro";
   const trendText = getTrendDirectionLabel(direction, type).toLowerCase();
 
   if (side) {
@@ -888,6 +981,8 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
       ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite, mas ainda por curta duração.`
       : persistent
       ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite há ~${durationMin} min.`
+      : !hasTrustedDuration
+      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite na leitura atual.`
       : `${metric} ${isHigh ? "acima" : "abaixo"} do limite com desvio ${band}.`;
 
     let cause = `${metric} fora do limite definido.`;
@@ -962,6 +1057,8 @@ function buildPredictiveSignal({
     .map((r) => ({
       created_at: r.created_at,
       value: Number(r?.[valueKey]),
+      alarm_mask: toOptionalNumber(r?.alarm_mask),
+      alarm_event_age_s: toOptionalNumber(r?.alarm_event_age_s),
     }))
     .filter((r) => r.created_at && Number.isFinite(r.value))
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -977,7 +1074,7 @@ function buildPredictiveSignal({
   if (latestSide) {
     const latestLimit = latestSide === "high" ? highLimit : lowLimit;
     const latestDeviation = Math.abs(latest.value - latestLimit);
-    const latestDurationMin = getConsecutiveBreachMinutes(clean, latestSide, latestLimit);
+    const latestDurationMin = getTrustedBreachMinutes(clean, type, latestSide);
     const narrative = buildRiskNarrative({
       type,
       side: latestSide,
@@ -1071,11 +1168,7 @@ function buildPredictiveSignal({
   if (immediateSide) {
     const immediateLimit = immediateSide === "high" ? highLimit : lowLimit;
     const immediateDeviation = Math.abs(current.value - immediateLimit);
-    const immediateDurationMin = getConsecutiveBreachMinutes(
-      clean,
-      immediateSide,
-      immediateLimit
-    );
+    const immediateDurationMin = getTrustedBreachMinutes(clean, type, immediateSide);
     const narrative = buildRiskNarrative({
       type,
       side: immediateSide,
@@ -1149,7 +1242,7 @@ function buildPredictiveSignal({
   const currentLimit =
     currentSide === "high" ? highLimit : currentSide === "low" ? lowLimit : targetLimit;
   const currentDeviation = currentSide ? Math.abs(current.value - currentLimit) : 0;
-  const durationMin = getConsecutiveBreachMinutes(clean, currentSide, currentLimit);
+  const durationMin = getTrustedBreachMinutes(clean, type, currentSide);
   const distance = Math.abs(targetLimit - current.value);
   const speedThreshold = type === "temperature" ? 0.03 : 0.18;
 
@@ -1361,7 +1454,7 @@ async function getRecentReadingsForAnalysis(deviceId, hours = 24) {
 
   const { data, error } = await supabase
     .from("readings")
-    .select("temperature, humidity, created_at")
+    .select("temperature, humidity, created_at, alarm_mask, alarm_event_age_s")
     .eq("device_id", deviceId)
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: true });
@@ -1942,19 +2035,6 @@ async function processTriggeredAndResolvedAlerts({
 
   if (tempInfo.breached && !alertState.temp_active) {
     nextAlertState.temp_last_sent_at = null;
-    if (canSendByCooldown(alertState.temp_last_email_attempt_at)) {
-      const emailResult = await sendTemperatureTriggeredEmail({
-        device: deviceRow,
-        temperature: numericTemperature,
-        humidity: numericHumidity,
-        direction: tempInfo,
-        cfg,
-      });
-
-      nextAlertState.temp_last_email_attempt_at = nowIso();
-      if (emailResult?.ok) nextAlertState.temp_last_sent_at = nowIso();
-    }
-
     await insertAlertHistory({
       device_id: deviceRow.device_id,
       type: "temperature",
@@ -1969,6 +2049,19 @@ async function processTriggeredAndResolvedAlerts({
     });
 
     nextAlertState.temp_active = true;
+
+    if (canSendByCooldown(alertState.temp_last_email_attempt_at)) {
+      const emailResult = await sendTemperatureTriggeredEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        direction: tempInfo,
+        cfg,
+      });
+
+      nextAlertState.temp_last_email_attempt_at = nowIso();
+      if (emailResult?.ok) nextAlertState.temp_last_sent_at = nowIso();
+    }
   }
 
   if (tempInfo.breached && alertState.temp_active && !alertState.temp_last_sent_at) {
@@ -2013,19 +2106,6 @@ async function processTriggeredAndResolvedAlerts({
 
   if (humInfo.breached && !alertState.hum_active) {
     nextAlertState.hum_last_sent_at = null;
-    if (canSendByCooldown(alertState.hum_last_email_attempt_at)) {
-      const emailResult = await sendHumidityTriggeredEmail({
-        device: deviceRow,
-        temperature: numericTemperature,
-        humidity: numericHumidity,
-        direction: humInfo,
-        cfg,
-      });
-
-      nextAlertState.hum_last_email_attempt_at = nowIso();
-      if (emailResult?.ok) nextAlertState.hum_last_sent_at = nowIso();
-    }
-
     await insertAlertHistory({
       device_id: deviceRow.device_id,
       type: "humidity",
@@ -2040,6 +2120,19 @@ async function processTriggeredAndResolvedAlerts({
     });
 
     nextAlertState.hum_active = true;
+
+    if (canSendByCooldown(alertState.hum_last_email_attempt_at)) {
+      const emailResult = await sendHumidityTriggeredEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        direction: humInfo,
+        cfg,
+      });
+
+      nextAlertState.hum_last_email_attempt_at = nowIso();
+      if (emailResult?.ok) nextAlertState.hum_last_sent_at = nowIso();
+    }
   }
 
   if (humInfo.breached && alertState.hum_active && !alertState.hum_last_sent_at) {
@@ -2636,6 +2729,13 @@ app.post("/api/temperature", async (req, res) => {
       hum_low: cfg.hum_low,
       hum_high: cfg.hum_high,
     });
+    const telemetryStatus = resolveTelemetryStatus({
+      online: true,
+      incomingStatus: device_status,
+      alarmAck: readingPayload.alarm_ack,
+      alarmMask: readingPayload.alarm_mask,
+      computedStatus,
+    });
 
     const currentNowIso = nowIso();
 
@@ -2648,7 +2748,7 @@ app.post("/api/temperature", async (req, res) => {
       last_seen: currentNowIso,
       last_temperature: numericTemperature,
       last_humidity: numericHumidity,
-      status: statusToDbLabel(computedStatus),
+      status: statusToDbLabel(telemetryStatus),
       updated_at: currentNowIso,
     };
 
@@ -2710,7 +2810,7 @@ app.post("/api/temperature", async (req, res) => {
 
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
-      status: statusToDbLabel(computedStatus),
+      status: statusToDbLabel(telemetryStatus),
       last_seen: currentNowIso,
       last_temperature: numericTemperature,
       last_humidity: numericHumidity,
@@ -2730,7 +2830,7 @@ app.post("/api/temperature", async (req, res) => {
       message: "OK",
       stored_reading: storedReading,
       applied_config: getDeviceConfig({ config: finalConfig }),
-      status: statusToApiLabel(computedStatus),
+      status: statusToApiLabel(telemetryStatus),
       communication_health: communicationHealth,
       predictive_status: predictiveStatus,
     });
@@ -2794,7 +2894,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       lastSeenSeconds <=
       Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
 
-    const normalizedStatus =
+    const computedStatus =
       temperature !== null && humidity !== null
         ? getDeviceStatus({
             online,
@@ -2808,6 +2908,13 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
         : online
         ? "normal"
         : "offline";
+    const normalizedStatus = resolveTelemetryStatus({
+      online,
+      incomingStatus: deviceRow?.status || latestReading?.device_status,
+      alarmAck: latestReading?.alarm_ack,
+      alarmMask: latestReading?.alarm_mask,
+      computedStatus,
+    });
 
     const since24hIso = new Date(
       Date.now() - 24 * 60 * 60 * 1000
