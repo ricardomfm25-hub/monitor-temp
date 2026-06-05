@@ -24,6 +24,11 @@ const OFFLINE_ALERT_SECONDS = parseInt(
   process.env.OFFLINE_ALERT_SECONDS || "180",
   10
 );
+const READING_MIN_INTERVAL_FACTOR = clamp(
+  Number(process.env.READING_MIN_INTERVAL_FACTOR || "0.5"),
+  0.5,
+  1
+);
 
 const FRONTEND_ORIGINS = [
   "http://localhost:3000",
@@ -455,6 +460,46 @@ function getDeviceConfig(deviceRow) {
       alarm_last_ack_count: toOptionalNumber(alertState.alarm_last_ack_count) || 0,
     },
   };
+}
+
+function shouldStoreReading({ latestReading, cfg, incoming }) {
+  if (!latestReading?.created_at) return true;
+
+  const expectedMs =
+    Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
+      ? Number(cfg.send_interval_s) * 1000
+      : 30 * 1000;
+
+  const latestTs = new Date(latestReading.created_at).getTime();
+  if (!Number.isFinite(latestTs)) return true;
+
+  const latestAlarmMask = toOptionalNumber(latestReading.alarm_mask) || 0;
+  const incomingAlarmMask = toOptionalNumber(incoming.alarm_mask) || 0;
+  if (incomingAlarmMask !== latestAlarmMask) return true;
+
+  const latestAlarmEventCount = toOptionalNumber(latestReading.alarm_event_count) || 0;
+  const incomingAlarmEventCount = toOptionalNumber(incoming.alarm_event_count) || 0;
+  if (incomingAlarmEventCount > latestAlarmEventCount) return true;
+
+  const latestAckCount = toOptionalNumber(latestReading.alarm_ack_count) || 0;
+  const incomingAckCount = toOptionalNumber(incoming.alarm_ack_count) || 0;
+  if (incomingAckCount > latestAckCount) return true;
+
+  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
+  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
+  if (
+    deliveryAttempts > 1 ||
+    (sampleAgeS !== null && sampleAgeS * 1000 > expectedMs * 0.5)
+  ) {
+    return false;
+  }
+
+  const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
+  const elapsedMs = Date.now() - latestTs;
+
+  if (!Number.isFinite(elapsedMs) || elapsedMs >= minIntervalMs) return true;
+
+  return false;
 }
 
 function mergeAlertStateIntoConfig(deviceRow, nextAlertState) {
@@ -2327,6 +2372,8 @@ app.post("/api/temperature", async (req, res) => {
       alarm_started_age_s,
       alarm_mask,
       alarm_reason,
+      sample_age_s,
+      delivery_attempts,
     } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
@@ -2345,30 +2392,6 @@ app.post("/api/temperature", async (req, res) => {
       return res
         .status(400)
         .json({ error: "temperature e humidity devem ser numéricos" });
-    }
-
-    const insertReadingsResult = await supabase.from("readings").insert([
-      {
-        device_id,
-        temperature: numericTemperature,
-        humidity: numericHumidity,
-        device_status: device_status || null,
-        alarm_ack: toBoolean(alarm_ack),
-        alarm_ack_count: toOptionalNumber(alarm_ack_count) || 0,
-        alarm_ack_time: alarm_ack_time || null,
-        alarm_ack_age_s: toOptionalNumber(alarm_ack_age_s),
-        alarm_event_count: toOptionalNumber(alarm_event_count) || 0,
-        alarm_event_time: alarm_event_time || null,
-        alarm_event_age_s:
-          toOptionalNumber(alarm_event_age_s) ?? toOptionalNumber(alarm_started_age_s),
-        alarm_mask: toOptionalNumber(alarm_mask) || 0,
-        alarm_reason: alarm_reason || null,
-      },
-    ]);
-
-    if (insertReadingsResult.error) {
-      console.error("Erro ao inserir reading:", insertReadingsResult.error);
-      return res.status(500).json({ error: "Erro ao guardar leitura" });
     }
 
     const { data: existingDeviceRow, error: deviceFetchError } = await supabase
@@ -2392,6 +2415,57 @@ app.post("/api/temperature", async (req, res) => {
       };
 
     const cfg = getDeviceConfig(baseDeviceRow);
+    const readingPayload = {
+      device_id,
+      temperature: numericTemperature,
+      humidity: numericHumidity,
+      device_status: device_status || null,
+      alarm_ack: toBoolean(alarm_ack),
+      alarm_ack_count: toOptionalNumber(alarm_ack_count) || 0,
+      alarm_ack_time: alarm_ack_time || null,
+      alarm_ack_age_s: toOptionalNumber(alarm_ack_age_s),
+      alarm_event_count: toOptionalNumber(alarm_event_count) || 0,
+      alarm_event_time: alarm_event_time || null,
+      alarm_event_age_s:
+        toOptionalNumber(alarm_event_age_s) ?? toOptionalNumber(alarm_started_age_s),
+      alarm_mask: toOptionalNumber(alarm_mask) || 0,
+      alarm_reason: alarm_reason || null,
+    };
+    const incomingReadingMeta = {
+      sample_age_s: toOptionalNumber(sample_age_s),
+      delivery_attempts: toOptionalNumber(delivery_attempts) || 0,
+    };
+
+    const { data: latestReadingForRate, error: latestReadingForRateError } =
+      await supabase
+        .from("readings")
+        .select("created_at, alarm_ack_count, alarm_event_count, alarm_mask")
+        .eq("device_id", device_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (latestReadingForRateError) {
+      console.error("Erro ao validar cadÃªncia de leituras:", latestReadingForRateError);
+      return res.status(500).json({ error: "Erro ao validar leitura" });
+    }
+
+    const storedReading = shouldStoreReading({
+      latestReading: latestReadingForRate,
+      cfg,
+      incoming: { ...readingPayload, ...incomingReadingMeta },
+    });
+
+    if (storedReading) {
+      const insertReadingsResult = await supabase.from("readings").insert([
+        readingPayload,
+      ]);
+
+      if (insertReadingsResult.error) {
+        console.error("Erro ao inserir reading:", insertReadingsResult.error);
+        return res.status(500).json({ error: "Erro ao guardar leitura" });
+      }
+    }
 
     const computedStatus = getDeviceStatus({
       online: true,
@@ -2494,6 +2568,7 @@ app.post("/api/temperature", async (req, res) => {
 
     res.json({
       message: "OK",
+      stored_reading: storedReading,
       applied_config: getDeviceConfig({ config: finalConfig }),
       status: statusToApiLabel(computedStatus),
       communication_health: communicationHealth,
