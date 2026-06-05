@@ -351,6 +351,15 @@ function getReportEventStyle(kind) {
   return { color: "#fee2e2", stroke: "#fecaca" };
 }
 
+function getReportEventType(event) {
+  const text = `${event?.type || ""} ${event?.title || ""} ${event?.detail || ""}`.toLowerCase();
+  if (text.includes("temp")) return "temperature";
+  if (text.includes("hum")) return "humidity";
+  if (text.includes("offline") || text.includes("online")) return "offline";
+  if (text.includes("ack")) return "system";
+  return "";
+}
+
 function buildStoredReportAlertHistory(alertRows) {
   return (alertRows || [])
     .map((row, index) => {
@@ -394,11 +403,15 @@ function mergeReportAlertHistory(storedEvents, derivedEvents) {
       if (!Number.isFinite(eventTs) || !Number.isFinite(storedTs)) return false;
       if (storedEvent.kind !== event.kind) return false;
       if (Math.abs(storedTs - eventTs) > 90000) return false;
+      const storedType = getReportEventType(storedEvent);
+      const eventType = getReportEventType(event);
+      if (storedType && eventType && storedType !== eventType) return false;
 
       return (
         storedEvent.title === event.title ||
         storedEvent.kind === "ack" ||
-        storedEvent.kind === "normal"
+        storedEvent.kind === "normal" ||
+        storedEvent.kind === "alert"
       );
     });
 

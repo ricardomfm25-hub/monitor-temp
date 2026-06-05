@@ -1692,16 +1692,34 @@ function getAlertDedupeKey(item) {
   ].join("|");
 }
 
+function areEquivalentAlertEvents(a, b) {
+  const aType = String(a?.type || "system").toLowerCase();
+  const bType = String(b?.type || "system").toLowerCase();
+  const aLevel = String(a?.level || "").toLowerCase();
+  const bLevel = String(b?.level || "").toLowerCase();
+  if (aType !== bType || aLevel !== bLevel) return false;
+
+  const aState = String(a?.state || a?.direction || "").toLowerCase();
+  const bState = String(b?.state || b?.direction || "").toLowerCase();
+  if (aState && bState && aState !== bState) return false;
+
+  const diffMs = Math.abs(getAlertTimestamp(a) - getAlertTimestamp(b));
+  return diffMs <= 120000;
+}
+
 function mergeAlertEvents(backendAlerts, derivedAlerts) {
   const merged = [];
   const seen = new Set();
 
-  [...(derivedAlerts || []), ...normalizeAlertRows(backendAlerts)]
+  [...normalizeAlertRows(backendAlerts), ...(derivedAlerts || [])]
     .filter(Boolean)
     .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
     .forEach((item) => {
       const key = getAlertDedupeKey(item);
       if (seen.has(key)) return;
+      if (item?.derived && merged.some((existing) => !existing?.derived && areEquivalentAlertEvents(existing, item))) {
+        return;
+      }
       seen.add(key);
       merged.push(item);
     });
