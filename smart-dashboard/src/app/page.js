@@ -2522,8 +2522,8 @@ function BootScreen() {
             <Image
               src={STS_LOGO_SRC}
               alt="STS"
-              width={148}
-              height={92}
+              width={166}
+              height={110}
               priority
               style={styles.bootLogoImage}
             />
@@ -3302,8 +3302,8 @@ async function downloadPdfReport() {
             <Image
               src={STS_LOGO_SRC}
               alt="STS"
-              width={112}
-              height={50}
+              width={132}
+              height={58}
               priority
               style={styles.headerLogo}
             />
@@ -3896,8 +3896,12 @@ const styles = {
   },
 
   bootCenter: {
-    width: "158px",
-    height: "104px",
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: "166px",
+    height: "110px",
+    transform: "translate(-50%, -50%)",
     borderRadius: "18px",
     background: "transparent",
     border: "none",
@@ -3909,9 +3913,11 @@ const styles = {
   },
 
   bootLogoImage: {
-    width: "148px",
-    height: "92px",
+    display: "block",
+    width: "166px",
+    height: "110px",
     objectFit: "contain",
+    objectPosition: "center center",
     filter: "drop-shadow(0 8px 18px rgba(0,0,0,0.22))",
   },
 
@@ -4039,15 +4045,16 @@ const styles = {
   brandLockup: {
     display: "flex",
     alignItems: "center",
-    gap: "13px",
+    gap: "15px",
     minWidth: 0,
     flex: "1 1 420px",
   },
 
   headerLogo: {
-    width: "112px",
-    height: "50px",
+    width: "132px",
+    height: "58px",
     objectFit: "contain",
+    objectPosition: "center center",
     borderRadius: "10px",
     background: "transparent",
     border: "none",
