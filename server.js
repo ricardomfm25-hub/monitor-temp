@@ -436,6 +436,8 @@ function validateConfigNumbers(payload) {
     payload.hum_high !== undefined ? Number(payload.hum_high) : undefined;
   const hyst =
     payload.hyst_c !== undefined ? Number(payload.hyst_c) : undefined;
+  const hystHum =
+    payload.hyst_hum !== undefined ? Number(payload.hyst_hum) : undefined;
   const sendInterval =
     payload.send_interval_s !== undefined
       ? Number(payload.send_interval_s)
@@ -485,6 +487,10 @@ function validateConfigNumbers(payload) {
     errors.push("hyst_c inválido");
   }
 
+  if (hystHum !== undefined && (!Number.isFinite(hystHum) || hystHum < 0)) {
+    errors.push("hyst_hum inválido");
+  }
+
   if (
     sendInterval !== undefined &&
     (!Number.isFinite(sendInterval) || sendInterval < 5)
@@ -509,6 +515,7 @@ function getDeviceConfig(deviceRow) {
     hum_low: toNumberOrDefault(cfg.hum_low, 30),
     hum_high: toNumberOrDefault(cfg.hum_high, 60),
     hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
+    hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
     send_interval_s: toNumberOrDefault(cfg.send_interval_s, 30),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     alert_state: {
@@ -3819,6 +3826,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       hum_low,
       hum_high,
       hyst_c,
+      hyst_hum,
       send_interval_s,
       display_standby_min,
       name,
@@ -3831,6 +3839,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       hum_low,
       hum_high,
       hyst_c,
+      hyst_hum,
       send_interval_s,
       display_standby_min,
     });
@@ -3863,6 +3872,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       ...(hum_low !== undefined ? { hum_low: Number(hum_low) } : {}),
       ...(hum_high !== undefined ? { hum_high: Number(hum_high) } : {}),
       ...(hyst_c !== undefined ? { hyst_c: Number(hyst_c) } : {}),
+      ...(hyst_hum !== undefined ? { hyst_hum: Number(hyst_hum) } : {}),
       ...(send_interval_s !== undefined
         ? { send_interval_s: Number(send_interval_s) }
         : {}),
