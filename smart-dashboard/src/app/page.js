@@ -1663,9 +1663,10 @@ function deriveCurrentAlertEvents(device, config, existingEvents) {
     const latestForType = [...(existingEvents || [])]
       .filter((item) => String(item?.type || "").toLowerCase() === type)
       .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))[0];
+    const latestState = String(latestForType?.state || "").toLowerCase();
     const alreadyOpen =
       String(latestForType?.level || "").toLowerCase() === "alert" &&
-      String(latestForType?.state || "").toLowerCase() === currentState;
+      (!latestState || latestState === currentState);
 
     if (!alreadyOpen) {
       events.push(buildDerivedAlertEvent(reading, type, "alert", currentState, "current_state"));
