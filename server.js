@@ -2910,7 +2910,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
         : "offline";
     const normalizedStatus = resolveTelemetryStatus({
       online,
-      incomingStatus: deviceRow?.status || latestReading?.device_status,
+      incomingStatus: latestReading?.device_status || deviceRow?.status,
       alarmAck: latestReading?.alarm_ack,
       alarmMask: latestReading?.alarm_mask,
       computedStatus,

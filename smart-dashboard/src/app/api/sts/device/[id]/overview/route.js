@@ -275,7 +275,7 @@ export async function GET(_request, context) {
     const computedStatus = getStatus({ online, temperature, humidity, config });
     const status = resolveTelemetryStatus({
       online,
-      incomingStatus: device.status || latestReading?.device_status,
+      incomingStatus: latestReading?.device_status || device.status,
       alarmAck: latestReading?.alarm_ack,
       alarmMask: latestReading?.alarm_mask,
       computedStatus,
