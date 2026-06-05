@@ -863,6 +863,56 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
   };
 }
 
+function buildNearLimitSignal({ latest, lowLimit, highLimit, type }) {
+  if (!latest) return null;
+
+  const margin = type === "temperature" ? 1.0 : 6;
+  const metric = getMetricLabel(type);
+  const candidates = [];
+
+  if (Number.isFinite(highLimit) && latest.value <= highLimit) {
+    candidates.push({
+      side: "high",
+      limit: highLimit,
+      distance: highLimit - latest.value,
+    });
+  }
+
+  if (Number.isFinite(lowLimit) && latest.value >= lowLimit) {
+    candidates.push({
+      side: "low",
+      limit: lowLimit,
+      distance: latest.value - lowLimit,
+    });
+  }
+
+  const nearest = candidates
+    .filter((candidate) => candidate.distance >= 0 && candidate.distance <= margin)
+    .sort((a, b) => a.distance - b.distance)[0];
+
+  if (!nearest) return null;
+
+  const isHigh = nearest.side === "high";
+
+  return {
+    active: true,
+    severity: "medium",
+    eta_minutes: null,
+    title: "Atenção preventiva",
+    detail: `${metric} muito próxima do limite ${isHigh ? "máximo" : "mínimo"} (${formatMetricValue(nearest.limit, type)}).`,
+    cause: "Valor ainda dentro do intervalo, mas com margem curta face ao limite configurado.",
+    action: type === "temperature"
+      ? "Confirmar porta, carga e estabilidade da refrigeração antes de atingir o limite."
+      : "Confirmar porta, condensação e circulação de ar antes de atingir o limite.",
+    source: type,
+    score: 60,
+    current_value: latest.value,
+    limit: nearest.limit,
+    deviation: nearest.distance,
+    state: nearest.side,
+  };
+}
+
 function buildPredictiveSignal({
   readings,
   valueKey,
@@ -924,6 +974,15 @@ function buildPredictiveSignal({
       state: latestSide,
     };
   }
+
+  const nearLimitSignal = buildNearLimitSignal({
+    latest,
+    lowLimit,
+    highLimit,
+    type,
+  });
+
+  if (nearLimitSignal) return nearLimitSignal;
 
   if (clean.length < 6) {
     return {
