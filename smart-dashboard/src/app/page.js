@@ -21,12 +21,9 @@ const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
-const STS_SYSTEM_VERSION = "V2.4.27";
-
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
-  version: STS_SYSTEM_VERSION,
   domain: "stsapp.pt",
 };
 const STS_TAGLINE = "Monitorizar Hoje. Proteger Amanhã.";
@@ -3246,7 +3243,6 @@ async function downloadPdfReport() {
             <p style={styles.subtitle}>
               Monitorização inteligente para frio, conservação e operação crítica
             </p>
-            <div style={styles.versionBadge}>DASHBOARD · {STS_PRODUCT.version}</div>
             </div>
           </div>
 

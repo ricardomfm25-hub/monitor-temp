@@ -275,6 +275,85 @@ function formatReportAlertDate(event) {
   });
 }
 
+function getReportEventKind(row) {
+  const event = String(row?.event || row?.kind || "").toLowerCase();
+  const title = String(row?.title || "").toLowerCase();
+
+  if (event.includes("ack") || title.includes("ack")) return "ack";
+  if (event.includes("resolved") || event.includes("normal")) return "normal";
+  return "alert";
+}
+
+function getReportEventStyle(kind) {
+  if (kind === "ack") {
+    return { color: "#dbeafe", stroke: "#bfdbfe" };
+  }
+
+  if (kind === "normal") {
+    return { color: "#dcfce7", stroke: "#bbf7d0" };
+  }
+
+  return { color: "#fee2e2", stroke: "#fecaca" };
+}
+
+function buildStoredReportAlertHistory(alertRows) {
+  return (alertRows || [])
+    .map((row, index) => {
+      const kind = getReportEventKind(row);
+      const style = getReportEventStyle(kind);
+      const temperature = toOptionalNumber(row?.temperature);
+      const humidity = toOptionalNumber(row?.humidity);
+      const valueText = [
+        temperature !== null ? `${formatNumber(temperature, 1)} \u00b0C` : null,
+        humidity !== null ? `${formatNumber(humidity, 0)} %` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      return {
+        id: row?.id || `stored-${index}`,
+        kind,
+        color: style.color,
+        stroke: style.stroke,
+        title: row?.title || (kind === "ack" ? "ACK confirmado" : "Evento registado"),
+        when: row?.sent_at || row?.created_at,
+        deviceTime: null,
+        detail: row?.message || valueText || "-",
+        source: "alerts",
+      };
+    })
+    .filter((event) => {
+      const ts = new Date(event.when).getTime();
+      return Number.isFinite(ts);
+    });
+}
+
+function mergeReportAlertHistory(storedEvents, derivedEvents) {
+  const merged = [...(storedEvents || [])];
+
+  (derivedEvents || []).forEach((event) => {
+    const eventTs = new Date(event.when).getTime();
+    const alreadyStored = merged.some((storedEvent) => {
+      const storedTs = new Date(storedEvent.when).getTime();
+      if (!Number.isFinite(eventTs) || !Number.isFinite(storedTs)) return false;
+      if (storedEvent.kind !== event.kind) return false;
+      if (Math.abs(storedTs - eventTs) > 90000) return false;
+
+      return (
+        storedEvent.title === event.title ||
+        storedEvent.kind === "ack" ||
+        storedEvent.kind === "normal"
+      );
+    });
+
+    if (!alreadyStored) {
+      merged.push({ ...event, source: event.source || "readings" });
+    }
+  });
+
+  return merged.sort((a, b) => new Date(a.when).getTime() - new Date(b.when).getTime());
+}
+
 function validateConfigNumbers(payload) {
   const errors = [];
 
@@ -2815,6 +2894,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     const [
       { data: deviceRow, error: deviceError },
       { data: readings, error: readingsError },
+      { data: storedAlerts, error: storedAlertsError },
     ] = await Promise.all([
       supabase
         .from("devices")
@@ -2830,6 +2910,13 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
         .eq("device_id", deviceId)
         .gte("created_at", sinceIso)
         .order("created_at", { ascending: true }),
+
+      supabase
+        .from("alerts")
+        .select("*")
+        .eq("device_id", deviceId)
+        .gte("sent_at", sinceIso)
+        .order("sent_at", { ascending: true }),
     ]);
 
     if (deviceError) {
@@ -2839,6 +2926,10 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
 
     if (!deviceRow) {
       return res.status(404).json({ error: "Dispositivo não encontrado" });
+    }
+
+    if (storedAlertsError) {
+      console.error("Erro ao obter alertas para PDF:", storedAlertsError);
     }
 
     let rows = readings || [];
@@ -2865,7 +2956,10 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     }
 
     const cfg = getDeviceConfig(deviceRow);
-    const alertHistory = buildReportAlertHistory(rows, cfg);
+    const alertHistory = mergeReportAlertHistory(
+      buildStoredReportAlertHistory(storedAlerts || []),
+      buildReportAlertHistory(rows, cfg)
+    );
 
     const temperatures = rows
       .map((row) => Number(row.temperature))
