@@ -1536,6 +1536,45 @@ async function getDeviceAccessRecipients(deviceId, excludeUserIds = new Set()) {
     .filter((row) => row.email);
 }
 
+async function getSuperAdminRecipients(excludeUserIds = new Set()) {
+  const { data: profiles, error } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, is_active, role")
+    .eq("role", "super_admin")
+    .eq("is_active", true);
+
+  if (error) {
+    console.error("Erro ao obter super_admins para alertas:", error);
+    return [];
+  }
+
+  return (profiles || [])
+    .filter((profile) => profile.id && !excludeUserIds.has(profile.id))
+    .map((profile) => ({
+      email: String(profile.email || "").trim(),
+      name: String(profile.full_name || "").trim() || undefined,
+    }))
+    .filter((row) => row.email);
+}
+
+function mergeEmailRecipients(...recipientGroups) {
+  const uniqueMap = new Map();
+
+  for (const group of recipientGroups) {
+    for (const row of group || []) {
+      const email = String(row.email || "").trim();
+      const key = email.toLowerCase();
+      if (!email || uniqueMap.has(key)) continue;
+      uniqueMap.set(key, {
+        email,
+        ...(row.name ? { name: row.name } : {}),
+      });
+    }
+  }
+
+  return Array.from(uniqueMap.values());
+}
+
 async function getDeviceAlertRecipients(deviceId, alertType = "general") {
   const { data, error } = await supabase
     .from("device_alert_recipients")
@@ -1545,8 +1584,13 @@ async function getDeviceAlertRecipients(deviceId, alertType = "general") {
   if (error) {
     console.error("Erro ao obter recipients do dispositivo:", error);
     const accessRecipients = await getDeviceAccessRecipients(deviceId);
-    if (accessRecipients.length > 0) return accessRecipients;
-    return ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
+    const superAdminRecipients = await getSuperAdminRecipients();
+    const fallbackRecipients = ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
+    return mergeEmailRecipients(
+      accessRecipients,
+      superAdminRecipients,
+      fallbackRecipients
+    );
   }
 
   const recipients = (data || [])
@@ -1557,16 +1601,19 @@ async function getDeviceAlertRecipients(deviceId, alertType = "general") {
     }))
     .filter((row) => row.email);
 
-  if (recipients.length > 0) return recipients;
-
   const configuredUserIds = new Set(
     (data || []).map((row) => row.user_id).filter(Boolean)
   );
   const accessRecipients = await getDeviceAccessRecipients(deviceId, configuredUserIds);
-  if (accessRecipients.length > 0) return accessRecipients;
+  const superAdminRecipients = await getSuperAdminRecipients(configuredUserIds);
+  const fallbackRecipients = ALERT_TO_EMAIL ? [{ email: ALERT_TO_EMAIL }] : [];
 
-  if (ALERT_TO_EMAIL) return [{ email: ALERT_TO_EMAIL }];
-  return [];
+  return mergeEmailRecipients(
+    recipients,
+    accessRecipients,
+    superAdminRecipients,
+    fallbackRecipients
+  );
 }
 
 async function getWeeklyReportRecipients() {
@@ -1986,6 +2033,53 @@ async function sendOnlineRecoveredEmail({ device }) {
         },
         { label: "Hora", value: formatDateTimePt(new Date(), true) },
       ],
+    }),
+  });
+}
+
+async function sendAckConfirmedEmail({
+  device,
+  temperature,
+  humidity,
+  alarmAckTime = null,
+}) {
+  const deviceName = device?.name || device?.device_id;
+  const location = device?.location || "LocalizaÃ§Ã£o por definir";
+  const subject = `[STS] ACK confirmado â€” ${deviceName}`;
+  const recipients = await getDeviceAlertRecipients(device.device_id, "general");
+
+  return sendEmail({
+    to: recipients,
+    subject,
+    htmlContent: buildEmailShell({
+      heading: "ACK confirmado",
+      intro: `Foi confirmado ACK de alarme no dispositivo ${deviceName}.`,
+      blocks: [
+        { label: "Dispositivo", value: deviceName },
+        { label: "Device ID", value: device.device_id },
+        { label: "LocalizaÃ§Ã£o", value: location },
+        {
+          label: "Hora do ACK",
+          value: alarmAckTime || "Reportada pelo dispositivo",
+        },
+        {
+          label: "Temperatura atual",
+          value:
+            temperature !== null && temperature !== undefined
+              ? `${formatNumber(temperature, 1)} Â°C`
+              : "-",
+        },
+        {
+          label: "Humidade atual",
+          value:
+            humidity !== null && humidity !== undefined
+              ? `${formatNumber(humidity, 0)} %`
+              : "-",
+        },
+        { label: "Recebido no backend", value: formatDateTimePt(new Date(), true) },
+      ],
+      footer:
+        "ACK significa que o alerta foi reconhecido no dispositivo. A condiÃ§Ã£o deve continuar a ser acompanhada atÃ© normalizar.",
     }),
   });
 }
@@ -2801,6 +2895,13 @@ app.post("/api/temperature", async (req, res) => {
           : "Alerta reconhecido no dispositivo.",
         temperature: numericTemperature,
         humidity: numericHumidity,
+      });
+
+      await sendAckConfirmedEmail({
+        device: freshDeviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        alarmAckTime: alarm_ack_time || null,
       });
 
       nextAlertState.alarm_last_ack_count = incomingAckCount;
