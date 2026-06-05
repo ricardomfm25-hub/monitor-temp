@@ -2151,6 +2151,14 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
   };
 
   const selected = toneMap[prediction?.level] || toneMap.unknown;
+  const hasSpecificSource =
+    prediction?.source && String(prediction.source).toLowerCase() !== "none";
+  const shouldShowSourceLabel = isOffline || hasSpecificSource;
+  const shouldShowAdvice =
+    isOffline ||
+    prediction?.level === "medium" ||
+    prediction?.level === "high" ||
+    (prediction?.level === "unknown" && hasSpecificSource);
 
   return (
     <section
@@ -2191,11 +2199,13 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
         {prediction?.detail || "Sem dados recentes para prever tendência."}
       </div>
 
-      <div style={styles.predictionSourceLabel}>
-        {prediction?.source_label || "Sem dados recentes"}
-      </div>
+      {shouldShowSourceLabel ? (
+        <div style={styles.predictionSourceLabel}>
+          {prediction?.source_label || "Sem dados recentes"}
+        </div>
+      ) : null}
 
-      {prediction?.cause || prediction?.action ? (
+      {shouldShowAdvice && (prediction?.cause || prediction?.action) ? (
         <div style={styles.predictionAdviceGrid}>
           {prediction?.cause ? (
             <div style={styles.predictionAdviceItem}>
