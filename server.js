@@ -89,6 +89,17 @@ function formatNumber(value, digits = 1) {
   return n.toFixed(digits);
 }
 
+function formatDurationCompact(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value < 0) return "-";
+  const seconds = Math.round(value / 1000);
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return `${hours} h`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2963,7 +2974,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     const sendEmailCopy =
       String(req.query.email || "false").toLowerCase() === "true";
 
-    const { key: periodKey, label: periodLabel, sinceIso } =
+    const { key: periodKey, label: periodLabel, hours: periodHours, sinceIso } =
       getReportPeriodRange(period);
 
     const [
@@ -3031,6 +3042,12 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     }
 
     const cfg = getDeviceConfig(deviceRow);
+    const communicationHealth = getCommunicationHealth({
+      readings: rows,
+      sendIntervalS: cfg.send_interval_s,
+      deviceLastSeen: deviceRow?.last_seen || rows[rows.length - 1]?.created_at || null,
+      periodHours,
+    });
     const alertHistory = mergeReportAlertHistory(
       buildStoredReportAlertHistory(storedAlerts || []),
       buildReportAlertHistory(rows, cfg)
@@ -3100,7 +3117,10 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
                   { label: "Device ID", value: deviceId },
                   { label: "Localização", value: sanitizeLocation(deviceRow?.location) },
                   { label: "Período", value: periodLabel },
-                  { label: "Total de leituras", value: String(rows.length) },
+                  {
+                    label: "Cobertura de leituras",
+                    value: `${communicationHealth.received_readings} de ${communicationHealth.expected_readings} esperadas (${communicationHealth.delivery_pct}%)`,
+                  },
                   { label: "Eventos de alerta", value: String(alertHistory.length) },
                 ],
               }),
@@ -3154,7 +3174,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     doc.text("Localização", 58, 176);
 
     doc.text("Período", 320, 126);
-    doc.text("Leituras", 320, 151);
+    doc.text("Cobertura", 320, 151);
     doc.text("Gerado em", 320, 176);
 
     doc.fillColor("#334155").font("Helvetica").fontSize(11);
@@ -3163,7 +3183,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     doc.text(sanitizeLocation(deviceRow?.location), 140, 176);
 
     doc.text(periodLabel, 390, 126);
-    doc.text(String(rows.length), 390, 151);
+    doc.text(`${communicationHealth.delivery_pct}%`, 390, 151);
     doc.text(formatDateTimePt(new Date(), true), 390, 176);
 
     let y = 246;
@@ -3225,13 +3245,15 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     y += 26;
 
     doc
-      .roundedRect(42, y, 511, 92, 10)
+      .roundedRect(42, y, 511, 122, 10)
       .fillAndStroke("#ffffff", "#e2e8f0");
 
     doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
     doc.text("Primeira leitura", 62, y + 16);
     doc.text("Última leitura", 62, y + 46);
-    doc.text("Intervalos configurados", 62, y + 76);
+    doc.text("Leituras recebidas", 62, y + 76);
+    doc.text("Cobertura", 320, y + 76);
+    doc.text("Intervalo esperado", 62, y + 100);
 
     doc.fillColor("#0f172a").font("Helvetica").fontSize(11);
     doc.text(
@@ -3244,6 +3266,32 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       190,
       y + 46
     );
+    doc.text(
+      `${communicationHealth.received_readings} de ${communicationHealth.expected_readings}`,
+      190,
+      y + 76
+    );
+    doc.text(`${communicationHealth.delivery_pct}%`, 448, y + 76);
+    doc.text(formatDurationCompact(communicationHealth.expected_interval_ms), 190, y + 100);
+
+    y += 150;
+
+    doc
+      .fillColor("#0f172a")
+      .font("Helvetica-Bold")
+      .fontSize(15)
+      .text("Limites configurados", 42, y);
+
+    y += 26;
+
+    doc
+      .roundedRect(42, y, 511, 54, 10)
+      .fillAndStroke("#ffffff", "#e2e8f0");
+
+    doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(10);
+    doc.text("Intervalos configurados", 62, y + 18);
+
+    doc.fillColor("#0f172a").font("Helvetica").fontSize(11);
     doc.text(
       `Temp: ${formatNumber(cfg.temp_low_c, 1)} °C a ${formatNumber(
         cfg.temp_high_c,

@@ -3518,7 +3518,7 @@ async function downloadPdfReport() {
             <HealthStatCard
               label="Cobertura de leituras"
               value={`${communicationHealth.delivery_pct ?? 0}%`}
-              hint={`${communicationHealth.received_readings}/${communicationHealth.expected_readings} leituras esperadas`}
+              hint={`${communicationHealth.received_readings} de ${communicationHealth.expected_readings} leituras esperadas`}
               tone={
                 (communicationHealth.delivery_pct ?? 0) < 88
                   ? "bad"
