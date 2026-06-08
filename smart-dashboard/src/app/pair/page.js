@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, CheckCircle2, Link2, LoaderCircle, ShieldCheck } from "lucide-react";
 import { createClient } from "../../utils/supabase/client";
 
 function PairPageContent() {
@@ -231,7 +232,10 @@ function PairPageContent() {
     <main style={styles.page}>
       <div style={styles.card}>
         <div style={styles.header}>
-          <div style={styles.badge}>Smart Temp Systems</div>
+          <div style={styles.badge}>
+            <ShieldCheck size={14} />
+            Smart Temp Systems
+          </div>
           <h1 style={styles.title}>Associar dispositivo</h1>
           <p style={styles.subtitle}>
             Lê o QR Code ou introduz o código de associação
@@ -283,6 +287,7 @@ function PairPageContent() {
             }}
             disabled={loading || !canPair}
           >
+            {loading ? <LoaderCircle size={18} /> : <Link2 size={18} />}
             {loading ? "A associar..." : "Associar dispositivo"}
           </button>
 
@@ -302,6 +307,7 @@ function PairPageContent() {
                   : styles.info
               }
             >
+              {messageType === "success" ? <CheckCircle2 size={16} /> : null}
               {message}
             </div>
           ) : null}
@@ -311,6 +317,7 @@ function PairPageContent() {
             onClick={() => router.push("/")}
             style={styles.secondaryButton}
           >
+            <ArrowLeft size={16} />
             Voltar à dashboard
           </button>
         </div>
@@ -341,49 +348,52 @@ export default function PairPage() {
 const styles = {
   page: {
     minHeight: "100vh",
-    background:
-      "radial-gradient(circle at top, #162235 0%, #0b1220 45%, #060c16 100%)",
+    background: "#f5f7fb",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "24px",
-    color: "#f8fafc",
+    padding: "28px",
+    color: "#172033",
   },
   card: {
     width: "100%",
-    maxWidth: "520px",
-    background: "rgba(17, 24, 39, 0.94)",
-    border: "1px solid #1f2937",
-    borderRadius: "24px",
+    maxWidth: "540px",
+    background: "#ffffff",
+    border: "1px solid #dbe3ef",
+    borderRadius: "8px",
     padding: "28px",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
-    backdropFilter: "blur(10px)",
+    boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
   },
   header: {
-    marginBottom: "22px",
+    marginBottom: "24px",
+    paddingBottom: "18px",
+    borderBottom: "1px solid #e6edf5",
   },
   badge: {
-    display: "inline-block",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
     marginBottom: "10px",
-    padding: "6px 10px",
-    borderRadius: "999px",
+    padding: "6px 9px",
+    borderRadius: "6px",
     fontSize: "11px",
     fontWeight: 800,
-    letterSpacing: "0.06em",
+    letterSpacing: "0.05em",
     textTransform: "uppercase",
-    color: "#93c5fd",
-    background: "rgba(37, 99, 235, 0.12)",
-    border: "1px solid rgba(59, 130, 246, 0.25)",
+    color: "#1d4ed8",
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
   },
   title: {
     margin: 0,
-    fontSize: "28px",
+    fontSize: "26px",
     fontWeight: 800,
     lineHeight: 1.1,
+    color: "#172033",
   },
   subtitle: {
     margin: "8px 0 0 0",
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: "14px",
   },
   form: {
@@ -398,17 +408,17 @@ const styles = {
   },
   label: {
     fontSize: "12px",
-    color: "#8fa1b9",
+    color: "#526176",
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
   },
   input: {
     width: "100%",
-    border: "1px solid #253246",
-    background: "#0a1322",
-    color: "#f8fafc",
-    borderRadius: "12px",
+    border: "1px solid #cfd9e6",
+    background: "#ffffff",
+    color: "#172033",
+    borderRadius: "8px",
     padding: "12px 14px",
     fontSize: "14px",
     outline: "none",
@@ -416,36 +426,40 @@ const styles = {
     boxSizing: "border-box",
   },
   previewCard: {
-    background: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "16px",
+    background: "#f8fafc",
+    border: "1px solid #dbe3ef",
+    borderRadius: "8px",
     padding: "14px",
   },
   previewCardMuted: {
-    background: "#0f172a",
-    border: "1px dashed #334155",
-    borderRadius: "16px",
+    background: "#f8fafc",
+    border: "1px dashed #c7d2e1",
+    borderRadius: "8px",
     padding: "14px",
-    color: "#94a3b8",
+    color: "#64748b",
     fontSize: "13px",
     fontWeight: 700,
   },
   previewTitle: {
     fontSize: "16px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "#172033",
     marginBottom: "8px",
   },
   previewMeta: {
     fontSize: "13px",
-    color: "#94a3b8",
+    color: "#64748b",
     marginBottom: "4px",
   },
   button: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
     border: "1px solid #2563eb",
-    background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+    background: "#2563eb",
     color: "#ffffff",
-    borderRadius: "12px",
+    borderRadius: "8px",
     padding: "12px 14px",
     cursor: "pointer",
     fontWeight: 800,
@@ -453,10 +467,14 @@ const styles = {
     transition: "0.2s ease",
   },
   secondaryButton: {
-    border: "1px solid #334155",
-    background: "#111c2e",
-    color: "#cbd5e1",
-    borderRadius: "12px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    border: "1px solid #cfd9e6",
+    background: "#ffffff",
+    color: "#334155",
+    borderRadius: "8px",
     padding: "12px 14px",
     cursor: "pointer",
     fontWeight: 700,
@@ -467,40 +485,49 @@ const styles = {
     cursor: "not-allowed",
   },
   error: {
-    color: "#fca5a5",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#991b1b",
     fontSize: "13px",
     fontWeight: 700,
-    background: "rgba(127, 29, 29, 0.18)",
-    border: "1px solid rgba(248, 113, 113, 0.25)",
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
     padding: "10px 12px",
-    borderRadius: "12px",
+    borderRadius: "8px",
   },
   success: {
-    color: "#86efac",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#166534",
     fontSize: "13px",
     fontWeight: 700,
-    background: "rgba(20, 83, 45, 0.22)",
-    border: "1px solid rgba(34, 197, 94, 0.25)",
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
     padding: "10px 12px",
-    borderRadius: "12px",
+    borderRadius: "8px",
   },
   info: {
-    color: "#cbd5e1",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#334155",
     fontSize: "13px",
     fontWeight: 700,
-    background: "rgba(30, 41, 59, 0.55)",
-    border: "1px solid rgba(148, 163, 184, 0.2)",
+    background: "#f8fafc",
+    border: "1px solid #dbe3ef",
     padding: "10px 12px",
-    borderRadius: "12px",
+    borderRadius: "8px",
   },
   warn: {
-    color: "#fcd34d",
+    color: "#92400e",
     fontSize: "13px",
     fontWeight: 700,
-    background: "rgba(120, 53, 15, 0.18)",
-    border: "1px solid rgba(245, 158, 11, 0.25)",
+    background: "#fffbeb",
+    border: "1px solid #fde68a",
     padding: "10px 12px",
-    borderRadius: "12px",
+    borderRadius: "8px",
   },
   statusWrap: {
     display: "flex",
@@ -513,8 +540,8 @@ const styles = {
     width: "28px",
     height: "28px",
     borderRadius: "999px",
-    border: "3px solid #1e293b",
-    borderTop: "3px solid #60a5fa",
+    border: "3px solid #dbe3ef",
+    borderTop: "3px solid #2563eb",
     animation: "spin 1s linear infinite",
   },
 };
