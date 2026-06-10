@@ -3055,11 +3055,11 @@ app.post("/api/temperature", async (req, res) => {
       location: sanitizeLocation(baseDeviceRow.location),
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
-      last_seen: currentNowIso,
       updated_at: currentNowIso,
     };
 
     if (!isHistoricalBackfill) {
+      upsertPayload.last_seen = currentNowIso;
       upsertPayload.last_temperature = numericTemperature;
       upsertPayload.last_humidity = numericHumidity;
       upsertPayload.status = statusToDbLabel(telemetryStatus);
@@ -3089,12 +3089,14 @@ app.post("/api/temperature", async (req, res) => {
 
     const refreshedCfg = getDeviceConfig(freshDeviceRow);
 
-    const nextAlertState = await processTriggeredAndResolvedAlerts({
-      deviceRow: freshDeviceRow,
-      numericTemperature,
-      numericHumidity,
-      cfg: refreshedCfg,
-    });
+    const nextAlertState = isHistoricalBackfill
+      ? { ...refreshedCfg.alert_state }
+      : await processTriggeredAndResolvedAlerts({
+          deviceRow: freshDeviceRow,
+          numericTemperature,
+          numericHumidity,
+          cfg: refreshedCfg,
+        });
 
     const incomingAckCount = toOptionalNumber(alarm_ack_count) || 0;
     const lastStoredAckCount =
@@ -3131,7 +3133,7 @@ app.post("/api/temperature", async (req, res) => {
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
       status: isHistoricalBackfill ? null : statusToDbLabel(telemetryStatus),
-      last_seen: currentNowIso,
+      last_seen: isHistoricalBackfill ? undefined : currentNowIso,
       last_temperature: isHistoricalBackfill ? undefined : numericTemperature,
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });
@@ -3189,6 +3191,20 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       .limit(1)
       .maybeSingle();
 
+    const { data: latestCurrentReading, error: latestCurrentError } = await supabase
+      .from("readings")
+      .select("*")
+      .eq("device_id", deviceId)
+      .or("offline_captured.is.false,offline_captured.is.null")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestCurrentError) {
+      console.error("Erro ao ler leitura atual:", latestCurrentError);
+      return res.status(500).json({ error: "Erro ao obter leitura atual" });
+    }
+
     if (latestError) {
       console.error("Erro ao ler última leitura:", latestError);
       return res.status(500).json({ error: "Erro ao obter última leitura" });
@@ -3200,13 +3216,14 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
 
     const cfg = getDeviceConfig(deviceRow);
     const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
+    const currentReading = latestCurrentReading || latestReading || null;
 
     const temperature =
-      deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
+      currentReading?.temperature ?? deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
     const humidity =
-      deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
+      currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
-    const lastSeenIso = deviceRow?.last_seen || latestReading?.created_at || null;
+    const lastSeenIso = currentReading?.created_at || deviceRow?.last_seen || null;
     const lastSeenSeconds = lastSeenIso
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
       : 999999;
@@ -3231,9 +3248,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
         : "offline";
     const normalizedStatus = resolveTelemetryStatus({
       online,
-      incomingStatus: latestReading?.device_status || deviceRow?.status,
-      alarmAck: latestReading?.alarm_ack,
-      alarmMask: latestReading?.alarm_mask,
+      incomingStatus: currentReading?.device_status || deviceRow?.status,
+      alarmAck: currentReading?.alarm_ack,
+      alarmMask: currentReading?.alarm_mask,
       computedStatus,
     });
 

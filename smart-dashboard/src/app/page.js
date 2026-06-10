@@ -591,7 +591,7 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
 
   return Array.from(buckets.values())
     .map((bucket) => ({
-      timestamp: bucket.latestTimestamp !== null ? bucket.latestTimestamp : bucket.timestamp,
+      timestamp: bucket.bucket_timestamp,
       bucket_timestamp: bucket.bucket_timestamp,
       created_at:
         bucket.latestTimestamp !== null

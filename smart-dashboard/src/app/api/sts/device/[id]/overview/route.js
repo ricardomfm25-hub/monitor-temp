@@ -231,6 +231,7 @@ export async function GET(_request, context) {
 
     const [
       { data: latestReading, error: latestError },
+      { data: latestCurrentReading, error: latestCurrentError },
       { count: alerts24h, error: alertsError },
       { count: readings24h, error: readingsError },
     ] = await Promise.all([
@@ -238,6 +239,14 @@ export async function GET(_request, context) {
         .from("readings")
         .select("temperature, humidity, created_at, device_status, alarm_ack, alarm_mask")
         .eq("device_id", deviceId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("readings")
+        .select("temperature, humidity, created_at, device_status, alarm_ack, alarm_mask")
+        .eq("device_id", deviceId)
+        .or("offline_captured.is.false,offline_captured.is.null")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -254,11 +263,13 @@ export async function GET(_request, context) {
     ]);
 
     if (latestError) throw latestError;
+    if (latestCurrentError) throw latestCurrentError;
     if (alertsError) throw alertsError;
     if (readingsError) throw readingsError;
 
     const config = normalizeConfig(device.config || {});
-    const lastSeen = device.last_seen || latestReading?.created_at || null;
+    const currentReading = latestCurrentReading || latestReading || null;
+    const lastSeen = currentReading?.created_at || device.last_seen || null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
@@ -268,16 +279,19 @@ export async function GET(_request, context) {
       Date.now() - lastSeenTs <= getOfflineLimitMs(config.send_interval_s);
 
     const temperature =
+      parseNumber(currentReading?.temperature) ??
       parseNumber(device.last_temperature) ??
       parseNumber(latestReading?.temperature);
     const humidity =
-      parseNumber(device.last_humidity) ?? parseNumber(latestReading?.humidity);
+      parseNumber(currentReading?.humidity) ??
+      parseNumber(device.last_humidity) ??
+      parseNumber(latestReading?.humidity);
     const computedStatus = getStatus({ online, temperature, humidity, config });
     const status = resolveTelemetryStatus({
       online,
-      incomingStatus: latestReading?.device_status || device.status,
-      alarmAck: latestReading?.alarm_ack,
-      alarmMask: latestReading?.alarm_mask,
+      incomingStatus: currentReading?.device_status || device.status,
+      alarmAck: currentReading?.alarm_ack,
+      alarmMask: currentReading?.alarm_mask,
       computedStatus,
     });
     const diagnostics = getDiagnostics(device, config);
