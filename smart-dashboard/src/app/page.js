@@ -4093,7 +4093,7 @@ const styles = {
     inset: 0,
     borderRadius: "999px",
     background:
-      "conic-gradient(from -18deg, #38bdf8 0deg, #2563eb 94deg, rgba(37,99,235,0.14) 136deg, transparent 158deg, transparent 202deg, rgba(249,115,22,0.26) 224deg, #fb923c 278deg, #ef4444 336deg, #38bdf8 360deg)",
+      "conic-gradient(from -18deg, #ef4444 0deg, #fb923c 54deg, rgba(249,115,22,0.22) 118deg, transparent 158deg, transparent 202deg, rgba(37,99,235,0.16) 224deg, #2563eb 278deg, #38bdf8 336deg, #ef4444 360deg)",
     WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px))",
     mask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px))",
     boxShadow: "0 0 32px rgba(14,165,233,0.10), 0 0 30px rgba(239,68,68,0.08)",
