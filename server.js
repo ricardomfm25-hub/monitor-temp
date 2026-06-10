@@ -3224,6 +3224,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       deviceRow?.last_humidity ?? currentReading?.humidity ?? latestReading?.humidity ?? null;
 
     const lastSeenIso = deviceRow?.last_seen || currentReading?.created_at || null;
+    const lastReadingAt = currentReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
       : 999999;
@@ -3309,6 +3310,8 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       hum_high,
       status: statusToApiLabel(normalizedStatus),
       online,
+      last_seen: lastSeenIso,
+      last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24hCount || 0,
       total_readings_24h: readings24hCount || 0,

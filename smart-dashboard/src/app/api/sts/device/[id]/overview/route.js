@@ -270,6 +270,7 @@ export async function GET(_request, context) {
     const config = normalizeConfig(device.config || {});
     const currentReading = latestCurrentReading || latestReading || null;
     const lastSeen = device.last_seen || currentReading?.created_at || null;
+    const lastReadingAt = currentReading?.created_at || null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
@@ -309,6 +310,7 @@ export async function GET(_request, context) {
       status,
       online,
       last_seen: lastSeen,
+      last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24h ?? 0,
       total_readings_24h: readings24h ?? 0,

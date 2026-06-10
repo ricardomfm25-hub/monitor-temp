@@ -1672,11 +1672,15 @@ function buildDerivedAlertEvent(reading, type, level, state, source, derived = t
 
 function buildCurrentReadingFromDevice(device) {
   if (!device) return null;
-  const timestamp = device?.last_seen ? new Date(device.last_seen).getTime() : Date.now();
+  const readingAt = device?.last_reading_at || device?.reading_at || null;
+  if (!readingAt) return null;
+
+  const timestamp = new Date(readingAt).getTime();
+  if (!Number.isFinite(timestamp)) return null;
 
   return {
-    created_at: device?.last_seen || new Date(timestamp).toISOString(),
-    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+    created_at: readingAt,
+    timestamp,
     temperature: parseNumber(device?.last_temperature),
     humidity: parseNumber(device?.last_humidity),
     device_status: device?.status,
@@ -1966,6 +1970,10 @@ function mergeDeviceOverview(baseDevice, overviewData, fallbackDeviceId) {
       : baseDevice?.status,
     online: overviewData?.online ?? baseDevice?.online ?? null,
     last_seen: lastSeen,
+    last_reading_at:
+      overviewData?.last_reading_at ??
+      baseDevice?.last_reading_at ??
+      null,
     last_seen_seconds:
       overviewData?.last_seen_seconds ?? baseDevice?.last_seen_seconds ?? null,
     communication_health: overviewData?.communication_health || baseDevice?.communication_health || null,
