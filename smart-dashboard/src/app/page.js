@@ -375,11 +375,17 @@ function getReferencePoints(data, keys) {
   const safeKeys = Array.isArray(keys) ? keys : [keys];
   const points = data
     .flatMap((item) =>
-      safeKeys.map((key) => ({
-        value: parseNumber(item?.[key]),
-        created_at: item?.created_at,
-        timestamp: item?.timestamp,
-      }))
+      safeKeys.map((key) => {
+        const keyTimestamp = item?.[`${key}_timestamp`];
+        const timestamp = Number.isFinite(keyTimestamp) ? keyTimestamp : item?.timestamp;
+        return {
+          value: parseNumber(item?.[key]),
+          created_at: Number.isFinite(timestamp)
+            ? new Date(timestamp).toISOString()
+            : item?.created_at,
+          timestamp,
+        };
+      })
     )
     .filter(
       (item) =>
@@ -476,8 +482,8 @@ function getPeriodWindow(periodKey) {
   };
 }
 
-function buildTimeSeries(readings, periodKey, sendIntervalS) {
-  const { start, end, bucketMs } = getPeriodWindow(periodKey);
+function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null) {
+  const { start, end, bucketMs } = periodWindow || getPeriodWindow(periodKey);
 
   const filtered = (readings || [])
     .filter((item) => Number.isFinite(item?.timestamp))
@@ -496,6 +502,7 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     if (bucketTime >= start && !buckets.has(bucketTime)) {
       buckets.set(bucketTime, {
         timestamp: bucketTime,
+        bucket_timestamp: bucketTime,
         created_at: new Date(bucketTime).toISOString(),
         latestTimestamp: null,
         temperature: null,
@@ -583,17 +590,22 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
 
   return Array.from(buckets.values())
     .map((bucket) => ({
-      timestamp: bucket.timestamp,
+      timestamp: bucket.latestTimestamp !== null ? bucket.latestTimestamp : bucket.timestamp,
+      bucket_timestamp: bucket.bucket_timestamp,
       created_at:
         bucket.latestTimestamp !== null
           ? new Date(bucket.latestTimestamp).toISOString()
           : bucket.created_at,
       temperature: bucket.temperature !== null ? Number(bucket.temperature.toFixed(2)) : null,
       humidity: bucket.humidity !== null ? Number(bucket.humidity.toFixed(2)) : null,
+      temperature_timestamp: bucket.tempTimestamp,
+      humidity_timestamp: bucket.humTimestamp,
       temperature_offline:
         bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
       humidity_offline:
         bucket.offlineHumidity !== null ? Number(bucket.offlineHumidity.toFixed(2)) : null,
+      temperature_offline_timestamp: bucket.offlineTempTimestamp,
+      humidity_offline_timestamp: bucket.offlineHumTimestamp,
       hasData: bucket.hasData,
       offline_captured: bucket.offlineCount > 0,
       offline_count: bucket.offlineCount,
@@ -602,8 +614,8 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function getXAxisTicks(periodKey) {
-  const { start, end, tickMs } = getPeriodWindow(periodKey);
+function getXAxisTicks(periodKey, periodWindow = null) {
+  const { start, end, tickMs } = periodWindow || getPeriodWindow(periodKey);
   const ticks = [];
 
   if (periodKey === "7d") {
@@ -1942,12 +1954,17 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
     payload[0];
   const point = visiblePayload?.payload;
   const value = visiblePayload?.value;
-  const isOfflineSeries = String(visiblePayload?.dataKey || "").endsWith("_offline");
+  const dataKey = String(visiblePayload?.dataKey || "");
+  const isOfflineSeries = dataKey.endsWith("_offline");
+  const seriesTimestamp = point?.[`${dataKey}_timestamp`];
+  const tooltipTime = Number.isFinite(seriesTimestamp)
+    ? new Date(seriesTimestamp).toISOString()
+    : point?.created_at || label;
 
   return (
     <div style={styles.tooltip}>
       <div style={styles.tooltipTitle}>
-        {formatDateTime(point?.created_at || label)}
+        {formatDateTime(tooltipTime)}
       </div>
       <div style={styles.tooltipValue}>
         {value === null || value === undefined
@@ -2605,6 +2622,7 @@ function DataChart({
   maxThreshold,
   isMobile,
   periodKey,
+  periodWindow,
   isOffline,
 }) {
   const offlineDataKey = `${dataKey}_offline`;
@@ -2621,14 +2639,17 @@ function DataChart({
       ? (value) => `${Math.round(Number(value))}`
       : (value) => `${Number(value).toFixed(1)}`;
 
-  const timeWindow = getPeriodWindow(periodKey);
-  const xTicks = getXAxisTicks(periodKey);
+  const timeWindow = periodWindow || getPeriodWindow(periodKey);
+  const xTicks = getXAxisTicks(periodKey, timeWindow);
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
   const offlinePoints = data.filter(
     (item) => item?.offline_captured && parseNumber(item?.[offlineDataKey]) !== null
   );
+  const lastDataPoint = [...data]
+    .filter((item) => chartKeys.some((key) => parseNumber(item?.[key]) !== null))
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
 
   return (
     <div style={styles.chartCard}>
@@ -2641,11 +2662,23 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()}
           </div>
-          {offlinePoints.length > 0 ? (
-            <div style={styles.chartBackfillHint}>
-              <span style={styles.chartBackfillDot} />
-              Linha vermelha: leituras captadas offline
+          <div style={styles.chartLegend}>
+            <span style={styles.chartLegendItem}>
+              <span style={{ ...styles.chartLegendLine, background: "#3b82f6" }} />
+              Online
+            </span>
+            <span style={styles.chartLegendItem}>
+              <span style={{ ...styles.chartLegendLine, background: "#ef4444" }} />
+              Offline
+            </span>
+          </div>
+          {lastDataPoint ? (
+            <div style={styles.chartHint}>
+              Ultima leitura: {formatDateTime(lastDataPoint.created_at)}
             </div>
+          ) : null}
+          {offlinePoints.length > 0 ? (
+            <div style={styles.chartBackfillHint}>Linha vermelha: leituras captadas offline</div>
           ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
@@ -3242,9 +3275,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     [readings, device]
   );
 
+  const chartPeriodWindow = getPeriodWindow(period);
+
   const chartReadings = useMemo(
-    () => buildTimeSeries(liveReadings, period, sendIntervalS),
-    [liveReadings, period, sendIntervalS]
+    () => buildTimeSeries(liveReadings, period, sendIntervalS, chartPeriodWindow),
+    [liveReadings, period, sendIntervalS, chartPeriodWindow]
   );
 
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
@@ -3912,6 +3947,7 @@ async function downloadPdfReport() {
             maxThreshold={tempHigh}
             isMobile={isMobile}
             periodKey={period}
+            periodWindow={chartPeriodWindow}
             isOffline={effectiveStatus === "OFFLINE"}
           />
 
@@ -3924,6 +3960,7 @@ async function downloadPdfReport() {
             maxThreshold={humHigh}
             isMobile={isMobile}
             periodKey={period}
+            periodWindow={chartPeriodWindow}
             isOffline={effectiveStatus === "OFFLINE"}
           />
         </section>
@@ -5196,6 +5233,30 @@ const styles = {
     marginTop: "6px",
     fontSize: "12px",
     color: "#cbd5e1",
+  },
+
+  chartLegend: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginTop: "8px",
+  },
+
+  chartLegendItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "12px",
+    color: "#cbd5e1",
+    fontWeight: 800,
+  },
+
+  chartLegendLine: {
+    width: "18px",
+    height: "3px",
+    borderRadius: "999px",
+    boxShadow: "0 0 10px rgba(148,163,184,0.16)",
   },
 
   chartBackfillHint: {
