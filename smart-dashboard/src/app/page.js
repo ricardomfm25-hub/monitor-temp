@@ -313,9 +313,10 @@ function getAlertLevelInfo(level) {
   };
 }
 
-function getSeriesMinMax(data, key) {
+function getSeriesMinMax(data, keys) {
+  const safeKeys = Array.isArray(keys) ? keys : [keys];
   const values = data
-    .map((item) => parseNumber(item?.[key]))
+    .flatMap((item) => safeKeys.map((key) => parseNumber(item?.[key])))
     .filter((v) => v !== null);
 
   if (!values.length) {
@@ -328,9 +329,11 @@ function getSeriesMinMax(data, key) {
   };
 }
 
-function getChartDomain(data, key, thresholds = []) {
+function getChartDomain(data, keys, thresholds = []) {
+  const safeKeys = Array.isArray(keys) ? keys : [keys];
+  const metricKey = String(safeKeys[0] || "");
   const values = data
-    .map((item) => parseNumber(item?.[key]))
+    .flatMap((item) => safeKeys.map((key) => parseNumber(item?.[key])))
     .filter((v) => v !== null);
 
   const thresholdValues = thresholds
@@ -346,7 +349,7 @@ function getChartDomain(data, key, thresholds = []) {
 
   if (min === max) {
     const pad =
-      key === "humidity"
+      metricKey.includes("humidity")
         ? Math.max(Math.abs(min) * 0.02, 1)
         : Math.max(Math.abs(min) * 0.03, 0.6);
 
@@ -358,7 +361,7 @@ function getChartDomain(data, key, thresholds = []) {
 
   const range = max - min;
   const pad =
-    key === "humidity"
+    metricKey.includes("humidity")
       ? Math.max(range * 0.15, 1)
       : Math.max(range * 0.18, 0.3);
 
@@ -368,13 +371,16 @@ function getChartDomain(data, key, thresholds = []) {
   ];
 }
 
-function getReferencePoints(data, key) {
+function getReferencePoints(data, keys) {
+  const safeKeys = Array.isArray(keys) ? keys : [keys];
   const points = data
-    .map((item) => ({
-      value: parseNumber(item?.[key]),
-      created_at: item?.created_at,
-      timestamp: item?.timestamp,
-    }))
+    .flatMap((item) =>
+      safeKeys.map((key) => ({
+        value: parseNumber(item?.[key]),
+        created_at: item?.created_at,
+        timestamp: item?.timestamp,
+      }))
+    )
     .filter(
       (item) =>
         item.value !== null &&
@@ -534,24 +540,26 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
 
     if (temp !== null) {
-      bucket.tempSum += temp;
-      bucket.tempCount += 1;
       bucket.hasData = true;
 
       if (isOfflineReading) {
         bucket.offlineTempSum += temp;
         bucket.offlineTempCount += 1;
+      } else {
+        bucket.tempSum += temp;
+        bucket.tempCount += 1;
       }
     }
 
     if (hum !== null) {
-      bucket.humSum += hum;
-      bucket.humCount += 1;
       bucket.hasData = true;
 
       if (isOfflineReading) {
         bucket.offlineHumSum += hum;
         bucket.offlineHumCount += 1;
+      } else {
+        bucket.humSum += hum;
+        bucket.humCount += 1;
       }
     }
 
@@ -1883,9 +1891,12 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
-  const point = payload[0]?.payload;
-  const value = payload[0]?.value;
-  const isOfflineSeries = String(payload[0]?.dataKey || "").endsWith("_offline");
+  const visiblePayload =
+    payload.find((item) => item?.value !== null && item?.value !== undefined) ||
+    payload[0];
+  const point = visiblePayload?.payload;
+  const value = visiblePayload?.value;
+  const isOfflineSeries = String(visiblePayload?.dataKey || "").endsWith("_offline");
 
   return (
     <div style={styles.tooltip}>
@@ -1901,7 +1912,7 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
             </>
           )}
       </div>
-      {point?.offline_captured ? (
+      {isOfflineSeries ? (
         <div style={styles.tooltipMeta}>
           Leitura captada offline{point.offline_count > 1 ? ` (${point.offline_count})` : ""}
         </div>
@@ -2550,9 +2561,11 @@ function DataChart({
   periodKey,
   isOffline,
 }) {
-  const { min, max } = getSeriesMinMax(data, dataKey);
-  const yDomain = getChartDomain(data, dataKey, [minThreshold, maxThreshold]);
-  const { minPoint, maxPoint } = getReferencePoints(data, dataKey);
+  const offlineDataKey = `${dataKey}_offline`;
+  const chartKeys = [dataKey, offlineDataKey];
+  const { min, max } = getSeriesMinMax(data, chartKeys);
+  const yDomain = getChartDomain(data, chartKeys, [minThreshold, maxThreshold]);
+  const { minPoint, maxPoint } = getReferencePoints(data, chartKeys);
   const yTicks =
     dataKey === "temperature" ? getNiceTemperatureTicks(yDomain) : undefined;
 
@@ -2564,8 +2577,9 @@ function DataChart({
 
   const timeWindow = getPeriodWindow(periodKey);
   const xTicks = getXAxisTicks(periodKey);
-  const hasData = data.some((item) => parseNumber(item?.[dataKey]) !== null);
-  const offlineDataKey = `${dataKey}_offline`;
+  const hasData = data.some((item) =>
+    chartKeys.some((key) => parseNumber(item?.[key]) !== null)
+  );
   const offlinePoints = data.filter(
     (item) => item?.offline_captured && parseNumber(item?.[offlineDataKey]) !== null
   );
