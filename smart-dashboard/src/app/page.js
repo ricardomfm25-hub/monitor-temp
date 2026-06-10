@@ -164,6 +164,28 @@ function getEffectiveStatus(device, sendIntervalS) {
   return device?.status || "SEM DADOS";
 }
 
+function isOfflineCapturedReading(reading, sendIntervalS) {
+  if (reading?.offline_captured === true) return true;
+
+  const deliveryAttempts = parseNumber(reading?.delivery_attempts) || 0;
+  const sampleAgeS = parseNumber(reading?.sample_age_s);
+  const sampleEpoch = parseNumber(reading?.sample_epoch);
+  const expectedMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000
+      : 30 * 1000;
+  const delayedMs = Math.max(expectedMs, 60 * 1000);
+
+  if (deliveryAttempts > 1) return true;
+  if (sampleAgeS !== null && sampleAgeS * 1000 > delayedMs) return true;
+
+  if (sampleEpoch !== null && sampleEpoch > 1700000000) {
+    return Date.now() - sampleEpoch * 1000 > delayedMs;
+  }
+
+  return false;
+}
+
 function getStatusInfo(status) {
   const s = String(status || "").toLowerCase();
 
@@ -448,7 +470,7 @@ function getPeriodWindow(periodKey) {
   };
 }
 
-function buildTimeSeries(readings, periodKey) {
+function buildTimeSeries(readings, periodKey, sendIntervalS) {
   const { start, end, bucketMs } = getPeriodWindow(periodKey);
 
   const filtered = (readings || [])
@@ -475,6 +497,11 @@ function buildTimeSeries(readings, periodKey) {
         tempCount: 0,
         humSum: 0,
         humCount: 0,
+        offlineTempSum: 0,
+        offlineTempCount: 0,
+        offlineHumSum: 0,
+        offlineHumCount: 0,
+        offlineCount: 0,
         hasData: false,
       });
     }
@@ -504,16 +531,32 @@ function buildTimeSeries(readings, periodKey) {
     const temp = parseNumber(item.temperature);
     const hum = parseNumber(item.humidity);
 
+    const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
+
     if (temp !== null) {
       bucket.tempSum += temp;
       bucket.tempCount += 1;
       bucket.hasData = true;
+
+      if (isOfflineReading) {
+        bucket.offlineTempSum += temp;
+        bucket.offlineTempCount += 1;
+      }
     }
 
     if (hum !== null) {
       bucket.humSum += hum;
       bucket.humCount += 1;
       bucket.hasData = true;
+
+      if (isOfflineReading) {
+        bucket.offlineHumSum += hum;
+        bucket.offlineHumCount += 1;
+      }
+    }
+
+    if (isOfflineReading) {
+      bucket.offlineCount += 1;
     }
   }
 
@@ -529,7 +572,17 @@ function buildTimeSeries(readings, periodKey) {
         bucket.humCount > 0
           ? Number((bucket.humSum / bucket.humCount).toFixed(2))
           : null,
+      temperature_offline:
+        bucket.offlineTempCount > 0
+          ? Number((bucket.offlineTempSum / bucket.offlineTempCount).toFixed(2))
+          : null,
+      humidity_offline:
+        bucket.offlineHumCount > 0
+          ? Number((bucket.offlineHumSum / bucket.offlineHumCount).toFixed(2))
+          : null,
       hasData: bucket.hasData,
+      offline_captured: bucket.offlineCount > 0,
+      offline_count: bucket.offlineCount,
     }))
     .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
@@ -1832,6 +1885,7 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
 
   const point = payload[0]?.payload;
   const value = payload[0]?.value;
+  const isOfflineSeries = String(payload[0]?.dataKey || "").endsWith("_offline");
 
   return (
     <div style={styles.tooltip}>
@@ -1843,10 +1897,15 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
           ? "Sem leitura neste intervalo"
           : (
             <>
-              Valor: <strong>{formatValue(value, unit, digits)}</strong>
+              {isOfflineSeries ? "Offline" : "Valor"}: <strong>{formatValue(value, unit, digits)}</strong>
             </>
           )}
       </div>
+      {point?.offline_captured ? (
+        <div style={styles.tooltipMeta}>
+          Leitura captada offline{point.offline_count > 1 ? ` (${point.offline_count})` : ""}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2506,6 +2565,10 @@ function DataChart({
   const timeWindow = getPeriodWindow(periodKey);
   const xTicks = getXAxisTicks(periodKey);
   const hasData = data.some((item) => parseNumber(item?.[dataKey]) !== null);
+  const offlineDataKey = `${dataKey}_offline`;
+  const offlinePoints = data.filter(
+    (item) => item?.offline_captured && parseNumber(item?.[offlineDataKey]) !== null
+  );
 
   return (
     <div style={styles.chartCard}>
@@ -2518,6 +2581,12 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()}
           </div>
+          {offlinePoints.length > 0 ? (
+            <div style={styles.chartBackfillHint}>
+              <span style={styles.chartBackfillDot} />
+              Linha vermelha: leituras captadas offline
+            </div>
+          ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
               Dispositivo offline · histórico preservado até à última leitura válida
@@ -2589,6 +2658,19 @@ function DataChart({
                 connectNulls={false}
                 isAnimationActive={false}
               />
+
+              {offlinePoints.length > 0 ? (
+                <Line
+                  type="linear"
+                  dataKey={offlineDataKey}
+                  stroke="#ef4444"
+                  strokeWidth={3}
+                  dot={{ r: 3, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
+                  activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              ) : null}
 
               {minPoint && (
                 <ReferenceDot
@@ -2743,11 +2825,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
     return Boolean(access?.can_edit);
   }, [devicePermissions, isSuperAdmin, isClientAdmin, selectedDeviceId]);
-
-  const chartReadings = useMemo(
-    () => buildTimeSeries(readings, period),
-    [readings, period]
-  );
 
   useEffect(() => {
     function handleResize() {
@@ -2952,6 +3029,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               ...item,
               temperature: parseNumber(item.temperature),
               humidity: parseNumber(item.humidity),
+              telemetry_seq: parseNumber(item.telemetry_seq),
+              sample_age_s: parseNumber(item.sample_age_s),
+              sample_epoch: parseNumber(item.sample_epoch),
+              delivery_attempts: parseNumber(item.delivery_attempts),
+              offline_captured: Boolean(item.offline_captured),
               timestamp: Number.isFinite(timestamp) ? timestamp : null,
             };
           })
@@ -3094,6 +3176,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const hystC = parseNumber(config?.hyst_c);
   const sendIntervalS = parseNumber(config?.send_interval_s);
   const displayStandbyMin = parseNumber(config?.display_standby_min);
+
+  const chartReadings = useMemo(
+    () => buildTimeSeries(readings, period, sendIntervalS),
+    [readings, period, sendIntervalS]
+  );
 
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
   const statusInfo = getStatusInfo(effectiveStatus);
@@ -4005,11 +4092,12 @@ const styles = {
     position: "absolute",
     inset: 0,
     borderRadius: "999px",
-    border: "1px solid rgba(148,163,184,0.12)",
-    borderTop: "1px solid rgba(103,232,249,0.72)",
-    borderRight: "1px solid rgba(245,158,11,0.38)",
-    boxShadow: "0 0 28px rgba(14,165,233,0.08)",
-    animation: "spin 1.4s linear infinite",
+    background:
+      "conic-gradient(from -18deg, #38bdf8 0deg, #2563eb 94deg, rgba(37,99,235,0.14) 136deg, transparent 158deg, transparent 202deg, rgba(249,115,22,0.26) 224deg, #fb923c 278deg, #ef4444 336deg, #38bdf8 360deg)",
+    WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px))",
+    mask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px))",
+    boxShadow: "0 0 32px rgba(14,165,233,0.10), 0 0 30px rgba(239,68,68,0.08)",
+    animation: "spin 1.15s linear infinite",
   },
 
   bootCenter: {
@@ -5045,6 +5133,26 @@ const styles = {
     color: "#cbd5e1",
   },
 
+  chartBackfillHint: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+    marginTop: "8px",
+    fontSize: "12px",
+    color: "#fed7aa",
+    fontWeight: 800,
+  },
+
+  chartBackfillDot: {
+    width: "9px",
+    height: "9px",
+    borderRadius: "2px",
+    background: "linear-gradient(135deg, #fb923c, #ef4444)",
+    transform: "rotate(45deg)",
+    boxShadow: "0 0 12px rgba(249,115,22,0.4)",
+    flex: "0 0 auto",
+  },
+
   chartWrap: {
     width: "100%",
     minWidth: 0,
@@ -5328,6 +5436,15 @@ reportActionWrap: {
   tooltipValue: {
     fontSize: "12px",
     color: "#f8fafc",
+  },
+
+  tooltipMeta: {
+    marginTop: "6px",
+    paddingTop: "6px",
+    borderTop: "1px solid rgba(148,163,184,0.18)",
+    fontSize: "11px",
+    color: "#fb923c",
+    fontWeight: 800,
   },
 
   rawConfigWrap: {

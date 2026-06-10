@@ -537,12 +537,23 @@ function getDeviceConfig(deviceRow) {
 }
 
 function shouldStoreReading({ latestReading, cfg, incoming }) {
-  if (!latestReading?.created_at) return true;
+  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
+  const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
+  const incomingTs =
+    sampleEpoch !== null && sampleEpoch > 1700000000
+      ? sampleEpoch * 1000
+      : sampleAgeS !== null && sampleAgeS >= 0
+      ? Date.now() - sampleAgeS * 1000
+      : Date.now();
 
   const expectedMs =
     Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
       ? Number(cfg.send_interval_s) * 1000
       : 30 * 1000;
+  const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
+  const isBackfill = isOfflineCapturedReading(incoming, cfg);
+
+  if (!latestReading?.created_at) return true;
 
   const latestTs = new Date(latestReading.created_at).getTime();
   if (!Number.isFinite(latestTs)) return true;
@@ -559,21 +570,70 @@ function shouldStoreReading({ latestReading, cfg, incoming }) {
   const incomingAckCount = toOptionalNumber(incoming.alarm_ack_count) || 0;
   if (incomingAckCount > latestAckCount) return true;
 
-  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
-  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
-  if (
-    deliveryAttempts > 1 ||
-    (sampleAgeS !== null && sampleAgeS * 1000 > expectedMs * 0.5)
-  ) {
-    return false;
-  }
+  const elapsedMs = incomingTs - latestTs;
 
-  const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
-  const elapsedMs = Date.now() - latestTs;
+  if (isBackfill && Number.isFinite(elapsedMs) && elapsedMs <= -minIntervalMs) {
+    return true;
+  }
 
   if (!Number.isFinite(elapsedMs) || elapsedMs >= minIntervalMs) return true;
 
   return false;
+}
+
+function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
+  const epoch = toOptionalNumber(sampleEpoch);
+  if (epoch !== null && epoch > 1700000000) {
+    const timestamp = epoch * 1000;
+    const now = Date.now();
+    const maxBackfillMs = 60 * 60 * 24 * 30 * 1000;
+
+    if (timestamp <= now + 5 * 60 * 1000 && timestamp >= now - maxBackfillMs) {
+      return new Date(timestamp).toISOString();
+    }
+  }
+
+  const age = toOptionalNumber(sampleAgeS);
+  if (age === null || age < 0) return nowIso();
+
+  const maxBackfillAgeSeconds = 60 * 60 * 24 * 30;
+  const safeAge = Math.min(age, maxBackfillAgeSeconds);
+  return new Date(Date.now() - safeAge * 1000).toISOString();
+}
+
+function isOfflineCapturedReading(incoming, cfg) {
+  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
+  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
+  const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
+  const expectedMs =
+    Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
+      ? Number(cfg.send_interval_s) * 1000
+      : 30 * 1000;
+
+  if (deliveryAttempts > 1) return true;
+  if (sampleAgeS !== null && sampleAgeS * 1000 > Math.max(expectedMs, 60 * 1000)) {
+    return true;
+  }
+
+  if (sampleEpoch !== null && sampleEpoch > 1700000000) {
+    const ageMs = Date.now() - sampleEpoch * 1000;
+    return ageMs > Math.max(expectedMs, 60 * 1000);
+  }
+
+  return false;
+}
+
+function isMissingReadingTelemetryColumnError(error) {
+  const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
+  return (
+    text.includes("PGRST204") ||
+    text.includes("42703") ||
+    /column .*telemetry_seq/i.test(text) ||
+    /column .*sample_age_s/i.test(text) ||
+    /column .*sample_epoch/i.test(text) ||
+    /column .*delivery_attempts/i.test(text) ||
+    /column .*offline_captured/i.test(text)
+  );
 }
 
 function mergeAlertStateIntoConfig(deviceRow, nextAlertState) {
@@ -2798,7 +2858,9 @@ app.post("/api/temperature", async (req, res) => {
       alarm_started_age_s,
       alarm_mask,
       alarm_reason,
+      telemetry_seq,
       sample_age_s,
+      sample_epoch,
       delivery_attempts,
     } = req.body;
 
@@ -2841,10 +2903,12 @@ app.post("/api/temperature", async (req, res) => {
       };
 
     const cfg = getDeviceConfig(baseDeviceRow);
+    const readingCreatedAt = getIncomingReadingCreatedAt(sample_age_s, sample_epoch);
     const readingPayload = {
       device_id,
       temperature: numericTemperature,
       humidity: numericHumidity,
+      created_at: readingCreatedAt,
       device_status: device_status || null,
       alarm_ack: toBoolean(alarm_ack),
       alarm_ack_count: toOptionalNumber(alarm_ack_count) || 0,
@@ -2858,8 +2922,15 @@ app.post("/api/temperature", async (req, res) => {
       alarm_reason: alarm_reason || null,
     };
     const incomingReadingMeta = {
+      telemetry_seq: toOptionalNumber(telemetry_seq),
       sample_age_s: toOptionalNumber(sample_age_s),
+      sample_epoch: toOptionalNumber(sample_epoch),
       delivery_attempts: toOptionalNumber(delivery_attempts) || 0,
+    };
+    const enrichedReadingPayload = {
+      ...readingPayload,
+      ...incomingReadingMeta,
+      offline_captured: isOfflineCapturedReading(incomingReadingMeta, cfg),
     };
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
@@ -2884,12 +2955,23 @@ app.post("/api/temperature", async (req, res) => {
 
     if (storedReading) {
       const insertReadingsResult = await supabase.from("readings").insert([
-        readingPayload,
+        enrichedReadingPayload,
       ]);
 
       if (insertReadingsResult.error) {
-        console.error("Erro ao inserir reading:", insertReadingsResult.error);
-        return res.status(500).json({ error: "Erro ao guardar leitura" });
+        if (isMissingReadingTelemetryColumnError(insertReadingsResult.error)) {
+          const fallbackInsertResult = await supabase.from("readings").insert([
+            readingPayload,
+          ]);
+
+          if (fallbackInsertResult.error) {
+            console.error("Erro ao inserir reading:", fallbackInsertResult.error);
+            return res.status(500).json({ error: "Erro ao guardar leitura" });
+          }
+        } else {
+          console.error("Erro ao inserir reading:", insertReadingsResult.error);
+          return res.status(500).json({ error: "Erro ao guardar leitura" });
+        }
       }
     }
 
