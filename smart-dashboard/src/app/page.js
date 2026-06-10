@@ -19,7 +19,6 @@ import {
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
 const LIVE_REFRESH_MS = 3000;
-const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const STS_PRODUCT = {
@@ -491,126 +490,44 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
     .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
 
-  const buckets = new Map();
+  return filtered
+    .map((item) => {
+      const temp = parseNumber(item.temperature);
+      const hum = parseNumber(item.humidity);
+      const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
+      const itemDate = new Date(item.timestamp);
+      const bucketTime =
+        periodKey === "7d"
+          ? new Date(
+              itemDate.getFullYear(),
+              itemDate.getMonth(),
+              itemDate.getDate(),
+              0,
+              0,
+              0,
+              0
+            ).getTime()
+          : floorToBucket(item.timestamp, bucketMs);
 
-  for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
-    const d = new Date(t);
-    const bucketTime =
-      periodKey === "7d"
-        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
-        : t;
-
-    if (bucketTime >= start && !buckets.has(bucketTime)) {
-      buckets.set(bucketTime, {
-        timestamp: bucketTime,
+      return {
+        timestamp: item.timestamp,
         bucket_timestamp: bucketTime,
-        created_at: new Date(bucketTime).toISOString(),
-        latestTimestamp: null,
-        temperature: null,
-        humidity: null,
-        tempTimestamp: null,
-        humTimestamp: null,
-        offlineTemperature: null,
-        offlineHumidity: null,
-        offlineTempTimestamp: null,
-        offlineHumTimestamp: null,
-        offlineCount: 0,
-        hasData: false,
-      });
-    }
-  }
-
-  for (const item of filtered) {
-    let bucketTime;
-
-    if (periodKey === "7d") {
-      const d = new Date(item.timestamp);
-      bucketTime = new Date(
-        d.getFullYear(),
-        d.getMonth(),
-        d.getDate(),
-        0,
-        0,
-        0,
-        0
-      ).getTime();
-    } else {
-      bucketTime = floorToBucket(item.timestamp, bucketMs);
-    }
-
-    if (!buckets.has(bucketTime)) continue;
-    const bucket = buckets.get(bucketTime);
-
-    const temp = parseNumber(item.temperature);
-    const hum = parseNumber(item.humidity);
-
-    const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
-
-    if (temp !== null) {
-      bucket.hasData = true;
-      if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
-        bucket.latestTimestamp = item.timestamp;
-      }
-
-      if (isOfflineReading) {
-        if (bucket.offlineTempTimestamp === null || item.timestamp >= bucket.offlineTempTimestamp) {
-          bucket.offlineTemperature = temp;
-          bucket.offlineTempTimestamp = item.timestamp;
-        }
-      } else {
-        if (bucket.tempTimestamp === null || item.timestamp >= bucket.tempTimestamp) {
-          bucket.temperature = temp;
-          bucket.tempTimestamp = item.timestamp;
-        }
-      }
-    }
-
-    if (hum !== null) {
-      bucket.hasData = true;
-      if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
-        bucket.latestTimestamp = item.timestamp;
-      }
-
-      if (isOfflineReading) {
-        if (bucket.offlineHumTimestamp === null || item.timestamp >= bucket.offlineHumTimestamp) {
-          bucket.offlineHumidity = hum;
-          bucket.offlineHumTimestamp = item.timestamp;
-        }
-      } else {
-        if (bucket.humTimestamp === null || item.timestamp >= bucket.humTimestamp) {
-          bucket.humidity = hum;
-          bucket.humTimestamp = item.timestamp;
-        }
-      }
-    }
-
-    if (isOfflineReading) {
-      bucket.offlineCount += 1;
-    }
-  }
-
-  return Array.from(buckets.values())
-    .map((bucket) => ({
-      timestamp: bucket.bucket_timestamp,
-      bucket_timestamp: bucket.bucket_timestamp,
-      created_at:
-        bucket.latestTimestamp !== null
-          ? new Date(bucket.latestTimestamp).toISOString()
-          : bucket.created_at,
-      temperature: bucket.temperature !== null ? Number(bucket.temperature.toFixed(2)) : null,
-      humidity: bucket.humidity !== null ? Number(bucket.humidity.toFixed(2)) : null,
-      temperature_timestamp: bucket.tempTimestamp,
-      humidity_timestamp: bucket.humTimestamp,
-      temperature_offline:
-        bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
-      humidity_offline:
-        bucket.offlineHumidity !== null ? Number(bucket.offlineHumidity.toFixed(2)) : null,
-      temperature_offline_timestamp: bucket.offlineTempTimestamp,
-      humidity_offline_timestamp: bucket.offlineHumTimestamp,
-      hasData: bucket.hasData,
-      offline_captured: bucket.offlineCount > 0,
-      offline_count: bucket.offlineCount,
-    }))
+        created_at: item.created_at || new Date(item.timestamp).toISOString(),
+        temperature: !isOfflineReading && temp !== null ? Number(temp.toFixed(2)) : null,
+        humidity: !isOfflineReading && hum !== null ? Number(hum.toFixed(2)) : null,
+        temperature_timestamp: !isOfflineReading && temp !== null ? item.timestamp : null,
+        humidity_timestamp: !isOfflineReading && hum !== null ? item.timestamp : null,
+        temperature_offline:
+          isOfflineReading && temp !== null ? Number(temp.toFixed(2)) : null,
+        humidity_offline:
+          isOfflineReading && hum !== null ? Number(hum.toFixed(2)) : null,
+        temperature_offline_timestamp: isOfflineReading && temp !== null ? item.timestamp : null,
+        humidity_offline_timestamp: isOfflineReading && hum !== null ? item.timestamp : null,
+        hasData: temp !== null || hum !== null,
+        offline_captured: isOfflineReading,
+        offline_count: isOfflineReading ? 1 : 0,
+      };
+    })
     .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
 }
@@ -3113,7 +3030,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve(null),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
+            ? fetchJsonOrThrow(
+                `/api/sts/device/${nextSelectedDeviceId}/history?hours=${getPeriodConfig(period).hours}&limit=50000`
+              )
             : Promise.resolve([]),
 
           nextSelectedDeviceId
