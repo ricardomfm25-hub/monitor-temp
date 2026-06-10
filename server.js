@@ -3219,11 +3219,11 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const currentReading = latestCurrentReading || latestReading || null;
 
     const temperature =
-      currentReading?.temperature ?? deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
+      deviceRow?.last_temperature ?? currentReading?.temperature ?? latestReading?.temperature ?? null;
     const humidity =
-      currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
+      deviceRow?.last_humidity ?? currentReading?.humidity ?? latestReading?.humidity ?? null;
 
-    const lastSeenIso = currentReading?.created_at || deviceRow?.last_seen || null;
+    const lastSeenIso = deviceRow?.last_seen || currentReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
       : 999999;
@@ -3248,7 +3248,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
         : "offline";
     const normalizedStatus = resolveTelemetryStatus({
       online,
-      incomingStatus: currentReading?.device_status || deviceRow?.status,
+      incomingStatus: deviceRow?.status || currentReading?.device_status,
       alarmAck: currentReading?.alarm_ack,
       alarmMask: currentReading?.alarm_mask,
       computedStatus,

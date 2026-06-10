@@ -269,7 +269,7 @@ export async function GET(_request, context) {
 
     const config = normalizeConfig(device.config || {});
     const currentReading = latestCurrentReading || latestReading || null;
-    const lastSeen = currentReading?.created_at || device.last_seen || null;
+    const lastSeen = device.last_seen || currentReading?.created_at || null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
@@ -279,17 +279,17 @@ export async function GET(_request, context) {
       Date.now() - lastSeenTs <= getOfflineLimitMs(config.send_interval_s);
 
     const temperature =
-      parseNumber(currentReading?.temperature) ??
       parseNumber(device.last_temperature) ??
+      parseNumber(currentReading?.temperature) ??
       parseNumber(latestReading?.temperature);
     const humidity =
-      parseNumber(currentReading?.humidity) ??
       parseNumber(device.last_humidity) ??
+      parseNumber(currentReading?.humidity) ??
       parseNumber(latestReading?.humidity);
     const computedStatus = getStatus({ online, temperature, humidity, config });
     const status = resolveTelemetryStatus({
       online,
-      incomingStatus: currentReading?.device_status || device.status,
+      incomingStatus: device.status || currentReading?.device_status,
       alarmAck: currentReading?.alarm_ack,
       alarmMask: currentReading?.alarm_mask,
       computedStatus,
