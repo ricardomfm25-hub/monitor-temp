@@ -2985,6 +2985,8 @@ app.post("/api/temperature", async (req, res) => {
       ...incomingReadingMeta,
       offline_captured: isOfflineCapturedReading(incomingReadingMeta, cfg),
     };
+    const isHistoricalBackfill =
+      enrichedReadingPayload.offline_captured && Boolean(existingDeviceRow);
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
@@ -3054,11 +3056,14 @@ app.post("/api/temperature", async (req, res) => {
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
       last_seen: currentNowIso,
-      last_temperature: numericTemperature,
-      last_humidity: numericHumidity,
-      status: statusToDbLabel(telemetryStatus),
       updated_at: currentNowIso,
     };
+
+    if (!isHistoricalBackfill) {
+      upsertPayload.last_temperature = numericTemperature;
+      upsertPayload.last_humidity = numericHumidity;
+      upsertPayload.status = statusToDbLabel(telemetryStatus);
+    }
 
     const { error: upsertError } = await supabase
       .from("devices")
@@ -3125,10 +3130,10 @@ app.post("/api/temperature", async (req, res) => {
 
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
-      status: statusToDbLabel(telemetryStatus),
+      status: isHistoricalBackfill ? null : statusToDbLabel(telemetryStatus),
       last_seen: currentNowIso,
-      last_temperature: numericTemperature,
-      last_humidity: numericHumidity,
+      last_temperature: isHistoricalBackfill ? undefined : numericTemperature,
+      last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });
 
     const last24hReadings = await getRecentReadingsForAnalysis(device_id, 24);
@@ -3144,6 +3149,7 @@ app.post("/api/temperature", async (req, res) => {
     res.json({
       message: "OK",
       stored_reading: storedReading,
+      current_updated: !isHistoricalBackfill,
       applied_config: getDeviceConfig({ config: finalConfig }),
       status: statusToApiLabel(telemetryStatus),
       communication_health: communicationHealth,

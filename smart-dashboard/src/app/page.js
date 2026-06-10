@@ -18,6 +18,7 @@ import {
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
+const LIVE_REFRESH_MS = 3000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
@@ -1946,6 +1947,60 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
 }
 
+function mergeDeviceOverview(baseDevice, overviewData, fallbackDeviceId) {
+  if (!baseDevice && !overviewData) return null;
+
+  const deviceId =
+    baseDevice?.device_id || overviewData?.device_id || fallbackDeviceId || DEFAULT_DEVICE_ID;
+  const lastSeen =
+    overviewData?.last_seen ||
+    (overviewData?.last_seen_seconds !== null &&
+    overviewData?.last_seen_seconds !== undefined
+      ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
+      : null) ||
+    baseDevice?.last_seen ||
+    null;
+
+  return {
+    ...(baseDevice || {}),
+    device_id: deviceId,
+    name: overviewData?.name || baseDevice?.name || deviceId,
+    location: overviewData?.location || baseDevice?.location || "LocalizaÃ§Ã£o por definir",
+    config: overviewData?.config || baseDevice?.config || {},
+    config_version: overviewData?.config_version ?? baseDevice?.config_version ?? 1,
+    last_temperature:
+      overviewData?.temperature ??
+      overviewData?.last_temperature ??
+      baseDevice?.last_temperature ??
+      null,
+    last_humidity:
+      overviewData?.humidity ??
+      overviewData?.last_humidity ??
+      baseDevice?.last_humidity ??
+      null,
+    status: overviewData?.status
+      ? String(overviewData.status).toUpperCase()
+      : baseDevice?.status,
+    online: overviewData?.online ?? baseDevice?.online ?? null,
+    last_seen: lastSeen,
+    last_seen_seconds:
+      overviewData?.last_seen_seconds ?? baseDevice?.last_seen_seconds ?? null,
+    communication_health: overviewData?.communication_health || baseDevice?.communication_health || null,
+    predictive_status: overviewData?.predictive_status || baseDevice?.predictive_status || null,
+    telemetry_seq: overviewData?.telemetry_seq ?? baseDevice?.telemetry_seq ?? null,
+    buffer_count: overviewData?.buffer_count ?? baseDevice?.buffer_count ?? null,
+    post_ok_count: overviewData?.post_ok_count ?? baseDevice?.post_ok_count ?? null,
+    post_fail_count: overviewData?.post_fail_count ?? baseDevice?.post_fail_count ?? null,
+    boot_count: overviewData?.boot_count ?? baseDevice?.boot_count ?? null,
+    reset_reason: overviewData?.reset_reason ?? baseDevice?.reset_reason ?? null,
+    clock_synced: overviewData?.clock_synced ?? baseDevice?.clock_synced ?? null,
+    clock_sync_age_s: overviewData?.clock_sync_age_s ?? baseDevice?.clock_sync_age_s ?? null,
+    alerts_24h: overviewData?.alerts_24h ?? baseDevice?.alerts_24h ?? 0,
+    total_readings_24h:
+      overviewData?.total_readings_24h ?? baseDevice?.total_readings_24h ?? 0,
+  };
+}
+
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -2903,6 +2958,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   const requestInFlightRef = useRef(false);
+  const liveRequestInFlightRef = useRef(false);
+  const initialLoadedRef = useRef(false);
   const mountedRef = useRef(true);
 
   const isSuperAdmin = profile?.role === "super_admin";
@@ -2938,6 +2995,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   }, []);
 
   useEffect(() => {
+    initialLoadedRef.current = initialLoaded;
+  }, [initialLoaded]);
+
+  useEffect(() => {
     if (!selectedDeviceId) return;
     if (typeof window === "undefined") return;
 
@@ -2952,7 +3013,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       setPageError("");
 
       if (!silent && mountedRef.current) {
-        if (!initialLoaded) {
+        if (!initialLoadedRef.current) {
           setLoading(true);
         } else {
           setRefreshing(true);
@@ -3016,6 +3077,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             setProfile(profileData);
             setDevicePermissions(permissionsData);
             setDevices([]);
+            initialLoadedRef.current = true;
             setInitialLoaded(true);
             return;
           }
@@ -3071,48 +3133,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         const baseDeviceData = deviceResponse?.data || null;
 
-        const deviceData = baseDeviceData
-          ? {
-              ...baseDeviceData,
-              last_temperature:
-                overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
-              last_humidity:
-                overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
-              status:
-                overviewData?.status
-                  ? String(overviewData.status).toUpperCase()
-                  : baseDeviceData?.status,
-              online: overviewData?.online ?? baseDeviceData?.online ?? null,
-              last_seen_seconds:
-                overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
-              communication_health: overviewData?.communication_health || null,
-              predictive_status: overviewData?.predictive_status || null,
-              telemetry_seq:
-                overviewData?.telemetry_seq ?? baseDeviceData?.telemetry_seq ?? null,
-              buffer_count:
-                overviewData?.buffer_count ?? baseDeviceData?.buffer_count ?? null,
-              post_ok_count:
-                overviewData?.post_ok_count ?? baseDeviceData?.post_ok_count ?? null,
-              post_fail_count:
-                overviewData?.post_fail_count ?? baseDeviceData?.post_fail_count ?? null,
-              boot_count:
-                overviewData?.boot_count ?? baseDeviceData?.boot_count ?? null,
-              reset_reason:
-                overviewData?.reset_reason ?? baseDeviceData?.reset_reason ?? null,
-              clock_synced:
-                overviewData?.clock_synced ?? baseDeviceData?.clock_synced ?? null,
-              clock_sync_age_s:
-                overviewData?.clock_sync_age_s ?? baseDeviceData?.clock_sync_age_s ?? null,
-              alerts_24h: overviewData?.alerts_24h ?? 0,
-              total_readings_24h: overviewData?.total_readings_24h ?? 0,
-              last_seen:
-                baseDeviceData?.last_seen ||
-                (overviewData?.last_seen_seconds !== null &&
-                overviewData?.last_seen_seconds !== undefined
-                  ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
-                  : baseDeviceData?.last_seen),
-            }
-          : null;
+        const deviceData = mergeDeviceOverview(
+          baseDeviceData,
+          overviewData,
+          nextSelectedDeviceId
+        );
 
         const readingsData = (historyRows || [])
           .map((item) => {
@@ -3158,7 +3183,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         setProfile(profileData);
         setDevicePermissions(permissionsData);
-        setDevices(safeDevices);
+        setDevices(
+          safeDevices.map((item) =>
+            item.device_id === deviceData?.device_id
+              ? mergeDeviceOverview(item, overviewData, item.device_id)
+              : item
+          )
+        );
         setDevice(deviceData);
         setDeviceOverview(overviewData || null);
         setReadings(readingsData);
@@ -3183,6 +3214,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           });
         }
 
+        initialLoadedRef.current = true;
         setInitialLoaded(true);
       } catch (error) {
         console.warn("loadData:", error);
@@ -3199,8 +3231,38 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         }
       }
     },
-    [selectedDeviceId, supabase, router, initialLoaded, period]
+    [selectedDeviceId, supabase, router, period]
   );
+
+  const refreshLiveDevice = useCallback(async () => {
+    if (!selectedDeviceId || liveRequestInFlightRef.current) return;
+
+    liveRequestInFlightRef.current = true;
+
+    try {
+      const overviewData = await fetchJsonOrThrow(
+        `/api/sts/device/${selectedDeviceId}/overview`
+      );
+
+      if (!mountedRef.current) return;
+
+      setDevice((currentDevice) =>
+        mergeDeviceOverview(currentDevice, overviewData, selectedDeviceId)
+      );
+      setDeviceOverview(overviewData || null);
+      setDevices((currentDevices) =>
+        currentDevices.map((item) =>
+          item.device_id === selectedDeviceId
+            ? mergeDeviceOverview(item, overviewData, selectedDeviceId)
+            : item
+        )
+      );
+    } catch (error) {
+      console.warn("live overview:", error);
+    } finally {
+      liveRequestInFlightRef.current = false;
+    }
+  }, [selectedDeviceId]);
 
   useEffect(() => {
     loadData({ syncForms: true });
@@ -3211,6 +3273,18 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
     return () => clearInterval(interval);
   }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedDeviceId || !initialLoaded) return undefined;
+
+    refreshLiveDevice();
+
+    const interval = setInterval(() => {
+      refreshLiveDevice();
+    }, LIVE_REFRESH_MS);
+
+    return () => clearInterval(interval);
+  }, [selectedDeviceId, initialLoaded, refreshLiveDevice]);
 
   useEffect(() => {
     if (!selectedDeviceId) return;
@@ -3226,6 +3300,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           filter: `device_id=eq.${selectedDeviceId}`,
         },
         () => {
+          refreshLiveDevice();
           loadData({ silent: true, syncForms: false });
         }
       )
@@ -3238,7 +3313,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           filter: `device_id=eq.${selectedDeviceId}`,
         },
         () => {
-          loadData({ silent: true, syncForms: false });
+          refreshLiveDevice();
         }
       )
       .on(
@@ -3258,7 +3333,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedDeviceId, loadData, supabase]);
+  }, [selectedDeviceId, loadData, refreshLiveDevice, supabase]);
 
   const config = useMemo(() => device?.config ?? {}, [device?.config]);
 
