@@ -528,6 +528,15 @@ function getDeviceConfig(deviceRow) {
       temp_last_email_attempt_at: alertState.temp_last_email_attempt_at || null,
       hum_last_email_attempt_at: alertState.hum_last_email_attempt_at || null,
       offline_last_email_attempt_at: alertState.offline_last_email_attempt_at || null,
+      temp_last_email_error: alertState.temp_last_email_error || null,
+      hum_last_email_error: alertState.hum_last_email_error || null,
+      offline_last_email_error: alertState.offline_last_email_error || null,
+      temp_last_email_status: toOptionalNumber(alertState.temp_last_email_status),
+      hum_last_email_status: toOptionalNumber(alertState.hum_last_email_status),
+      offline_last_email_status: toOptionalNumber(alertState.offline_last_email_status),
+      temp_last_email_message: alertState.temp_last_email_message || null,
+      hum_last_email_message: alertState.hum_last_email_message || null,
+      offline_last_email_message: alertState.offline_last_email_message || null,
       temp_last_resolved_at: alertState.temp_last_resolved_at || null,
       hum_last_resolved_at: alertState.hum_last_resolved_at || null,
       offline_last_resolved_at: alertState.offline_last_resolved_at || null,
@@ -1824,14 +1833,52 @@ async function sendEmail({ to, subject, htmlContent, attachment = [] }) {
 
     return { ok: true, messageId: response?.data?.messageId || null };
   } catch (error) {
+    const status = error?.response?.status || null;
+    const providerMessage =
+      error?.response?.data?.message ||
+      error?.response?.data?.code ||
+      error?.message ||
+      "send_failed";
+    const reason =
+      status === 401 && String(providerMessage).toLowerCase().includes("ip")
+        ? "brevo_ip_not_authorized"
+        : status === 401
+        ? "brevo_unauthorized"
+        : "send_failed";
+
     console.error("Erro ao enviar email:", {
       subject,
-      status: error?.response?.status,
+      status,
       data: error?.response?.data,
       message: error?.message,
     });
-    return { ok: false, reason: "send_failed" };
+    return {
+      ok: false,
+      reason,
+      status,
+      message: String(providerMessage).slice(0, 240),
+    };
   }
+}
+
+function buildEmailAlertStatePatch(prefix, emailResult) {
+  const now = nowIso();
+  const patch = {
+    [`${prefix}_last_email_attempt_at`]: now,
+  };
+
+  if (emailResult?.ok) {
+    patch[`${prefix}_last_sent_at`] = now;
+    patch[`${prefix}_last_email_error`] = null;
+    patch[`${prefix}_last_email_status`] = null;
+    patch[`${prefix}_last_email_message`] = null;
+    return patch;
+  }
+
+  patch[`${prefix}_last_email_error`] = emailResult?.reason || "send_failed";
+  patch[`${prefix}_last_email_status`] = emailResult?.status || null;
+  patch[`${prefix}_last_email_message`] = emailResult?.message || null;
+  return patch;
 }
 async function insertAlertHistory({
   device_id,
@@ -2292,8 +2339,10 @@ async function processTriggeredAndResolvedAlerts({
         cfg,
       });
 
-      nextAlertState.temp_last_email_attempt_at = nowIso();
-      if (emailResult?.ok) nextAlertState.temp_last_sent_at = nowIso();
+      nextAlertState = {
+        ...nextAlertState,
+        ...buildEmailAlertStatePatch("temp", emailResult),
+      };
     }
   }
 
@@ -2307,8 +2356,10 @@ async function processTriggeredAndResolvedAlerts({
         cfg,
       });
 
-      nextAlertState.temp_last_email_attempt_at = nowIso();
-      if (emailResult?.ok) nextAlertState.temp_last_sent_at = nowIso();
+      nextAlertState = {
+        ...nextAlertState,
+        ...buildEmailAlertStatePatch("temp", emailResult),
+      };
     }
   }
 
@@ -2363,8 +2414,10 @@ async function processTriggeredAndResolvedAlerts({
         cfg,
       });
 
-      nextAlertState.hum_last_email_attempt_at = nowIso();
-      if (emailResult?.ok) nextAlertState.hum_last_sent_at = nowIso();
+      nextAlertState = {
+        ...nextAlertState,
+        ...buildEmailAlertStatePatch("hum", emailResult),
+      };
     }
   }
 
@@ -2378,8 +2431,10 @@ async function processTriggeredAndResolvedAlerts({
         cfg,
       });
 
-      nextAlertState.hum_last_email_attempt_at = nowIso();
-      if (emailResult?.ok) nextAlertState.hum_last_sent_at = nowIso();
+      nextAlertState = {
+        ...nextAlertState,
+        ...buildEmailAlertStatePatch("hum", emailResult),
+      };
     }
   }
 
@@ -2467,8 +2522,7 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
       ) {
         const retryResult = await sendOfflineTriggeredEmail({ device: deviceRow, cfg });
         const retryConfig = mergeAlertStateIntoConfig(deviceRow, {
-          offline_last_email_attempt_at: nowIso(),
-          ...(retryResult?.ok ? { offline_last_sent_at: nowIso() } : {}),
+          ...buildEmailAlertStatePatch("offline", retryResult),
         });
 
         await updateDeviceConfigAndStatus(deviceRow, {
@@ -2497,8 +2551,7 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
     const nextConfig = mergeAlertStateIntoConfig(deviceRow, {
       offline_active: true,
       offline_last_sent_at: null,
-      offline_last_email_attempt_at: nowIso(),
-      ...(emailResult?.ok ? { offline_last_sent_at: nowIso() } : {}),
+      ...buildEmailAlertStatePatch("offline", emailResult),
     });
 
     await updateDeviceConfigAndStatus(deviceRow, {

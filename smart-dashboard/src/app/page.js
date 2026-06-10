@@ -2715,7 +2715,7 @@ function DataChart({
                 strokeWidth={3}
                 dot={false}
                 activeDot={{ r: 4 }}
-                connectNulls={false}
+                connectNulls
                 isAnimationActive={false}
               />
 
@@ -2727,7 +2727,7 @@ function DataChart({
                   strokeWidth={3}
                   dot={{ r: 3, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
                   activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
-                  connectNulls={false}
+                  connectNulls
                   isAnimationActive={false}
                 />
               ) : null}
