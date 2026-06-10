@@ -546,48 +546,7 @@ function getDeviceConfig(deviceRow) {
 }
 
 function shouldStoreReading({ latestReading, cfg, incoming }) {
-  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
-  const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
-  const incomingTs =
-    sampleEpoch !== null && sampleEpoch > 1700000000
-      ? sampleEpoch * 1000
-      : sampleAgeS !== null && sampleAgeS >= 0
-      ? Date.now() - sampleAgeS * 1000
-      : Date.now();
-
-  const expectedMs =
-    Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
-      ? Number(cfg.send_interval_s) * 1000
-      : 30 * 1000;
-  const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
-  const isBackfill = isOfflineCapturedReading(incoming, cfg);
-
-  if (!latestReading?.created_at) return true;
-
-  const latestTs = new Date(latestReading.created_at).getTime();
-  if (!Number.isFinite(latestTs)) return true;
-
-  const latestAlarmMask = toOptionalNumber(latestReading.alarm_mask) || 0;
-  const incomingAlarmMask = toOptionalNumber(incoming.alarm_mask) || 0;
-  if (incomingAlarmMask !== latestAlarmMask) return true;
-
-  const latestAlarmEventCount = toOptionalNumber(latestReading.alarm_event_count) || 0;
-  const incomingAlarmEventCount = toOptionalNumber(incoming.alarm_event_count) || 0;
-  if (incomingAlarmEventCount > latestAlarmEventCount) return true;
-
-  const latestAckCount = toOptionalNumber(latestReading.alarm_ack_count) || 0;
-  const incomingAckCount = toOptionalNumber(incoming.alarm_ack_count) || 0;
-  if (incomingAckCount > latestAckCount) return true;
-
-  const elapsedMs = incomingTs - latestTs;
-
-  if (isBackfill && Number.isFinite(elapsedMs) && elapsedMs <= -minIntervalMs) {
-    return true;
-  }
-
-  if (!Number.isFinite(elapsedMs) || elapsedMs >= minIntervalMs) return true;
-
-  return false;
+  return true;
 }
 
 function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
@@ -3219,9 +3178,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const currentReading = latestCurrentReading || latestReading || null;
 
     const temperature =
-      deviceRow?.last_temperature ?? currentReading?.temperature ?? latestReading?.temperature ?? null;
+      currentReading?.temperature ?? deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
     const humidity =
-      deviceRow?.last_humidity ?? currentReading?.humidity ?? latestReading?.humidity ?? null;
+      currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
     const lastSeenIso = deviceRow?.last_seen || currentReading?.created_at || null;
     const lastReadingAt = currentReading?.created_at || null;

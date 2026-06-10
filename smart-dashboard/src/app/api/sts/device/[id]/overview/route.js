@@ -280,12 +280,12 @@ export async function GET(_request, context) {
       Date.now() - lastSeenTs <= getOfflineLimitMs(config.send_interval_s);
 
     const temperature =
-      parseNumber(device.last_temperature) ??
       parseNumber(currentReading?.temperature) ??
+      parseNumber(device.last_temperature) ??
       parseNumber(latestReading?.temperature);
     const humidity =
-      parseNumber(device.last_humidity) ??
       parseNumber(currentReading?.humidity) ??
+      parseNumber(device.last_humidity) ??
       parseNumber(latestReading?.humidity);
     const computedStatus = getStatus({ online, temperature, humidity, config });
     const status = resolveTelemetryStatus({
