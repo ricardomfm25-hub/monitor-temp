@@ -259,7 +259,17 @@ export async function GET(_request, context) {
 
     const config = normalizeConfig(device.config || {});
     const currentReading = latestReading || null;
-    const lastSeen = latestReading?.created_at || device.last_seen || null;
+    const contactTimes = [
+      device.last_contact_at,
+      device.updated_at,
+      device.last_seen,
+      latestReading?.created_at,
+    ]
+      .map((value) => (value ? new Date(value).getTime() : null))
+      .filter((value) => Number.isFinite(value));
+    const lastSeen = contactTimes.length
+      ? new Date(Math.max(...contactTimes)).toISOString()
+      : null;
     const lastReadingAt = latestReading?.created_at || null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
@@ -300,6 +310,7 @@ export async function GET(_request, context) {
       status,
       online,
       last_seen: lastSeen,
+      last_contact_at: lastSeen,
       last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24h ?? 0,

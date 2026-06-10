@@ -153,7 +153,8 @@ function getOfflineLimitMs(sendIntervalS) {
 }
 
 function getEffectiveStatus(device, sendIntervalS) {
-  const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
+  const contactAt = device?.last_contact_at || device?.last_seen || null;
+  const lastSeen = contactAt ? new Date(contactAt).getTime() : null;
   const now = Date.now();
   const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
 

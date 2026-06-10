@@ -604,6 +604,15 @@ function isMissingReadingTelemetryColumnError(error) {
   );
 }
 
+function isMissingDeviceContactColumnError(error) {
+  const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
+  return (
+    text.includes("PGRST204") ||
+    text.includes("42703") ||
+    /column .*last_contact_at/i.test(text)
+  );
+}
+
 function mergeAlertStateIntoConfig(deviceRow, nextAlertState) {
   const currentConfig = deviceRow?.config || {};
   const currentAlertState = currentConfig.alert_state || {};
@@ -3150,20 +3159,6 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       .limit(1)
       .maybeSingle();
 
-    const { data: latestCurrentReading, error: latestCurrentError } = await supabase
-      .from("readings")
-      .select("*")
-      .eq("device_id", deviceId)
-      .or("offline_captured.is.false,offline_captured.is.null")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (latestCurrentError) {
-      console.error("Erro ao ler leitura atual:", latestCurrentError);
-      return res.status(500).json({ error: "Erro ao obter leitura atual" });
-    }
-
     if (latestError) {
       console.error("Erro ao ler última leitura:", latestError);
       return res.status(500).json({ error: "Erro ao obter última leitura" });
@@ -3175,14 +3170,19 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
 
     const cfg = getDeviceConfig(deviceRow);
     const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
-    const currentReading = latestCurrentReading || latestReading || null;
+    const currentReading = latestReading || null;
 
     const temperature =
       currentReading?.temperature ?? deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
     const humidity =
       currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
-    const contactTimes = [deviceRow?.last_seen, deviceRow?.updated_at, currentReading?.created_at]
+    const contactTimes = [
+      deviceRow?.last_contact_at,
+      deviceRow?.updated_at,
+      deviceRow?.last_seen,
+      currentReading?.created_at,
+    ]
       .map((value) => (value ? new Date(value).getTime() : null))
       .filter((value) => Number.isFinite(value));
     const lastSeenIso = contactTimes.length
@@ -4121,7 +4121,7 @@ app.get("/api/device/:id/config", async (req, res) => {
 
     const { data, error } = await supabase
       .from("devices")
-      .select("device_id,name,location,config,config_version,updated_at")
+      .select("*")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -4134,12 +4134,37 @@ app.get("/api/device/:id/config", async (req, res) => {
     }
 
     const config = getDeviceConfig(data);
+    const contactAt = nowIso();
+    const contactUpdate = await supabase
+      .from("devices")
+      .update({
+        last_contact_at: contactAt,
+        updated_at: contactAt,
+      })
+      .eq("device_id", deviceId);
+
+    if (contactUpdate.error) {
+      if (isMissingDeviceContactColumnError(contactUpdate.error)) {
+        const fallbackContactUpdate = await supabase
+          .from("devices")
+          .update({ updated_at: contactAt })
+          .eq("device_id", deviceId);
+
+        if (fallbackContactUpdate.error) {
+          console.error("Erro ao atualizar contacto do dispositivo:", fallbackContactUpdate.error);
+        }
+      } else {
+        console.error("Erro ao atualizar contacto do dispositivo:", contactUpdate.error);
+      }
+    }
+
     res.json({
       device_id: deviceId,
       name: data.name || deviceId,
       location: data.location || "Localização por definir",
       config_version: data.config_version || 1,
-      updated_at: data.updated_at || null,
+      updated_at: contactAt,
+      last_contact_at: contactAt,
       config,
     });
   } catch (error) {
