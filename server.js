@@ -3182,7 +3182,12 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const humidity =
       currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
-    const lastSeenIso = deviceRow?.last_seen || currentReading?.created_at || null;
+    const contactTimes = [deviceRow?.last_seen, deviceRow?.updated_at, currentReading?.created_at]
+      .map((value) => (value ? new Date(value).getTime() : null))
+      .filter((value) => Number.isFinite(value));
+    const lastSeenIso = contactTimes.length
+      ? new Date(Math.max(...contactTimes)).toISOString()
+      : null;
     const lastReadingAt = currentReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso
       ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
@@ -3270,6 +3275,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       status: statusToApiLabel(normalizedStatus),
       online,
       last_seen: lastSeenIso,
+      last_contact_at: lastSeenIso,
       last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24hCount || 0,

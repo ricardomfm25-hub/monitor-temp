@@ -1421,6 +1421,13 @@ function getOperationalInsights({
   const insights = [];
 
   const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
+  const lastReadingAt = device?.last_reading_at
+    ? new Date(device.last_reading_at).getTime()
+    : null;
+  const lastReadingDelaySeconds = Number.isFinite(lastReadingAt)
+    ? Math.max(0, Math.floor((Date.now() - lastReadingAt) / 1000))
+    : null;
+  const expectedSeconds = Math.max(Number(config?.send_interval_s) || 30, 5);
   const isOnline = device?.online === true;
   const isLongOffline = !isOnline || lastSeenSeconds > 3600;
 
@@ -1441,6 +1448,17 @@ function getOperationalInsights({
     });
 
     return insights.slice(0, 3);
+  }
+
+  if (
+    lastReadingDelaySeconds !== null &&
+    lastReadingDelaySeconds > Math.max(expectedSeconds * 4, 180)
+  ) {
+    insights.push({
+      title: "Leitura atrasada",
+      detail: `Última leitura real há ${formatDurationCompact(lastReadingDelaySeconds * 1000)}.`,
+      tone: "warn",
+    });
   }
 
   const temp = parseNumber(device?.last_temperature);
@@ -1940,6 +1958,7 @@ function mergeDeviceOverview(baseDevice, overviewData, fallbackDeviceId) {
   const deviceId =
     baseDevice?.device_id || overviewData?.device_id || fallbackDeviceId || DEFAULT_DEVICE_ID;
   const lastSeen =
+    overviewData?.last_contact_at ||
     overviewData?.last_seen ||
     (overviewData?.last_seen_seconds !== null &&
     overviewData?.last_seen_seconds !== undefined
@@ -1970,6 +1989,12 @@ function mergeDeviceOverview(baseDevice, overviewData, fallbackDeviceId) {
       : baseDevice?.status,
     online: overviewData?.online ?? baseDevice?.online ?? null,
     last_seen: lastSeen,
+    last_contact_at:
+      overviewData?.last_contact_at ??
+      overviewData?.last_seen ??
+      baseDevice?.last_contact_at ??
+      baseDevice?.last_seen ??
+      null,
     last_reading_at:
       overviewData?.last_reading_at ??
       baseDevice?.last_reading_at ??
