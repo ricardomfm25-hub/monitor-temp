@@ -3143,9 +3143,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
 
     const temperature =
-      latestReading?.temperature ?? deviceRow?.last_temperature ?? null;
+      deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
     const humidity =
-      latestReading?.humidity ?? deviceRow?.last_humidity ?? null;
+      deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
     const lastSeenIso = deviceRow?.last_seen || latestReading?.created_at || null;
     const lastSeenSeconds = lastSeenIso

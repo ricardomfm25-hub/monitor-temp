@@ -497,16 +497,15 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       buckets.set(bucketTime, {
         timestamp: bucketTime,
         created_at: new Date(bucketTime).toISOString(),
+        latestTimestamp: null,
         temperature: null,
         humidity: null,
-        tempSum: 0,
-        tempCount: 0,
-        humSum: 0,
-        humCount: 0,
-        offlineTempSum: 0,
-        offlineTempCount: 0,
-        offlineHumSum: 0,
-        offlineHumCount: 0,
+        tempTimestamp: null,
+        humTimestamp: null,
+        offlineTemperature: null,
+        offlineHumidity: null,
+        offlineTempTimestamp: null,
+        offlineHumTimestamp: null,
         offlineCount: 0,
         hasData: false,
       });
@@ -541,25 +540,39 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
 
     if (temp !== null) {
       bucket.hasData = true;
+      if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
+        bucket.latestTimestamp = item.timestamp;
+      }
 
       if (isOfflineReading) {
-        bucket.offlineTempSum += temp;
-        bucket.offlineTempCount += 1;
+        if (bucket.offlineTempTimestamp === null || item.timestamp >= bucket.offlineTempTimestamp) {
+          bucket.offlineTemperature = temp;
+          bucket.offlineTempTimestamp = item.timestamp;
+        }
       } else {
-        bucket.tempSum += temp;
-        bucket.tempCount += 1;
+        if (bucket.tempTimestamp === null || item.timestamp >= bucket.tempTimestamp) {
+          bucket.temperature = temp;
+          bucket.tempTimestamp = item.timestamp;
+        }
       }
     }
 
     if (hum !== null) {
       bucket.hasData = true;
+      if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
+        bucket.latestTimestamp = item.timestamp;
+      }
 
       if (isOfflineReading) {
-        bucket.offlineHumSum += hum;
-        bucket.offlineHumCount += 1;
+        if (bucket.offlineHumTimestamp === null || item.timestamp >= bucket.offlineHumTimestamp) {
+          bucket.offlineHumidity = hum;
+          bucket.offlineHumTimestamp = item.timestamp;
+        }
       } else {
-        bucket.humSum += hum;
-        bucket.humCount += 1;
+        if (bucket.humTimestamp === null || item.timestamp >= bucket.humTimestamp) {
+          bucket.humidity = hum;
+          bucket.humTimestamp = item.timestamp;
+        }
       }
     }
 
@@ -571,23 +584,16 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
   return Array.from(buckets.values())
     .map((bucket) => ({
       timestamp: bucket.timestamp,
-      created_at: bucket.created_at,
-      temperature:
-        bucket.tempCount > 0
-          ? Number((bucket.tempSum / bucket.tempCount).toFixed(2))
-          : null,
-      humidity:
-        bucket.humCount > 0
-          ? Number((bucket.humSum / bucket.humCount).toFixed(2))
-          : null,
+      created_at:
+        bucket.latestTimestamp !== null
+          ? new Date(bucket.latestTimestamp).toISOString()
+          : bucket.created_at,
+      temperature: bucket.temperature !== null ? Number(bucket.temperature.toFixed(2)) : null,
+      humidity: bucket.humidity !== null ? Number(bucket.humidity.toFixed(2)) : null,
       temperature_offline:
-        bucket.offlineTempCount > 0
-          ? Number((bucket.offlineTempSum / bucket.offlineTempCount).toFixed(2))
-          : null,
+        bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
       humidity_offline:
-        bucket.offlineHumCount > 0
-          ? Number((bucket.offlineHumSum / bucket.offlineHumCount).toFixed(2))
-          : null,
+        bucket.offlineHumidity !== null ? Number(bucket.offlineHumidity.toFixed(2)) : null,
       hasData: bucket.hasData,
       offline_captured: bucket.offlineCount > 0,
       offline_count: bucket.offlineCount,
@@ -1681,6 +1687,46 @@ function buildCurrentReadingFromDevice(device) {
     alarm_ack: String(device?.status || "").toLowerCase().includes("ack"),
     current_snapshot: true,
   };
+}
+
+function mergeLiveDeviceReading(readings, device) {
+  const current = buildCurrentReadingFromDevice(device);
+  if (
+    !current ||
+    !Number.isFinite(current.timestamp) ||
+    (parseNumber(current.temperature) === null && parseNumber(current.humidity) === null)
+  ) {
+    return readings || [];
+  }
+
+  const safeReadings = readings || [];
+  const latest = safeReadings
+    .filter((item) => Number.isFinite(item?.timestamp))
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  const sameTemp =
+    latest && parseNumber(latest.temperature) === parseNumber(current.temperature);
+  const sameHum =
+    latest && parseNumber(latest.humidity) === parseNumber(current.humidity);
+
+  if (
+    latest &&
+    Math.abs(current.timestamp - latest.timestamp) < 1000 &&
+    sameTemp &&
+    sameHum
+  ) {
+    return safeReadings;
+  }
+
+  return [
+    ...safeReadings,
+    {
+      ...current,
+      live_current: true,
+      offline_captured: false,
+      delivery_attempts: 0,
+      sample_age_s: 0,
+    },
+  ].sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function deriveAlertEventsFromReadings(readings, config) {
@@ -3191,9 +3237,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const sendIntervalS = parseNumber(config?.send_interval_s);
   const displayStandbyMin = parseNumber(config?.display_standby_min);
 
+  const liveReadings = useMemo(
+    () => mergeLiveDeviceReading(readings, device),
+    [readings, device]
+  );
+
   const chartReadings = useMemo(
-    () => buildTimeSeries(readings, period, sendIntervalS),
-    [readings, period, sendIntervalS]
+    () => buildTimeSeries(liveReadings, period, sendIntervalS),
+    [liveReadings, period, sendIntervalS]
   );
 
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
@@ -3204,12 +3255,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 const communicationHealth = useMemo(
   () =>
     getCommunicationHealth({
-      rawReadings: readings,
+      rawReadings: liveReadings,
       sendIntervalS,
       deviceLastSeen: device?.last_seen,
       periodKey: period,
     }),
-  [readings, sendIntervalS, device?.last_seen, period]
+  [liveReadings, sendIntervalS, device?.last_seen, period]
 );
 
   const isDeviceOffline = effectiveStatus === "OFFLINE";
@@ -3229,8 +3280,8 @@ const communicationHealth = useMemo(
             eta_minutes: null,
             score: 0,
           }
-        : device?.predictive_status || getPredictiveStatus(readings, config),
-    [config, device?.predictive_status, isDeviceOffline, readings]
+        : device?.predictive_status || getPredictiveStatus(liveReadings, config),
+    [config, device?.predictive_status, isDeviceOffline, liveReadings]
   );
 
   const effectiveLastDelayMs =
@@ -3278,7 +3329,7 @@ const communicationHealth = useMemo(
   const summary24h = useMemo(() => {
     const { start, end } = getPeriodWindow("24h");
 
-    const scoped = readings
+    const scoped = liveReadings
       .filter((item) => Number.isFinite(item?.timestamp))
       .filter((item) => item.timestamp >= start && item.timestamp <= end);
 
@@ -3304,7 +3355,7 @@ const communicationHealth = useMemo(
       humAvg: avg(hums, 0),
       totalReadings: scoped.length,
     };
-  }, [readings]);
+  }, [liveReadings]);
 
   async function saveClientConfig() {
     if (!device || !selectedDeviceId || !canEditSelectedDevice) return;
