@@ -4153,7 +4153,7 @@ app.get("/api/device/:id/config", async (req, res) => {
 
     const { data, error } = await supabase
       .from("devices")
-      .select("device_id,name,location,config,config_version,updated_at")
+      .select("device_id,name,location,config,config_version,status,updated_at")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -4166,14 +4166,39 @@ app.get("/api/device/:id/config", async (req, res) => {
     }
 
     const config = getDeviceConfig(data);
+    const heartbeatAt = nowIso();
+    const wasMarkedOffline = String(data.status || "").toUpperCase() === "OFFLINE";
+    const nextConfig = config.alert_state.offline_active
+      ? mergeAlertStateIntoConfig(data, {
+          offline_active: false,
+          offline_last_resolved_at: heartbeatAt,
+        })
+      : data.config;
+
+    const heartbeatPatch = {
+      last_seen: heartbeatAt,
+      updated_at: heartbeatAt,
+    };
+
+    if (wasMarkedOffline) heartbeatPatch.status = "NORMAL";
+    if (nextConfig !== data.config) heartbeatPatch.config = nextConfig;
+
+    const { error: heartbeatError } = await supabase
+      .from("devices")
+      .update(heartbeatPatch)
+      .eq("device_id", deviceId);
+
+    if (heartbeatError) {
+      console.error("Erro ao atualizar heartbeat do dispositivo:", heartbeatError);
+    }
 
     res.json({
       device_id: deviceId,
       name: data.name || deviceId,
       location: data.location || "Localização por definir",
       config_version: data.config_version || 1,
-      updated_at: data.updated_at || null,
-      config,
+      updated_at: heartbeatAt,
+      config: getDeviceConfig({ config: nextConfig }),
     });
   } catch (error) {
     console.error("Erro em /api/device/:id/config [GET]:", error);
