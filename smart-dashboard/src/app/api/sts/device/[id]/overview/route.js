@@ -231,7 +231,6 @@ export async function GET(_request, context) {
 
     const [
       { data: latestReading, error: latestError },
-      { data: latestCurrentReading, error: latestCurrentError },
       { count: alerts24h, error: alertsError },
       { count: readings24h, error: readingsError },
     ] = await Promise.all([
@@ -239,14 +238,6 @@ export async function GET(_request, context) {
         .from("readings")
         .select("temperature, humidity, created_at, device_status, alarm_ack, alarm_mask")
         .eq("device_id", deviceId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("readings")
-        .select("temperature, humidity, created_at, device_status, alarm_ack, alarm_mask")
-        .eq("device_id", deviceId)
-        .or("offline_captured.is.false,offline_captured.is.null")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -263,20 +254,13 @@ export async function GET(_request, context) {
     ]);
 
     if (latestError) throw latestError;
-    if (latestCurrentError) throw latestCurrentError;
     if (alertsError) throw alertsError;
     if (readingsError) throw readingsError;
 
     const config = normalizeConfig(device.config || {});
-    const currentReading = latestCurrentReading || latestReading || null;
-    const contactTimes = [device.last_seen, device.updated_at, currentReading?.created_at]
-      .map((value) => (value ? new Date(value).getTime() : null))
-      .filter((value) => Number.isFinite(value));
-    const lastContactAt = contactTimes.length
-      ? new Date(Math.max(...contactTimes)).toISOString()
-      : null;
-    const lastSeen = lastContactAt;
-    const lastReadingAt = currentReading?.created_at || null;
+    const currentReading = latestReading || null;
+    const lastSeen = latestReading?.created_at || device.last_seen || null;
+    const lastReadingAt = latestReading?.created_at || null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
@@ -316,7 +300,6 @@ export async function GET(_request, context) {
       status,
       online,
       last_seen: lastSeen,
-      last_contact_at: lastContactAt,
       last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24h ?? 0,

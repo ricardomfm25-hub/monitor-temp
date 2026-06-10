@@ -1421,13 +1421,6 @@ function getOperationalInsights({
   const insights = [];
 
   const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
-  const lastReadingAt = device?.last_reading_at
-    ? new Date(device.last_reading_at).getTime()
-    : null;
-  const lastReadingDelaySeconds = Number.isFinite(lastReadingAt)
-    ? Math.max(0, Math.floor((Date.now() - lastReadingAt) / 1000))
-    : null;
-  const expectedSeconds = Math.max(Number(config?.send_interval_s) || 30, 5);
   const isOnline = device?.online === true;
   const isLongOffline = !isOnline || lastSeenSeconds > 3600;
 
