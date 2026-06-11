@@ -3074,7 +3074,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               total_readings_24h: overviewData?.total_readings_24h ?? 0,
               last_seen:
                 overviewData?.last_seen ||
-                baseDeviceData?.last_contact_at ||
                 baseDeviceData?.last_seen ||
                 (overviewData?.last_seen_seconds !== null &&
                 overviewData?.last_seen_seconds !== undefined
@@ -3127,7 +3126,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         setProfile(profileData);
         setDevicePermissions(permissionsData);
-        setDevices(safeDevices);
+        setDevices(
+          safeDevices.map((item) =>
+            item.device_id === nextSelectedDeviceId && deviceData
+              ? { ...item, ...deviceData }
+              : item
+          )
+        );
         setDevice(deviceData);
         setDeviceOverview(overviewData || null);
         setReadings(readingsData);
