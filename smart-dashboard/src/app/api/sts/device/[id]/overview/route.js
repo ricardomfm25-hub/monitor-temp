@@ -66,8 +66,7 @@ function resolveTelemetryStatus({
 
   if (
     normalizedIncoming === "sensor_fail" ||
-    normalizedIncoming === "setup_wifi" ||
-    normalizedIncoming === "offline"
+    normalizedIncoming === "setup_wifi"
   ) {
     return normalizedIncoming;
   }
@@ -258,7 +257,16 @@ export async function GET(_request, context) {
     if (readingsError) throw readingsError;
 
     const config = normalizeConfig(device.config || {});
-    const lastSeen = device.last_seen || latestReading?.created_at || null;
+    const contactTimes = [
+      device.last_contact_at,
+      device.last_seen,
+      latestReading?.created_at,
+    ]
+      .map((value) => (value ? new Date(value).getTime() : null))
+      .filter((value) => Number.isFinite(value));
+    const lastSeen = contactTimes.length
+      ? new Date(Math.max(...contactTimes)).toISOString()
+      : null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
@@ -295,6 +303,7 @@ export async function GET(_request, context) {
       status,
       online,
       last_seen: lastSeen,
+      last_contact_at: device.last_contact_at || null,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24h ?? 0,
       total_readings_24h: readings24h ?? 0,

@@ -4180,6 +4180,7 @@ app.get("/api/device/:id/config", async (req, res) => {
       .from("devices")
       .update({
         last_contact_at: contactAt,
+        last_seen: contactAt,
         updated_at: contactAt,
       })
       .eq("device_id", deviceId);
@@ -4188,7 +4189,7 @@ app.get("/api/device/:id/config", async (req, res) => {
       if (isMissingDeviceContactColumnError(contactUpdate.error)) {
         const fallbackContactUpdate = await supabase
           .from("devices")
-          .update({ updated_at: contactAt })
+          .update({ last_seen: contactAt, updated_at: contactAt })
           .eq("device_id", deviceId);
 
         if (fallbackContactUpdate.error) {

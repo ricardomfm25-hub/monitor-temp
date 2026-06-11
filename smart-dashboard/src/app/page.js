@@ -3073,6 +3073,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               alerts_24h: overviewData?.alerts_24h ?? 0,
               total_readings_24h: overviewData?.total_readings_24h ?? 0,
               last_seen:
+                overviewData?.last_seen ||
+                baseDeviceData?.last_contact_at ||
                 baseDeviceData?.last_seen ||
                 (overviewData?.last_seen_seconds !== null &&
                 overviewData?.last_seen_seconds !== undefined
