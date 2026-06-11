@@ -18,7 +18,7 @@ import {
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
-const LIVE_REFRESH_MS = 3000;
+const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const STS_PRODUCT = {
@@ -153,8 +153,7 @@ function getOfflineLimitMs(sendIntervalS) {
 }
 
 function getEffectiveStatus(device, sendIntervalS) {
-  const contactAt = device?.last_contact_at || device?.last_seen || null;
-  const lastSeen = contactAt ? new Date(contactAt).getTime() : null;
+  const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
   const now = Date.now();
   const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
 
@@ -376,17 +375,11 @@ function getReferencePoints(data, keys) {
   const safeKeys = Array.isArray(keys) ? keys : [keys];
   const points = data
     .flatMap((item) =>
-      safeKeys.map((key) => {
-        const keyTimestamp = item?.[`${key}_timestamp`];
-        const timestamp = Number.isFinite(keyTimestamp) ? keyTimestamp : item?.timestamp;
-        return {
-          value: parseNumber(item?.[key]),
-          created_at: Number.isFinite(timestamp)
-            ? new Date(timestamp).toISOString()
-            : item?.created_at,
-          timestamp,
-        };
-      })
+      safeKeys.map((key) => ({
+        value: parseNumber(item?.[key]),
+        created_at: item?.created_at,
+        timestamp: item?.timestamp,
+      }))
     )
     .filter(
       (item) =>
@@ -483,8 +476,8 @@ function getPeriodWindow(periodKey) {
   };
 }
 
-function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null) {
-  const { start, end, bucketMs } = periodWindow || getPeriodWindow(periodKey);
+function buildTimeSeries(readings, periodKey, sendIntervalS) {
+  const { start, end, bucketMs } = getPeriodWindow(periodKey);
 
   const filtered = (readings || [])
     .filter((item) => Number.isFinite(item?.timestamp))
@@ -503,7 +496,6 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
     if (bucketTime >= start && !buckets.has(bucketTime)) {
       buckets.set(bucketTime, {
         timestamp: bucketTime,
-        bucket_timestamp: bucketTime,
         created_at: new Date(bucketTime).toISOString(),
         latestTimestamp: null,
         temperature: null,
@@ -521,17 +513,29 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
   }
 
   for (const item of filtered) {
-    const d = new Date(item.timestamp);
-    const bucketTime =
-      periodKey === "7d"
-        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
-        : floorToBucket(item.timestamp, bucketMs);
+    let bucketTime;
+
+    if (periodKey === "7d") {
+      const d = new Date(item.timestamp);
+      bucketTime = new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).getTime();
+    } else {
+      bucketTime = floorToBucket(item.timestamp, bucketMs);
+    }
 
     if (!buckets.has(bucketTime)) continue;
-
     const bucket = buckets.get(bucketTime);
+
     const temp = parseNumber(item.temperature);
     const hum = parseNumber(item.humidity);
+
     const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
 
     if (temp !== null) {
@@ -545,9 +549,11 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
           bucket.offlineTemperature = temp;
           bucket.offlineTempTimestamp = item.timestamp;
         }
-      } else if (bucket.tempTimestamp === null || item.timestamp >= bucket.tempTimestamp) {
-        bucket.temperature = temp;
-        bucket.tempTimestamp = item.timestamp;
+      } else {
+        if (bucket.tempTimestamp === null || item.timestamp >= bucket.tempTimestamp) {
+          bucket.temperature = temp;
+          bucket.tempTimestamp = item.timestamp;
+        }
       }
     }
 
@@ -562,9 +568,11 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
           bucket.offlineHumidity = hum;
           bucket.offlineHumTimestamp = item.timestamp;
         }
-      } else if (bucket.humTimestamp === null || item.timestamp >= bucket.humTimestamp) {
-        bucket.humidity = hum;
-        bucket.humTimestamp = item.timestamp;
+      } else {
+        if (bucket.humTimestamp === null || item.timestamp >= bucket.humTimestamp) {
+          bucket.humidity = hum;
+          bucket.humTimestamp = item.timestamp;
+        }
       }
     }
 
@@ -575,22 +583,17 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
 
   return Array.from(buckets.values())
     .map((bucket) => ({
-      timestamp: bucket.bucket_timestamp,
-      bucket_timestamp: bucket.bucket_timestamp,
+      timestamp: bucket.timestamp,
       created_at:
         bucket.latestTimestamp !== null
           ? new Date(bucket.latestTimestamp).toISOString()
           : bucket.created_at,
       temperature: bucket.temperature !== null ? Number(bucket.temperature.toFixed(2)) : null,
       humidity: bucket.humidity !== null ? Number(bucket.humidity.toFixed(2)) : null,
-      temperature_timestamp: bucket.tempTimestamp,
-      humidity_timestamp: bucket.humTimestamp,
       temperature_offline:
         bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
       humidity_offline:
         bucket.offlineHumidity !== null ? Number(bucket.offlineHumidity.toFixed(2)) : null,
-      temperature_offline_timestamp: bucket.offlineTempTimestamp,
-      humidity_offline_timestamp: bucket.offlineHumTimestamp,
       hasData: bucket.hasData,
       offline_captured: bucket.offlineCount > 0,
       offline_count: bucket.offlineCount,
@@ -599,8 +602,8 @@ function buildTimeSeries(readings, periodKey, sendIntervalS, periodWindow = null
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function getXAxisTicks(periodKey, periodWindow = null) {
-  const { start, end, tickMs } = periodWindow || getPeriodWindow(periodKey);
+function getXAxisTicks(periodKey) {
+  const { start, end, tickMs } = getPeriodWindow(periodKey);
   const ticks = [];
 
   if (periodKey === "7d") {
@@ -1422,13 +1425,6 @@ function getOperationalInsights({
   const insights = [];
 
   const lastSeenSeconds = Number(device?.last_seen_seconds ?? 999999);
-  const lastReadingAt = device?.last_reading_at
-    ? new Date(device.last_reading_at).getTime()
-    : null;
-  const lastReadingDelaySeconds = Number.isFinite(lastReadingAt)
-    ? Math.max(0, Math.floor((Date.now() - lastReadingAt) / 1000))
-    : null;
-  const expectedSeconds = Math.max(Number(config?.send_interval_s) || 30, 5);
   const isOnline = device?.online === true;
   const isLongOffline = !isOnline || lastSeenSeconds > 3600;
 
@@ -1449,17 +1445,6 @@ function getOperationalInsights({
     });
 
     return insights.slice(0, 3);
-  }
-
-  if (
-    lastReadingDelaySeconds !== null &&
-    lastReadingDelaySeconds > Math.max(expectedSeconds * 4, 180)
-  ) {
-    insights.push({
-      title: "Leitura atrasada",
-      detail: `Última leitura real há ${formatDurationCompact(lastReadingDelaySeconds * 1000)}.`,
-      tone: "warn",
-    });
   }
 
   const temp = parseNumber(device?.last_temperature);
@@ -1691,15 +1676,11 @@ function buildDerivedAlertEvent(reading, type, level, state, source, derived = t
 
 function buildCurrentReadingFromDevice(device) {
   if (!device) return null;
-  const readingAt = device?.last_reading_at || device?.reading_at || null;
-  if (!readingAt) return null;
-
-  const timestamp = new Date(readingAt).getTime();
-  if (!Number.isFinite(timestamp)) return null;
+  const timestamp = device?.last_seen ? new Date(device.last_seen).getTime() : Date.now();
 
   return {
-    created_at: readingAt,
-    timestamp,
+    created_at: device?.last_seen || new Date(timestamp).toISOString(),
+    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
     temperature: parseNumber(device?.last_temperature),
     humidity: parseNumber(device?.last_humidity),
     device_status: device?.status,
@@ -1953,71 +1934,6 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
 }
 
-function mergeDeviceOverview(baseDevice, overviewData, fallbackDeviceId) {
-  if (!baseDevice && !overviewData) return null;
-
-  const deviceId =
-    baseDevice?.device_id || overviewData?.device_id || fallbackDeviceId || DEFAULT_DEVICE_ID;
-  const lastSeen =
-    overviewData?.last_contact_at ||
-    overviewData?.last_seen ||
-    (overviewData?.last_seen_seconds !== null &&
-    overviewData?.last_seen_seconds !== undefined
-      ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
-      : null) ||
-    baseDevice?.last_seen ||
-    null;
-
-  return {
-    ...(baseDevice || {}),
-    device_id: deviceId,
-    name: overviewData?.name || baseDevice?.name || deviceId,
-    location: overviewData?.location || baseDevice?.location || "LocalizaÃ§Ã£o por definir",
-    config: overviewData?.config || baseDevice?.config || {},
-    config_version: overviewData?.config_version ?? baseDevice?.config_version ?? 1,
-    last_temperature:
-      overviewData?.temperature ??
-      overviewData?.last_temperature ??
-      baseDevice?.last_temperature ??
-      null,
-    last_humidity:
-      overviewData?.humidity ??
-      overviewData?.last_humidity ??
-      baseDevice?.last_humidity ??
-      null,
-    status: overviewData?.status
-      ? String(overviewData.status).toUpperCase()
-      : baseDevice?.status,
-    online: overviewData?.online ?? baseDevice?.online ?? null,
-    last_seen: lastSeen,
-    last_contact_at:
-      overviewData?.last_contact_at ??
-      overviewData?.last_seen ??
-      baseDevice?.last_contact_at ??
-      baseDevice?.last_seen ??
-      null,
-    last_reading_at:
-      overviewData?.last_reading_at ??
-      baseDevice?.last_reading_at ??
-      null,
-    last_seen_seconds:
-      overviewData?.last_seen_seconds ?? baseDevice?.last_seen_seconds ?? null,
-    communication_health: overviewData?.communication_health || baseDevice?.communication_health || null,
-    predictive_status: overviewData?.predictive_status || baseDevice?.predictive_status || null,
-    telemetry_seq: overviewData?.telemetry_seq ?? baseDevice?.telemetry_seq ?? null,
-    buffer_count: overviewData?.buffer_count ?? baseDevice?.buffer_count ?? null,
-    post_ok_count: overviewData?.post_ok_count ?? baseDevice?.post_ok_count ?? null,
-    post_fail_count: overviewData?.post_fail_count ?? baseDevice?.post_fail_count ?? null,
-    boot_count: overviewData?.boot_count ?? baseDevice?.boot_count ?? null,
-    reset_reason: overviewData?.reset_reason ?? baseDevice?.reset_reason ?? null,
-    clock_synced: overviewData?.clock_synced ?? baseDevice?.clock_synced ?? null,
-    clock_sync_age_s: overviewData?.clock_sync_age_s ?? baseDevice?.clock_sync_age_s ?? null,
-    alerts_24h: overviewData?.alerts_24h ?? baseDevice?.alerts_24h ?? 0,
-    total_readings_24h:
-      overviewData?.total_readings_24h ?? baseDevice?.total_readings_24h ?? 0,
-  };
-}
-
 function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
@@ -2026,17 +1942,12 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
     payload[0];
   const point = visiblePayload?.payload;
   const value = visiblePayload?.value;
-  const dataKey = String(visiblePayload?.dataKey || "");
-  const isOfflineSeries = dataKey.endsWith("_offline");
-  const seriesTimestamp = point?.[`${dataKey}_timestamp`];
-  const tooltipTime = Number.isFinite(seriesTimestamp)
-    ? new Date(seriesTimestamp).toISOString()
-    : point?.created_at || label;
+  const isOfflineSeries = String(visiblePayload?.dataKey || "").endsWith("_offline");
 
   return (
     <div style={styles.tooltip}>
       <div style={styles.tooltipTitle}>
-        {formatDateTime(tooltipTime)}
+        {formatDateTime(point?.created_at || label)}
       </div>
       <div style={styles.tooltipValue}>
         {value === null || value === undefined
@@ -2694,7 +2605,6 @@ function DataChart({
   maxThreshold,
   isMobile,
   periodKey,
-  periodWindow,
   isOffline,
 }) {
   const offlineDataKey = `${dataKey}_offline`;
@@ -2711,17 +2621,14 @@ function DataChart({
       ? (value) => `${Math.round(Number(value))}`
       : (value) => `${Number(value).toFixed(1)}`;
 
-  const timeWindow = periodWindow || getPeriodWindow(periodKey);
-  const xTicks = getXAxisTicks(periodKey, timeWindow);
+  const timeWindow = getPeriodWindow(periodKey);
+  const xTicks = getXAxisTicks(periodKey);
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
   const offlinePoints = data.filter(
     (item) => item?.offline_captured && parseNumber(item?.[offlineDataKey]) !== null
   );
-  const lastDataPoint = [...data]
-    .filter((item) => chartKeys.some((key) => parseNumber(item?.[key]) !== null))
-    .sort((a, b) => b.timestamp - a.timestamp)[0];
 
   return (
     <div style={styles.chartCard}>
@@ -2734,23 +2641,11 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()}
           </div>
-          <div style={styles.chartLegend}>
-            <span style={styles.chartLegendItem}>
-              <span style={{ ...styles.chartLegendLine, background: "#3b82f6" }} />
-              Online
-            </span>
-            <span style={styles.chartLegendItem}>
-              <span style={{ ...styles.chartLegendLine, background: "#ef4444" }} />
-              Offline
-            </span>
-          </div>
-          {lastDataPoint ? (
-            <div style={styles.chartHint}>
-              Ultima leitura: {formatDateTime(lastDataPoint.created_at)}
-            </div>
-          ) : null}
           {offlinePoints.length > 0 ? (
-            <div style={styles.chartBackfillHint}>Linha vermelha: leituras captadas offline</div>
+            <div style={styles.chartBackfillHint}>
+              <span style={styles.chartBackfillDot} />
+              Linha vermelha: leituras captadas offline
+            </div>
           ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
@@ -2820,7 +2715,7 @@ function DataChart({
                 strokeWidth={3}
                 dot={false}
                 activeDot={{ r: 4 }}
-                connectNulls
+                connectNulls={false}
                 isAnimationActive={false}
               />
 
@@ -2832,7 +2727,7 @@ function DataChart({
                   strokeWidth={3}
                   dot={{ r: 3, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
                   activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
-                  connectNulls
+                  connectNulls={false}
                   isAnimationActive={false}
                 />
               ) : null}
@@ -2975,8 +2870,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   const requestInFlightRef = useRef(false);
-  const liveRequestInFlightRef = useRef(false);
-  const initialLoadedRef = useRef(false);
   const mountedRef = useRef(true);
 
   const isSuperAdmin = profile?.role === "super_admin";
@@ -3012,10 +2905,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   }, []);
 
   useEffect(() => {
-    initialLoadedRef.current = initialLoaded;
-  }, [initialLoaded]);
-
-  useEffect(() => {
     if (!selectedDeviceId) return;
     if (typeof window === "undefined") return;
 
@@ -3030,7 +2919,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       setPageError("");
 
       if (!silent && mountedRef.current) {
-        if (!initialLoadedRef.current) {
+        if (!initialLoaded) {
           setLoading(true);
         } else {
           setRefreshing(true);
@@ -3094,7 +2983,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             setProfile(profileData);
             setDevicePermissions(permissionsData);
             setDevices([]);
-            initialLoadedRef.current = true;
             setInitialLoaded(true);
             return;
           }
@@ -3130,9 +3018,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve(null),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(
-                `/api/sts/device/${nextSelectedDeviceId}/history?hours=${getPeriodConfig(period).hours}&limit=50000`
-              )
+            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
             : Promise.resolve([]),
 
           nextSelectedDeviceId
@@ -3152,11 +3038,48 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         const baseDeviceData = deviceResponse?.data || null;
 
-        const deviceData = mergeDeviceOverview(
-          baseDeviceData,
-          overviewData,
-          nextSelectedDeviceId
-        );
+        const deviceData = baseDeviceData
+          ? {
+              ...baseDeviceData,
+              last_temperature:
+                overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
+              last_humidity:
+                overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+              status:
+                overviewData?.status
+                  ? String(overviewData.status).toUpperCase()
+                  : baseDeviceData?.status,
+              online: overviewData?.online ?? baseDeviceData?.online ?? null,
+              last_seen_seconds:
+                overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
+              communication_health: overviewData?.communication_health || null,
+              predictive_status: overviewData?.predictive_status || null,
+              telemetry_seq:
+                overviewData?.telemetry_seq ?? baseDeviceData?.telemetry_seq ?? null,
+              buffer_count:
+                overviewData?.buffer_count ?? baseDeviceData?.buffer_count ?? null,
+              post_ok_count:
+                overviewData?.post_ok_count ?? baseDeviceData?.post_ok_count ?? null,
+              post_fail_count:
+                overviewData?.post_fail_count ?? baseDeviceData?.post_fail_count ?? null,
+              boot_count:
+                overviewData?.boot_count ?? baseDeviceData?.boot_count ?? null,
+              reset_reason:
+                overviewData?.reset_reason ?? baseDeviceData?.reset_reason ?? null,
+              clock_synced:
+                overviewData?.clock_synced ?? baseDeviceData?.clock_synced ?? null,
+              clock_sync_age_s:
+                overviewData?.clock_sync_age_s ?? baseDeviceData?.clock_sync_age_s ?? null,
+              alerts_24h: overviewData?.alerts_24h ?? 0,
+              total_readings_24h: overviewData?.total_readings_24h ?? 0,
+              last_seen:
+                baseDeviceData?.last_seen ||
+                (overviewData?.last_seen_seconds !== null &&
+                overviewData?.last_seen_seconds !== undefined
+                  ? new Date(Date.now() - overviewData.last_seen_seconds * 1000).toISOString()
+                  : baseDeviceData?.last_seen),
+            }
+          : null;
 
         const readingsData = (historyRows || [])
           .map((item) => {
@@ -3202,13 +3125,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         setProfile(profileData);
         setDevicePermissions(permissionsData);
-        setDevices(
-          safeDevices.map((item) =>
-            item.device_id === deviceData?.device_id
-              ? mergeDeviceOverview(item, overviewData, item.device_id)
-              : item
-          )
-        );
+        setDevices(safeDevices);
         setDevice(deviceData);
         setDeviceOverview(overviewData || null);
         setReadings(readingsData);
@@ -3233,7 +3150,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           });
         }
 
-        initialLoadedRef.current = true;
         setInitialLoaded(true);
       } catch (error) {
         console.warn("loadData:", error);
@@ -3250,38 +3166,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         }
       }
     },
-    [selectedDeviceId, supabase, router, period]
+    [selectedDeviceId, supabase, router, initialLoaded, period]
   );
-
-  const refreshLiveDevice = useCallback(async () => {
-    if (!selectedDeviceId || liveRequestInFlightRef.current) return;
-
-    liveRequestInFlightRef.current = true;
-
-    try {
-      const overviewData = await fetchJsonOrThrow(
-        `/api/sts/device/${selectedDeviceId}/overview`
-      );
-
-      if (!mountedRef.current) return;
-
-      setDevice((currentDevice) =>
-        mergeDeviceOverview(currentDevice, overviewData, selectedDeviceId)
-      );
-      setDeviceOverview(overviewData || null);
-      setDevices((currentDevices) =>
-        currentDevices.map((item) =>
-          item.device_id === selectedDeviceId
-            ? mergeDeviceOverview(item, overviewData, selectedDeviceId)
-            : item
-        )
-      );
-    } catch (error) {
-      console.warn("live overview:", error);
-    } finally {
-      liveRequestInFlightRef.current = false;
-    }
-  }, [selectedDeviceId]);
 
   useEffect(() => {
     loadData({ syncForms: true });
@@ -3292,18 +3178,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
     return () => clearInterval(interval);
   }, [loadData]);
-
-  useEffect(() => {
-    if (!selectedDeviceId || !initialLoaded) return undefined;
-
-    refreshLiveDevice();
-
-    const interval = setInterval(() => {
-      refreshLiveDevice();
-    }, LIVE_REFRESH_MS);
-
-    return () => clearInterval(interval);
-  }, [selectedDeviceId, initialLoaded, refreshLiveDevice]);
 
   useEffect(() => {
     if (!selectedDeviceId) return;
@@ -3319,7 +3193,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           filter: `device_id=eq.${selectedDeviceId}`,
         },
         () => {
-          refreshLiveDevice();
           loadData({ silent: true, syncForms: false });
         }
       )
@@ -3332,7 +3205,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           filter: `device_id=eq.${selectedDeviceId}`,
         },
         () => {
-          refreshLiveDevice();
+          loadData({ silent: true, syncForms: false });
         }
       )
       .on(
@@ -3352,7 +3225,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedDeviceId, loadData, refreshLiveDevice, supabase]);
+  }, [selectedDeviceId, loadData, supabase]);
 
   const config = useMemo(() => device?.config ?? {}, [device?.config]);
 
@@ -3369,11 +3242,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     [readings, device]
   );
 
-  const chartPeriodWindow = getPeriodWindow(period);
-
   const chartReadings = useMemo(
-    () => buildTimeSeries(liveReadings, period, sendIntervalS, chartPeriodWindow),
-    [liveReadings, period, sendIntervalS, chartPeriodWindow]
+    () => buildTimeSeries(liveReadings, period, sendIntervalS),
+    [liveReadings, period, sendIntervalS]
   );
 
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
@@ -4041,7 +3912,6 @@ async function downloadPdfReport() {
             maxThreshold={tempHigh}
             isMobile={isMobile}
             periodKey={period}
-            periodWindow={chartPeriodWindow}
             isOffline={effectiveStatus === "OFFLINE"}
           />
 
@@ -4054,7 +3924,6 @@ async function downloadPdfReport() {
             maxThreshold={humHigh}
             isMobile={isMobile}
             periodKey={period}
-            periodWindow={chartPeriodWindow}
             isOffline={effectiveStatus === "OFFLINE"}
           />
         </section>
@@ -5327,30 +5196,6 @@ const styles = {
     marginTop: "6px",
     fontSize: "12px",
     color: "#cbd5e1",
-  },
-
-  chartLegend: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    flexWrap: "wrap",
-    marginTop: "8px",
-  },
-
-  chartLegendItem: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    fontSize: "12px",
-    color: "#cbd5e1",
-    fontWeight: 800,
-  },
-
-  chartLegendLine: {
-    width: "18px",
-    height: "3px",
-    borderRadius: "999px",
-    boxShadow: "0 0 10px rgba(148,163,184,0.16)",
   },
 
   chartBackfillHint: {

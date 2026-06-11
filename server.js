@@ -546,7 +546,48 @@ function getDeviceConfig(deviceRow) {
 }
 
 function shouldStoreReading({ latestReading, cfg, incoming }) {
-  return true;
+  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
+  const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
+  const incomingTs =
+    sampleEpoch !== null && sampleEpoch > 1700000000
+      ? sampleEpoch * 1000
+      : sampleAgeS !== null && sampleAgeS >= 0
+      ? Date.now() - sampleAgeS * 1000
+      : Date.now();
+
+  const expectedMs =
+    Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
+      ? Number(cfg.send_interval_s) * 1000
+      : 30 * 1000;
+  const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
+  const isBackfill = isOfflineCapturedReading(incoming, cfg);
+
+  if (!latestReading?.created_at) return true;
+
+  const latestTs = new Date(latestReading.created_at).getTime();
+  if (!Number.isFinite(latestTs)) return true;
+
+  const latestAlarmMask = toOptionalNumber(latestReading.alarm_mask) || 0;
+  const incomingAlarmMask = toOptionalNumber(incoming.alarm_mask) || 0;
+  if (incomingAlarmMask !== latestAlarmMask) return true;
+
+  const latestAlarmEventCount = toOptionalNumber(latestReading.alarm_event_count) || 0;
+  const incomingAlarmEventCount = toOptionalNumber(incoming.alarm_event_count) || 0;
+  if (incomingAlarmEventCount > latestAlarmEventCount) return true;
+
+  const latestAckCount = toOptionalNumber(latestReading.alarm_ack_count) || 0;
+  const incomingAckCount = toOptionalNumber(incoming.alarm_ack_count) || 0;
+  if (incomingAckCount > latestAckCount) return true;
+
+  const elapsedMs = incomingTs - latestTs;
+
+  if (isBackfill && Number.isFinite(elapsedMs) && elapsedMs <= -minIntervalMs) {
+    return true;
+  }
+
+  if (!Number.isFinite(elapsedMs) || elapsedMs >= minIntervalMs) return true;
+
+  return false;
 }
 
 function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
@@ -3023,11 +3064,11 @@ app.post("/api/temperature", async (req, res) => {
       location: sanitizeLocation(baseDeviceRow.location),
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
+      last_seen: currentNowIso,
       updated_at: currentNowIso,
     };
 
     if (!isHistoricalBackfill) {
-      upsertPayload.last_seen = currentNowIso;
       upsertPayload.last_temperature = numericTemperature;
       upsertPayload.last_humidity = numericHumidity;
       upsertPayload.status = statusToDbLabel(telemetryStatus);
@@ -3101,7 +3142,7 @@ app.post("/api/temperature", async (req, res) => {
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
       status: isHistoricalBackfill ? null : statusToDbLabel(telemetryStatus),
-      last_seen: isHistoricalBackfill ? undefined : currentNowIso,
+      last_seen: currentNowIso,
       last_temperature: isHistoricalBackfill ? undefined : numericTemperature,
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });

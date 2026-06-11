@@ -53,48 +53,9 @@ async function requireDeviceAccess(supabase, deviceId) {
 }
 
 function parseLimit(request) {
-  const value = Number(request.nextUrl.searchParams.get("limit") || 50000);
-  if (!Number.isFinite(value)) return 50000;
-  return Math.min(Math.max(Math.floor(value), 1), 50000);
-}
-
-function parseSince(request) {
-  const explicitSince = request.nextUrl.searchParams.get("since");
-  if (explicitSince) {
-    const timestamp = new Date(explicitSince).getTime();
-    if (Number.isFinite(timestamp)) return new Date(timestamp).toISOString();
-  }
-
-  const hours = Number(request.nextUrl.searchParams.get("hours") || 24 * 7);
-  const safeHours = Number.isFinite(hours) ? Math.min(Math.max(hours, 1), 24 * 31) : 24 * 7;
-  return new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
-}
-
-async function fetchHistoryRows(supabase, deviceId, sinceIso, limit) {
-  const pageSize = 1000;
-  const rows = [];
-
-  while (rows.length < limit) {
-    const from = rows.length;
-    const to = Math.min(from + pageSize - 1, limit - 1);
-
-    const { data, error } = await supabase
-      .from("readings")
-      .select("*")
-      .eq("device_id", deviceId)
-      .gte("created_at", sinceIso)
-      .order("created_at", { ascending: true })
-      .range(from, to);
-
-    if (error) throw error;
-
-    const page = data || [];
-    rows.push(...page);
-
-    if (page.length < pageSize) break;
-  }
-
-  return rows;
+  const value = Number(request.nextUrl.searchParams.get("limit") || 2000);
+  if (!Number.isFinite(value)) return 2000;
+  return Math.min(Math.max(Math.floor(value), 1), 5000);
 }
 
 export async function GET(request, context) {
@@ -112,10 +73,17 @@ export async function GET(request, context) {
 
   try {
     const limit = parseLimit(request);
-    const sinceIso = parseSince(request);
-    const data = await fetchHistoryRows(supabase, deviceId, sinceIso, limit);
+    const { data, error } = await supabase
+      .from("readings")
+      .select("*")
+      .eq("device_id", deviceId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
 
     const history = (data || [])
+      .reverse()
       .map((row) => ({
         created_at: row.created_at,
         timestamp: new Date(row.created_at).getTime(),
