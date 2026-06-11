@@ -2611,6 +2611,16 @@ function DataChart({
   const offlinePoints = data.filter(
     (item) => item?.offline_captured && parseNumber(item?.[offlineDataKey]) !== null
   );
+  const minBreachesLimit =
+    minPoint &&
+    minThreshold !== null &&
+    minThreshold !== undefined &&
+    minPoint.value < Number(minThreshold);
+  const maxBreachesLimit =
+    maxPoint &&
+    maxThreshold !== null &&
+    maxThreshold !== undefined &&
+    maxPoint.value > Number(maxThreshold);
 
   return (
     <div style={styles.chartCard}>
@@ -2626,7 +2636,7 @@ function DataChart({
           {offlinePoints.length > 0 ? (
             <div style={styles.chartBackfillHint}>
               <span style={styles.chartBackfillDot} />
-              Linha vermelha: leituras captadas offline
+              Pontos vermelhos: leituras recuperadas do armazenamento offline
             </div>
           ) : null}
           {isOffline ? (
@@ -2705,8 +2715,8 @@ function DataChart({
                 <Line
                   type="linear"
                   dataKey={offlineDataKey}
-                  stroke="#ef4444"
-                  strokeWidth={3}
+                  stroke="transparent"
+                  strokeWidth={0}
                   dot={{ r: 3, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
                   activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
                   connectNulls={false}
@@ -2719,12 +2729,12 @@ function DataChart({
                   x={minPoint.timestamp}
                   y={minPoint.value}
                   r={4}
-                  fill="#facc15"
+                  fill={minBreachesLimit ? "#ef4444" : "#facc15"}
                   stroke="none"
                   label={{
                     value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
                     position: "bottom",
-                    fill: "#facc15",
+                    fill: minBreachesLimit ? "#ef4444" : "#facc15",
                     fontSize: 12,
                   }}
                 />
@@ -2735,12 +2745,12 @@ function DataChart({
                   x={maxPoint.timestamp}
                   y={maxPoint.value}
                   r={4}
-                  fill="#fb7185"
+                  fill={maxBreachesLimit ? "#ef4444" : "#38bdf8"}
                   stroke="none"
                   label={{
                     value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
                     position: "top",
-                    fill: "#fb7185",
+                    fill: maxBreachesLimit ? "#ef4444" : "#38bdf8",
                     fontSize: 12,
                   }}
                 />
