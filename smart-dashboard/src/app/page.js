@@ -164,26 +164,8 @@ function getEffectiveStatus(device, sendIntervalS) {
   return device?.status || "SEM DADOS";
 }
 
-function isOfflineCapturedReading(reading, sendIntervalS) {
-  if (reading?.offline_captured === true) return true;
-
-  const deliveryAttempts = parseNumber(reading?.delivery_attempts) || 0;
-  const sampleAgeS = parseNumber(reading?.sample_age_s);
-  const sampleEpoch = parseNumber(reading?.sample_epoch);
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
-  const delayedMs = Math.max(expectedMs, 60 * 1000);
-
-  if (deliveryAttempts > 1) return true;
-  if (sampleAgeS !== null && sampleAgeS * 1000 > delayedMs) return true;
-
-  if (sampleEpoch !== null && sampleEpoch > 1700000000) {
-    return Date.now() - sampleEpoch * 1000 > delayedMs;
-  }
-
-  return false;
+function isOfflineCapturedReading(reading) {
+  return reading?.offline_captured === true;
 }
 
 function getStatusInfo(status) {
@@ -536,7 +518,7 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     const temp = parseNumber(item.temperature);
     const hum = parseNumber(item.humidity);
 
-    const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
+    const isOfflineReading = isOfflineCapturedReading(item);
 
     if (temp !== null) {
       bucket.hasData = true;
