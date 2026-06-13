@@ -55,7 +55,46 @@ async function requireDeviceAccess(supabase, deviceId) {
 function parseLimit(request) {
   const value = Number(request.nextUrl.searchParams.get("limit") || 2000);
   if (!Number.isFinite(value)) return 2000;
-  return Math.min(Math.max(Math.floor(value), 1), 5000);
+  return Math.min(Math.max(Math.floor(value), 1), 25000);
+}
+
+function parseHours(request) {
+  const value = Number(request.nextUrl.searchParams.get("hours"));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.min(value, 24 * 7);
+}
+
+async function fetchHistoryRows(supabase, deviceId, request) {
+  const limit = parseLimit(request);
+  const hours = parseHours(request);
+  const ascending = hours !== null;
+  const pageSize = 1000;
+  const rows = [];
+
+  for (let from = 0; from < limit; from += pageSize) {
+    const to = Math.min(from + pageSize, limit) - 1;
+    let query = supabase
+      .from("readings")
+      .select("*")
+      .eq("device_id", deviceId)
+      .order("created_at", { ascending })
+      .range(from, to);
+
+    if (hours !== null) {
+      query = query.gte(
+        "created_at",
+        new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+      );
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    rows.push(...(data || []));
+    if (!data || data.length < to - from + 1) break;
+  }
+
+  return ascending ? rows : rows.reverse();
 }
 
 export async function GET(request, context) {
@@ -72,18 +111,9 @@ export async function GET(request, context) {
   }
 
   try {
-    const limit = parseLimit(request);
-    const { data, error } = await supabase
-      .from("readings")
-      .select("*")
-      .eq("device_id", deviceId)
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
+    const data = await fetchHistoryRows(supabase, deviceId, request);
 
     const history = (data || [])
-      .reverse()
       .map((row) => ({
         created_at: row.created_at,
         timestamp: new Date(row.created_at).getTime(),

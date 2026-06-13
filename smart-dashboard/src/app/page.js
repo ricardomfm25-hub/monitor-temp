@@ -18,7 +18,6 @@ import {
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
-const MAX_HISTORY_HOURS = 24 * 7;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const STS_PRODUCT = {
@@ -42,11 +41,11 @@ const STS_STATES = {
 };
 
 const PERIODS = [
-  { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000 },
-  { key: "6h", label: "6H", hours: 6, bucketMs: 15 * 60 * 1000, tickMs: 60 * 60 * 1000 },
-  { key: "12h", label: "12H", hours: 12, bucketMs: 30 * 60 * 1000, tickMs: 2 * 60 * 60 * 1000 },
-  { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000 },
-  { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 24 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000 },
+  { key: "1h", label: "1H", hours: 1, bucketMs: 5 * 60 * 1000, tickMs: 10 * 60 * 1000, sampleLabel: "5 min" },
+  { key: "6h", label: "6H", hours: 6, bucketMs: 15 * 60 * 1000, tickMs: 60 * 60 * 1000, sampleLabel: "15 min" },
+  { key: "12h", label: "12H", hours: 12, bucketMs: 30 * 60 * 1000, tickMs: 2 * 60 * 60 * 1000, sampleLabel: "30 min" },
+  { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000, sampleLabel: "1 hora" },
+  { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 6 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000, sampleLabel: "6 horas" },
 ];
 
 function formatDateTime(value) {
@@ -422,6 +421,23 @@ function floorToBucket(timestamp, bucketMs) {
   return Math.floor(timestamp / bucketMs) * bucketMs;
 }
 
+function floorToPeriodBucket(timestamp, periodKey, bucketMs) {
+  if (periodKey !== "7d") return floorToBucket(timestamp, bucketMs);
+
+  const date = new Date(timestamp);
+  const bucketHours = bucketMs / (60 * 60 * 1000);
+  const hour = Math.floor(date.getHours() / bucketHours) * bucketHours;
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    hour,
+    0,
+    0,
+    0
+  ).getTime();
+}
+
 function getPeriodWindow(periodKey) {
   const cfg = getPeriodConfig(periodKey);
   const end = Date.now();
@@ -458,6 +474,80 @@ function getPeriodWindow(periodKey) {
   };
 }
 
+function addConfirmedGapMarkers(series, readings, sendIntervalS) {
+  const confirmedGapMs = getOfflineLimitMs(sendIntervalS);
+  const orderedReadings = (readings || [])
+    .filter((item) => Number.isFinite(item?.timestamp))
+    .filter(
+      (item) =>
+        parseNumber(item?.temperature) !== null ||
+        parseNumber(item?.humidity) !== null
+    )
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  if (orderedReadings.length < 2) return series;
+
+  const gapMarkers = [];
+
+  for (let index = 1; index < orderedReadings.length; index += 1) {
+    const previous = orderedReadings[index - 1];
+    const current = orderedReadings[index];
+    const gapMs = current.timestamp - previous.timestamp;
+
+    if (!Number.isFinite(gapMs) || gapMs <= confirmedGapMs) continue;
+
+    const alreadyHasEmptyPoint = series.some(
+      (item) =>
+        item.timestamp > previous.timestamp &&
+        item.timestamp < current.timestamp &&
+        parseNumber(item.temperature) === null &&
+        parseNumber(item.humidity) === null
+    );
+
+    if (alreadyHasEmptyPoint) continue;
+
+    const timestamp = previous.timestamp + Math.floor(gapMs / 2);
+    gapMarkers.push({
+      timestamp,
+      created_at: new Date(timestamp).toISOString(),
+      temperature: null,
+      humidity: null,
+      temperature_offline: null,
+      humidity_offline: null,
+      hasData: false,
+      offline_captured: false,
+      offline_count: 0,
+      confirmed_gap: true,
+    });
+  }
+
+  if (!gapMarkers.length) return series;
+
+  return [...series, ...gapMarkers].sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function createTimeBucket(bucketTime) {
+  return {
+    timestamp: bucketTime,
+    created_at: new Date(bucketTime).toISOString(),
+    latestTimestamp: null,
+    temperatureSum: 0,
+    temperatureCount: 0,
+    temperatureMin: null,
+    temperatureMax: null,
+    humiditySum: 0,
+    humidityCount: 0,
+    humidityMin: null,
+    humidityMax: null,
+    offlineTemperature: null,
+    offlineHumidity: null,
+    offlineTempTimestamp: null,
+    offlineHumTimestamp: null,
+    offlineCount: 0,
+    hasData: false,
+  };
+}
+
 function buildTimeSeries(readings, periodKey, sendIntervalS) {
   const { start, end, bucketMs } = getPeriodWindow(periodKey);
 
@@ -468,51 +558,12 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
 
   const buckets = new Map();
 
-  for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
-    const d = new Date(t);
-    const bucketTime =
-      periodKey === "7d"
-        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
-        : t;
-
-    if (bucketTime >= start && !buckets.has(bucketTime)) {
-      buckets.set(bucketTime, {
-        timestamp: bucketTime,
-        created_at: new Date(bucketTime).toISOString(),
-        latestTimestamp: null,
-        temperature: null,
-        humidity: null,
-        tempTimestamp: null,
-        humTimestamp: null,
-        offlineTemperature: null,
-        offlineHumidity: null,
-        offlineTempTimestamp: null,
-        offlineHumTimestamp: null,
-        offlineCount: 0,
-        hasData: false,
-      });
-    }
-  }
-
   for (const item of filtered) {
-    let bucketTime;
+    const bucketTime = floorToPeriodBucket(item.timestamp, periodKey, bucketMs);
 
-    if (periodKey === "7d") {
-      const d = new Date(item.timestamp);
-      bucketTime = new Date(
-        d.getFullYear(),
-        d.getMonth(),
-        d.getDate(),
-        0,
-        0,
-        0,
-        0
-      ).getTime();
-    } else {
-      bucketTime = floorToBucket(item.timestamp, bucketMs);
+    if (!buckets.has(bucketTime)) {
+      buckets.set(bucketTime, createTimeBucket(bucketTime));
     }
-
-    if (!buckets.has(bucketTime)) continue;
     const bucket = buckets.get(bucketTime);
 
     const temp = parseNumber(item.temperature);
@@ -526,16 +577,19 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
         bucket.latestTimestamp = item.timestamp;
       }
 
-      if (isOfflineReading) {
-        if (bucket.offlineTempTimestamp === null || item.timestamp >= bucket.offlineTempTimestamp) {
-          bucket.offlineTemperature = temp;
-          bucket.offlineTempTimestamp = item.timestamp;
-        }
-      } else {
-        if (bucket.tempTimestamp === null || item.timestamp >= bucket.tempTimestamp) {
-          bucket.temperature = temp;
-          bucket.tempTimestamp = item.timestamp;
-        }
+      bucket.temperatureSum += temp;
+      bucket.temperatureCount += 1;
+      bucket.temperatureMin =
+        bucket.temperatureMin === null ? temp : Math.min(bucket.temperatureMin, temp);
+      bucket.temperatureMax =
+        bucket.temperatureMax === null ? temp : Math.max(bucket.temperatureMax, temp);
+
+      if (
+        isOfflineReading &&
+        (bucket.offlineTempTimestamp === null || item.timestamp >= bucket.offlineTempTimestamp)
+      ) {
+        bucket.offlineTemperature = temp;
+        bucket.offlineTempTimestamp = item.timestamp;
       }
     }
 
@@ -545,16 +599,19 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
         bucket.latestTimestamp = item.timestamp;
       }
 
-      if (isOfflineReading) {
-        if (bucket.offlineHumTimestamp === null || item.timestamp >= bucket.offlineHumTimestamp) {
-          bucket.offlineHumidity = hum;
-          bucket.offlineHumTimestamp = item.timestamp;
-        }
-      } else {
-        if (bucket.humTimestamp === null || item.timestamp >= bucket.humTimestamp) {
-          bucket.humidity = hum;
-          bucket.humTimestamp = item.timestamp;
-        }
+      bucket.humiditySum += hum;
+      bucket.humidityCount += 1;
+      bucket.humidityMin =
+        bucket.humidityMin === null ? hum : Math.min(bucket.humidityMin, hum);
+      bucket.humidityMax =
+        bucket.humidityMax === null ? hum : Math.max(bucket.humidityMax, hum);
+
+      if (
+        isOfflineReading &&
+        (bucket.offlineHumTimestamp === null || item.timestamp >= bucket.offlineHumTimestamp)
+      ) {
+        bucket.offlineHumidity = hum;
+        bucket.offlineHumTimestamp = item.timestamp;
       }
     }
 
@@ -563,15 +620,25 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     }
   }
 
-  return Array.from(buckets.values())
+  const series = Array.from(buckets.values())
     .map((bucket) => ({
       timestamp: bucket.timestamp,
-      created_at:
-        bucket.latestTimestamp !== null
-          ? new Date(bucket.latestTimestamp).toISOString()
-          : bucket.created_at,
-      temperature: bucket.temperature !== null ? Number(bucket.temperature.toFixed(2)) : null,
-      humidity: bucket.humidity !== null ? Number(bucket.humidity.toFixed(2)) : null,
+      created_at: bucket.created_at,
+      interval_end: new Date(bucket.timestamp + bucketMs).toISOString(),
+      temperature_count: bucket.temperatureCount,
+      humidity_count: bucket.humidityCount,
+      temperature:
+        bucket.temperatureCount > 0
+          ? Number((bucket.temperatureSum / bucket.temperatureCount).toFixed(2))
+          : null,
+      humidity:
+        bucket.humidityCount > 0
+          ? Number((bucket.humiditySum / bucket.humidityCount).toFixed(2))
+          : null,
+      temperature_min: bucket.temperatureMin,
+      temperature_max: bucket.temperatureMax,
+      humidity_min: bucket.humidityMin,
+      humidity_max: bucket.humidityMax,
       temperature_offline:
         bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
       humidity_offline:
@@ -580,8 +647,11 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       offline_captured: bucket.offlineCount > 0,
       offline_count: bucket.offlineCount,
     }))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
+    .filter((item) => item.timestamp + bucketMs > start && item.timestamp <= end)
+    .filter((item) => item.hasData)
     .sort((a, b) => a.timestamp - b.timestamp);
+
+  return addConfirmedGapMarkers(series, filtered, sendIntervalS);
 }
 
 function getXAxisTicks(periodKey) {
@@ -1925,6 +1995,10 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   const point = visiblePayload?.payload;
   const value = visiblePayload?.value;
   const isOfflineSeries = String(visiblePayload?.dataKey || "").endsWith("_offline");
+  const metricKey = String(visiblePayload?.dataKey || "").replace("_offline", "");
+  const metricMin = parseNumber(point?.[`${metricKey}_min`]);
+  const metricMax = parseNumber(point?.[`${metricKey}_max`]);
+  const sampleCount = parseNumber(point?.[`${metricKey}_count`]);
 
   return (
     <div style={styles.tooltip}>
@@ -1936,10 +2010,16 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
           ? "Sem leitura neste intervalo"
           : (
             <>
-              {isOfflineSeries ? "Offline" : "Valor"}: <strong>{formatValue(value, unit, digits)}</strong>
+              {isOfflineSeries ? "Offline" : "Média"}: <strong>{formatValue(value, unit, digits)}</strong>
             </>
           )}
       </div>
+      {!isOfflineSeries && metricMin !== null && metricMax !== null ? (
+        <div style={styles.tooltipMeta}>
+          Mín. {formatValue(metricMin, unit, digits)} · Máx. {formatValue(metricMax, unit, digits)}
+          {sampleCount !== null ? ` · ${sampleCount} amostra${sampleCount === 1 ? "" : "s"}` : ""}
+        </div>
+      ) : null}
       {isOfflineSeries ? (
         <div style={styles.tooltipMeta}>
           Leitura captada offline{point.offline_count > 1 ? ` (${point.offline_count})` : ""}
@@ -2591,9 +2671,10 @@ function DataChart({
 }) {
   const offlineDataKey = `${dataKey}_offline`;
   const chartKeys = [dataKey, offlineDataKey];
-  const { min, max } = getSeriesMinMax(data, chartKeys);
-  const yDomain = getChartDomain(data, chartKeys, [minThreshold, maxThreshold]);
-  const { minPoint, maxPoint } = getReferencePoints(data, chartKeys);
+  const rangeKeys = [`${dataKey}_min`, `${dataKey}_max`, offlineDataKey];
+  const { min, max } = getSeriesMinMax(data, rangeKeys);
+  const yDomain = getChartDomain(data, rangeKeys, [minThreshold, maxThreshold]);
+  const { minPoint, maxPoint } = getReferencePoints(data, rangeKeys);
   const yTicks =
     dataKey === "temperature" ? getNiceTemperatureTicks(yDomain) : undefined;
 
@@ -2604,6 +2685,7 @@ function DataChart({
       : (value) => `${Number(value).toFixed(1)}`;
 
   const timeWindow = getPeriodWindow(periodKey);
+  const periodConfig = getPeriodConfig(periodKey);
   const xTicks = getXAxisTicks(periodKey);
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
@@ -2631,7 +2713,7 @@ function DataChart({
             Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
           </div>
           <div style={styles.chartHint}>
-            Intervalo exibido: {periodKey.toUpperCase()}
+            Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa a média de {periodConfig.sampleLabel}
           </div>
           {offlinePoints.length > 0 ? (
             <div style={styles.chartBackfillHint}>
@@ -3010,7 +3092,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve(null),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
+            ? fetchJsonOrThrow(
+                `/api/sts/device/${nextSelectedDeviceId}/history?hours=${getPeriodConfig(period).hours}&limit=25000`
+              )
             : Promise.resolve([]),
 
           nextSelectedDeviceId
@@ -3076,7 +3160,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         const readingsData = (historyRows || [])
           .map((item) => {
-            const timestamp = new Date(item.created_at).getTime();
+            const apiTimestamp = Number(item.timestamp);
+            const timestamp = Number.isFinite(apiTimestamp)
+              ? apiTimestamp
+              : new Date(item.created_at).getTime();
 
             return {
               ...item,
