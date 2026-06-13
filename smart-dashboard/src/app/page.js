@@ -2669,9 +2669,8 @@ function DataChart({
   periodKey,
   isOffline,
 }) {
-  const offlineDataKey = `${dataKey}_offline`;
-  const chartKeys = [dataKey, offlineDataKey];
-  const rangeKeys = [`${dataKey}_min`, `${dataKey}_max`, offlineDataKey];
+  const chartKeys = [dataKey];
+  const rangeKeys = [`${dataKey}_min`, `${dataKey}_max`];
   const { min, max } = getSeriesMinMax(data, rangeKeys);
   const yDomain = getChartDomain(data, rangeKeys, [minThreshold, maxThreshold]);
   const { minPoint, maxPoint } = getReferencePoints(data, rangeKeys);
@@ -2690,20 +2689,6 @@ function DataChart({
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
-  const offlinePoints = data.filter(
-    (item) => item?.offline_captured && parseNumber(item?.[offlineDataKey]) !== null
-  );
-  const minBreachesLimit =
-    minPoint &&
-    minThreshold !== null &&
-    minThreshold !== undefined &&
-    minPoint.value < Number(minThreshold);
-  const maxBreachesLimit =
-    maxPoint &&
-    maxThreshold !== null &&
-    maxThreshold !== undefined &&
-    maxPoint.value > Number(maxThreshold);
-
   return (
     <div style={styles.chartCard}>
       <div style={styles.chartHeader}>
@@ -2715,12 +2700,6 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa a média de {periodConfig.sampleLabel}
           </div>
-          {offlinePoints.length > 0 ? (
-            <div style={styles.chartBackfillHint}>
-              <span style={styles.chartBackfillDot} />
-              Pontos vermelhos: leituras recuperadas do armazenamento offline
-            </div>
-          ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
               Dispositivo offline · histórico preservado até à última leitura válida
@@ -2793,30 +2772,17 @@ function DataChart({
                 isAnimationActive={false}
               />
 
-              {offlinePoints.length > 0 ? (
-                <Line
-                  type="linear"
-                  dataKey={offlineDataKey}
-                  stroke="transparent"
-                  strokeWidth={0}
-                  dot={{ r: 3, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
-                  activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-              ) : null}
-
               {minPoint && (
                 <ReferenceDot
                   x={minPoint.timestamp}
                   y={minPoint.value}
                   r={4}
-                  fill={minBreachesLimit ? "#ef4444" : "#facc15"}
+                  fill="#facc15"
                   stroke="none"
                   label={{
                     value: `Min ${formatValue(minPoint.value, "", valueDigits)}`,
                     position: "bottom",
-                    fill: minBreachesLimit ? "#ef4444" : "#facc15",
+                    fill: "#facc15",
                     fontSize: 12,
                   }}
                 />
@@ -2827,12 +2793,12 @@ function DataChart({
                   x={maxPoint.timestamp}
                   y={maxPoint.value}
                   r={4}
-                  fill={maxBreachesLimit ? "#ef4444" : "#38bdf8"}
+                  fill="#38bdf8"
                   stroke="none"
                   label={{
                     value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
                     position: "top",
-                    fill: maxBreachesLimit ? "#ef4444" : "#38bdf8",
+                    fill: "#38bdf8",
                     fontSize: 12,
                   }}
                 />
