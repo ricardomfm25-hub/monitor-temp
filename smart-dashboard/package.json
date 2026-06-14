@@ -1,6 +1,6 @@
 {
   "name": "smart-dashboard",
-  "version": "0.1.0",
+  "version": "2.4.51",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",

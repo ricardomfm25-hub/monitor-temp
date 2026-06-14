@@ -13,6 +13,17 @@ const API_TOKEN = process.env.API_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const REQUIRED_ENV = { API_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY };
+const missingRequiredEnv = Object.entries(REQUIRED_ENV)
+  .filter(([, value]) => !String(value || "").trim())
+  .map(([name]) => name);
+
+if (missingRequiredEnv.length > 0) {
+  throw new Error(
+    `Configuracao insegura: variaveis obrigatorias em falta: ${missingRequiredEnv.join(", ")}`
+  );
+}
+
 const TEMP_LIMIT = parseFloat(process.env.TEMP_LIMIT || "25");
 const COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || "30", 10);
 
@@ -65,7 +76,8 @@ function getAuthToken(req) {
 }
 
 function isAuthorized(req) {
-  return getAuthToken(req) === API_TOKEN;
+  const token = getAuthToken(req);
+  return Boolean(token && API_TOKEN && token === API_TOKEN);
 }
 
 function nowIso() {
@@ -611,7 +623,8 @@ function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
 }
 
 function isOfflineCapturedReading(incoming, cfg) {
-  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
+  const captureNetworkKnown = toBoolean(incoming.capture_network_known);
+  const capturedOffline = toBoolean(incoming.captured_offline);
   const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
   const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
   const expectedMs =
@@ -619,7 +632,9 @@ function isOfflineCapturedReading(incoming, cfg) {
       ? Number(cfg.send_interval_s) * 1000
       : 30 * 1000;
 
-  if (deliveryAttempts > 1) return true;
+  if (captureNetworkKnown) return capturedOffline;
+
+  // Compatibility for records captured before network state was persisted.
   if (sampleAgeS !== null && sampleAgeS * 1000 > Math.max(expectedMs, 60 * 1000)) {
     return true;
   }
@@ -2924,6 +2939,8 @@ app.post("/api/temperature", async (req, res) => {
       sample_age_s,
       sample_epoch,
       delivery_attempts,
+      captured_offline,
+      capture_network_known,
     } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
@@ -2989,13 +3006,30 @@ app.post("/api/temperature", async (req, res) => {
       sample_epoch: toOptionalNumber(sample_epoch),
       delivery_attempts: toOptionalNumber(delivery_attempts) || 0,
     };
+    const captureNetworkMeta = {
+      captured_offline: toBoolean(captured_offline),
+      capture_network_known: toBoolean(capture_network_known),
+    };
     const enrichedReadingPayload = {
       ...readingPayload,
       ...incomingReadingMeta,
-      offline_captured: isOfflineCapturedReading(incomingReadingMeta, cfg),
+      offline_captured: isOfflineCapturedReading(
+        { ...incomingReadingMeta, ...captureNetworkMeta },
+        cfg
+      ),
     };
+    const readingAgeMs = Math.max(
+      0,
+      Date.now() - new Date(readingCreatedAt).getTime()
+    );
+    const historicalThresholdMs = Math.max(
+      Number(cfg.send_interval_s || 30) * 2000,
+      60 * 1000
+    );
     const isHistoricalBackfill =
-      enrichedReadingPayload.offline_captured && Boolean(existingDeviceRow);
+      enrichedReadingPayload.offline_captured &&
+      Boolean(existingDeviceRow) &&
+      readingAgeMs > historicalThresholdMs;
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
@@ -3064,11 +3098,11 @@ app.post("/api/temperature", async (req, res) => {
       location: sanitizeLocation(baseDeviceRow.location),
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
-      last_seen: currentNowIso,
       updated_at: currentNowIso,
     };
 
     if (!isHistoricalBackfill) {
+      upsertPayload.last_seen = currentNowIso;
       upsertPayload.last_temperature = numericTemperature;
       upsertPayload.last_humidity = numericHumidity;
       upsertPayload.status = statusToDbLabel(telemetryStatus);
@@ -3142,7 +3176,7 @@ app.post("/api/temperature", async (req, res) => {
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
       status: isHistoricalBackfill ? null : statusToDbLabel(telemetryStatus),
-      last_seen: currentNowIso,
+      last_seen: isHistoricalBackfill ? undefined : currentNowIso,
       last_temperature: isHistoricalBackfill ? undefined : numericTemperature,
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });
@@ -3151,7 +3185,7 @@ app.post("/api/temperature", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings: last24hReadings,
       sendIntervalS: refreshedCfg.send_interval_s,
-      deviceLastSeen: currentNowIso,
+      deviceLastSeen: isHistoricalBackfill ? freshDeviceRow.last_seen : currentNowIso,
       periodHours: 24,
     });
 
