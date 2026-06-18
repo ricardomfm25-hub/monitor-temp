@@ -384,6 +384,10 @@ function getReferencePoints(data, keys) {
   return { minPoint, maxPoint };
 }
 
+function hasSeriesValue(data, key) {
+  return (data || []).some((item) => parseNumber(item?.[key]) !== null);
+}
+
 function getNiceTemperatureTicks(domain) {
   if (!Array.isArray(domain) || domain.length !== 2) return undefined;
 
@@ -2669,7 +2673,8 @@ function DataChart({
   periodKey,
   isOffline,
 }) {
-  const chartKeys = [dataKey];
+  const offlineKey = `${dataKey}_offline`;
+  const chartKeys = [dataKey, offlineKey];
   const rangeKeys = [`${dataKey}_min`, `${dataKey}_max`];
   const { min, max } = getSeriesMinMax(data, rangeKeys);
   const yDomain = getChartDomain(data, rangeKeys, [minThreshold, maxThreshold]);
@@ -2689,6 +2694,7 @@ function DataChart({
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
+  const hasOfflineData = hasSeriesValue(data, offlineKey);
   return (
     <div style={styles.chartCard}>
       <div style={styles.chartHeader}>
@@ -2700,6 +2706,12 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa a média de {periodConfig.sampleLabel}
           </div>
+          {hasOfflineData ? (
+            <div style={styles.chartBackfillHint}>
+              <span style={styles.chartBackfillDot} />
+              Leituras captadas offline assinaladas a laranja
+            </div>
+          ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
               Dispositivo offline · histórico preservado até à última leitura válida
@@ -2763,11 +2775,46 @@ function DataChart({
 
               <Line
                 type="linear"
+                dataKey={`${dataKey}_min`}
+                stroke="#facc15"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                dot={false}
+                activeDot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+
+              <Line
+                type="linear"
+                dataKey={`${dataKey}_max`}
+                stroke="#38bdf8"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                dot={false}
+                activeDot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+
+              <Line
+                type="linear"
                 dataKey={dataKey}
                 stroke="#3b82f6"
                 strokeWidth={3}
                 dot={false}
                 activeDot={{ r: 4 }}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+
+              <Line
+                type="linear"
+                dataKey={offlineKey}
+                stroke="#fb923c"
+                strokeWidth={0}
+                dot={{ r: 4, fill: "#fb923c", stroke: "#fff7ed", strokeWidth: 1 }}
+                activeDot={{ r: 6, fill: "#fb923c", stroke: "#fff7ed", strokeWidth: 2 }}
                 connectNulls={false}
                 isAnimationActive={false}
               />

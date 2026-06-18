@@ -162,6 +162,11 @@ function average(values, digits = 1) {
   return Number(avgValue.toFixed(digits));
 }
 
+function getAverageRaw(values) {
+  if (!Array.isArray(values) || !values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 function getReportPeriodRange(period = "24h") {
   const normalized = String(period || "24h").toLowerCase();
 
@@ -174,16 +179,67 @@ function getReportPeriodRange(period = "24h") {
   };
 
   const selected = map[normalized] || map["24h"];
-  const sinceIso = new Date(
-    Date.now() - selected.hours * 60 * 60 * 1000
-  ).toISOString();
+  const requestedEnd = new Date();
+  const requestedStart = new Date(
+    requestedEnd.getTime() - selected.hours * 60 * 60 * 1000
+  );
 
   return {
     key: normalized in map ? normalized : "24h",
     label: selected.label,
     hours: selected.hours,
-    sinceIso,
+    sinceIso: requestedStart.toISOString(),
+    untilIso: requestedEnd.toISOString(),
+    requestedStartIso: requestedStart.toISOString(),
+    requestedEndIso: requestedEnd.toISOString(),
   };
+}
+
+function buildReportIntervalSummary(rows, requestedStartIso, requestedEndIso, periodKey) {
+  const startMs = new Date(requestedStartIso).getTime();
+  const endMs = new Date(requestedEndIso).getTime();
+
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return [];
+  }
+
+  const bucketCount = periodKey === "1h" ? 6 : periodKey === "6h" ? 6 : periodKey === "12h" ? 6 : periodKey === "24h" ? 8 : 7;
+  const bucketMs = (endMs - startMs) / bucketCount;
+  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+    startMs: startMs + bucketMs * index,
+    endMs: index === bucketCount - 1 ? endMs : startMs + bucketMs * (index + 1),
+    temperatures: [],
+    humidities: [],
+    readings: 0,
+    offline: 0,
+  }));
+
+  for (const row of rows || []) {
+    const ts = new Date(row?.created_at).getTime();
+    if (!Number.isFinite(ts) || ts < startMs || ts > endMs) continue;
+
+    const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((ts - startMs) / bucketMs)));
+    const bucket = buckets[index];
+    const temperature = toOptionalNumber(row?.temperature);
+    const humidity = toOptionalNumber(row?.humidity);
+
+    bucket.readings += 1;
+    if (row?.offline_captured === true) bucket.offline += 1;
+    if (temperature !== null) bucket.temperatures.push(temperature);
+    if (humidity !== null) bucket.humidities.push(humidity);
+  }
+
+  return buckets.map((bucket) => ({
+    label: `${formatDateTimePt(bucket.startMs)} - ${formatDateTimePt(bucket.endMs)}`,
+    readings: bucket.readings,
+    offline: bucket.offline,
+    tempMin: bucket.temperatures.length ? Math.min(...bucket.temperatures) : null,
+    tempAvg: getAverageRaw(bucket.temperatures),
+    tempMax: bucket.temperatures.length ? Math.max(...bucket.temperatures) : null,
+    humMin: bucket.humidities.length ? Math.min(...bucket.humidities) : null,
+    humAvg: getAverageRaw(bucket.humidities),
+    humMax: bucket.humidities.length ? Math.max(...bucket.humidities) : null,
+  }));
 }
 
 function formatPeriodLabelForFilename(periodKey = "24h") {
@@ -3614,7 +3670,15 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     const sendEmailCopy =
       String(req.query.email || "false").toLowerCase() === "true";
 
-    const { key: periodKey, label: periodLabel, hours: periodHours, sinceIso } =
+    const {
+      key: periodKey,
+      label: periodLabel,
+      hours: periodHours,
+      sinceIso,
+      untilIso,
+      requestedStartIso,
+      requestedEndIso,
+    } =
       getReportPeriodRange(period);
 
     const [
@@ -3631,10 +3695,11 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       supabase
         .from("readings")
         .select(
-          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason"
+          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason, offline_captured"
         )
         .eq("device_id", deviceId)
         .gte("created_at", sinceIso)
+        .lte("created_at", untilIso)
         .order("created_at", { ascending: true }),
 
       supabase
@@ -3642,6 +3707,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
         .select("*")
         .eq("device_id", deviceId)
         .or(`sent_at.gte.${sinceIso},created_at.gte.${sinceIso}`)
+        .lte("created_at", untilIso)
         .order("sent_at", { ascending: true }),
     ]);
 
@@ -3664,9 +3730,10 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       const { data: fallbackReadings, error: fallbackReadingsError } =
         await supabase
           .from("readings")
-          .select("temperature, humidity, created_at")
+          .select("temperature, humidity, created_at, offline_captured")
           .eq("device_id", deviceId)
           .gte("created_at", sinceIso)
+          .lte("created_at", untilIso)
           .order("created_at", { ascending: true });
 
       if (fallbackReadingsError) {
@@ -3711,6 +3778,13 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
 
     const firstReadingAt = rows[0]?.created_at || null;
     const lastReadingAt = rows[rows.length - 1]?.created_at || null;
+    const offlineReadingCount = rows.filter((row) => row?.offline_captured === true).length;
+    const reportIntervalRows = buildReportIntervalSummary(
+      rows,
+      requestedStartIso,
+      requestedEndIso,
+      periodKey
+    );
 
     const safeFilenameName = sanitizeDeviceName(
       deviceRow?.name,
@@ -3914,6 +3988,14 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     doc.text(`${communicationHealth.delivery_pct}%`, 448, y + 76);
     doc.text(formatDurationCompact(communicationHealth.expected_interval_ms), 190, y + 100);
 
+    doc.fillColor("#64748b").font("Helvetica").fontSize(9);
+    doc.text(
+      `Periodo pedido: ${formatDateTimePt(requestedStartIso, true)} ate ${formatDateTimePt(requestedEndIso, true)}`,
+      320,
+      y + 100,
+      { width: 210, align: "right" }
+    );
+
     y += 150;
 
     doc
@@ -3963,6 +4045,75 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
           }
         );
     };
+
+    drawFooter();
+    doc.addPage();
+
+    let summaryY = 54;
+    doc
+      .fillColor("#0f172a")
+      .font("Helvetica-Bold")
+      .fontSize(18)
+      .text("Resumo por intervalos", 42, summaryY);
+
+    summaryY += 24;
+
+    doc
+      .fillColor("#64748b")
+      .font("Helvetica")
+      .fontSize(10)
+      .text(
+        `Periodo pedido: ${formatDateTimePt(requestedStartIso, true)} ate ${formatDateTimePt(requestedEndIso, true)}`,
+        42,
+        summaryY,
+        { width: 511 }
+      );
+
+    summaryY += 30;
+
+    doc
+      .roundedRect(42, summaryY, 511, 28, 8)
+      .fillAndStroke("#f8fafc", "#e2e8f0");
+
+    doc.fillColor("#475569").font("Helvetica-Bold").fontSize(8);
+    doc.text("Intervalo", 52, summaryY + 10, { width: 138 });
+    doc.text("Temp min/med/max", 196, summaryY + 10, { width: 104, align: "right" });
+    doc.text("Hum min/med/max", 308, summaryY + 10, { width: 104, align: "right" });
+    doc.text("Leit.", 428, summaryY + 10, { width: 42, align: "right" });
+    doc.text("Off.", 486, summaryY + 10, { width: 42, align: "right" });
+
+    summaryY += 34;
+
+    reportIntervalRows.forEach((row, index) => {
+      if (summaryY > 742) {
+        drawFooter();
+        doc.addPage();
+        summaryY = 54;
+      }
+
+      const fill = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+      doc
+        .roundedRect(42, summaryY, 511, 38, 6)
+        .fillAndStroke(fill, "#e2e8f0");
+
+      const tempText =
+        row.tempMin !== null
+          ? `${formatNumber(row.tempMin, 1)}/${formatNumber(row.tempAvg, 1)}/${formatNumber(row.tempMax, 1)} C`
+          : "-";
+      const humText =
+        row.humMin !== null
+          ? `${formatNumber(row.humMin, 0)}/${formatNumber(row.humAvg, 0)}/${formatNumber(row.humMax, 0)} %`
+          : "-";
+
+      doc.fillColor("#0f172a").font("Helvetica").fontSize(8);
+      doc.text(row.label, 52, summaryY + 9, { width: 138 });
+      doc.text(tempText, 196, summaryY + 9, { width: 104, align: "right" });
+      doc.text(humText, 308, summaryY + 9, { width: 104, align: "right" });
+      doc.text(String(row.readings), 428, summaryY + 9, { width: 42, align: "right" });
+      doc.text(String(row.offline), 486, summaryY + 9, { width: 42, align: "right" });
+
+      summaryY += 44;
+    });
 
     if (alertHistory.length) {
       drawFooter();
