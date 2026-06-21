@@ -704,6 +704,33 @@ function isOfflineCapturedReading(incoming, cfg) {
   return false;
 }
 
+function isHistoricalReadingBackfill({ readingCreatedAt, incoming, cfg, hasExistingDevice }) {
+  if (!hasExistingDevice) return false;
+
+  const createdTs = new Date(readingCreatedAt).getTime();
+  if (!Number.isFinite(createdTs)) return false;
+
+  const expectedMs =
+    Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
+      ? Number(cfg.send_interval_s) * 1000
+      : 30 * 1000;
+  const historicalThresholdMs = Math.max(expectedMs * 2, 60 * 1000);
+  const ageMs = Date.now() - createdTs;
+
+  if (!Number.isFinite(ageMs) || ageMs <= historicalThresholdMs) return false;
+
+  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
+  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
+  const hasBackdatedSample =
+    sampleAgeS !== null && sampleAgeS * 1000 > historicalThresholdMs;
+
+  return (
+    isOfflineCapturedReading(incoming, cfg) ||
+    deliveryAttempts > 0 ||
+    hasBackdatedSample
+  );
+}
+
 function isMissingReadingTelemetryColumnError(error) {
   const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
   return (
@@ -3079,18 +3106,12 @@ app.post("/api/temperature", async (req, res) => {
         cfg
       ),
     };
-    const readingAgeMs = Math.max(
-      0,
-      Date.now() - new Date(readingCreatedAt).getTime()
-    );
-    const historicalThresholdMs = Math.max(
-      Number(cfg.send_interval_s || 30) * 2000,
-      60 * 1000
-    );
-    const isHistoricalBackfill =
-      enrichedReadingPayload.offline_captured &&
-      Boolean(existingDeviceRow) &&
-      readingAgeMs > historicalThresholdMs;
+    const isHistoricalBackfill = isHistoricalReadingBackfill({
+      readingCreatedAt,
+      incoming: { ...incomingReadingMeta, ...captureNetworkMeta },
+      cfg,
+      hasExistingDevice: Boolean(existingDeviceRow),
+    });
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
@@ -3318,9 +3339,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const currentReading = latestReading || null;
 
     const temperature =
-      currentReading?.temperature ?? deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
+      deviceRow?.last_temperature ?? currentReading?.temperature ?? latestReading?.temperature ?? null;
     const humidity =
-      currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
+      deviceRow?.last_humidity ?? currentReading?.humidity ?? latestReading?.humidity ?? null;
 
     const contactTimes = [
       deviceRow?.last_contact_at,
