@@ -39,6 +39,7 @@ const HEALTH_CHECK_INTERVAL_SECONDS = parseInt(
   process.env.HEALTH_CHECK_INTERVAL_SECONDS || "60",
   10
 );
+const ALERT_EQUIVALENCE_WINDOW_MS = 5 * 60 * 1000;
 const READING_MIN_INTERVAL_FACTOR = clamp(
   Number(process.env.READING_MIN_INTERVAL_FACTOR || "0.5"),
   0.5,
@@ -470,7 +471,7 @@ function mergeReportAlertHistory(storedEvents, derivedEvents) {
       const storedTs = new Date(storedEvent.when).getTime();
       if (!Number.isFinite(eventTs) || !Number.isFinite(storedTs)) return false;
       if (storedEvent.kind !== event.kind) return false;
-      if (Math.abs(storedTs - eventTs) > 90000) return false;
+      if (Math.abs(storedTs - eventTs) > ALERT_EQUIVALENCE_WINDOW_MS) return false;
       const storedType = getReportEventType(storedEvent);
       const eventType = getReportEventType(event);
       if (storedType && eventType && storedType !== eventType) return false;
@@ -834,6 +835,7 @@ function statusToDbLabel(status) {
     alarm: "ALARM",
     alarm_ack: "ALARM_ACK",
     offline: "OFFLINE",
+    no_wifi: "NO_WIFI",
     sensor_fail: "SENSOR_FAIL",
     setup_wifi: "SETUP_WIFI",
   };
@@ -848,6 +850,7 @@ function statusToApiLabel(status) {
     alarm: "alarm",
     alarm_ack: "alarm_ack",
     offline: "offline",
+    no_wifi: "no_wifi",
     sensor_fail: "sensor_fail",
     setup_wifi: "setup_wifi",
   };
@@ -864,7 +867,8 @@ function normalizeDeviceStatus(status) {
   if (value.includes("ack")) return "alarm_ack";
   if (value.includes("sensor")) return "sensor_fail";
   if (value.includes("setup")) return "setup_wifi";
-  if (value.includes("offline") || value.includes("no_wifi")) return "offline";
+  if (value.includes("no_wifi") || value.includes("wifi")) return "no_wifi";
+  if (value.includes("offline")) return "offline";
   if (value.includes("alarm") || value.includes("critical")) return "alarm";
   if (value.includes("alert") || value.includes("warning")) return "alert";
   if (value.includes("normal") || value.includes("online") || value.includes("ok")) {
@@ -900,7 +904,8 @@ function resolveTelemetryStatus({
   if (
     normalizedIncoming === "sensor_fail" ||
     normalizedIncoming === "setup_wifi" ||
-    normalizedIncoming === "offline"
+    normalizedIncoming === "offline" ||
+    normalizedIncoming === "no_wifi"
   ) {
     return normalizedIncoming;
   }
@@ -3145,6 +3150,15 @@ app.post("/api/temperature", async (req, res) => {
       alarmMask: readingPayload.alarm_mask,
       computedStatus,
     });
+    const deviceTelemetryStatus = enrichedReadingPayload.offline_captured
+      ? resolveTelemetryStatus({
+          online: true,
+          incomingStatus: null,
+          alarmAck: readingPayload.alarm_ack,
+          alarmMask: readingPayload.alarm_mask,
+          computedStatus,
+        })
+      : telemetryStatus;
 
     const currentNowIso = nowIso();
 
@@ -3161,7 +3175,7 @@ app.post("/api/temperature", async (req, res) => {
       upsertPayload.last_seen = currentNowIso;
       upsertPayload.last_temperature = numericTemperature;
       upsertPayload.last_humidity = numericHumidity;
-      upsertPayload.status = statusToDbLabel(telemetryStatus);
+      upsertPayload.status = statusToDbLabel(deviceTelemetryStatus);
     }
 
     const { error: upsertError } = await supabase
@@ -3231,7 +3245,7 @@ app.post("/api/temperature", async (req, res) => {
 
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
-      status: isHistoricalBackfill ? null : statusToDbLabel(telemetryStatus),
+      status: isHistoricalBackfill ? null : statusToDbLabel(deviceTelemetryStatus),
       last_seen: isHistoricalBackfill ? undefined : currentNowIso,
       last_temperature: isHistoricalBackfill ? undefined : numericTemperature,
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,

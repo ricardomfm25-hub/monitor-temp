@@ -31,7 +31,8 @@ function normalizeDeviceStatus(status) {
   if (value.includes("ack")) return "alarm_ack";
   if (value.includes("sensor")) return "sensor_fail";
   if (value.includes("setup")) return "setup_wifi";
-  if (value.includes("offline") || value.includes("no_wifi")) return "offline";
+  if (value.includes("no_wifi") || value.includes("wifi")) return "no_wifi";
+  if (value.includes("offline")) return "offline";
   if (value.includes("alarm") || value.includes("critical")) return "alarm";
   if (value.includes("alert") || value.includes("warning")) return "alert";
   if (value.includes("normal") || value.includes("online") || value.includes("ok")) {
@@ -66,7 +67,8 @@ function resolveTelemetryStatus({
 
   if (
     normalizedIncoming === "sensor_fail" ||
-    normalizedIncoming === "setup_wifi"
+    normalizedIncoming === "setup_wifi" ||
+    normalizedIncoming === "no_wifi"
   ) {
     return normalizedIncoming;
   }

@@ -17,7 +17,7 @@ import {
 } from "recharts";
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
-const AUTO_REFRESH_MS = 15000;
+const AUTO_REFRESH_MS = 8000;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const STS_PRODUCT = {
@@ -27,6 +27,7 @@ const STS_PRODUCT = {
 };
 const STS_TAGLINE = "Monitorizar Hoje. Proteger Amanhã.";
 const STS_LOGO_SRC = "/sts-logo.png";
+const ALERT_EQUIVALENCE_WINDOW_MS = 5 * 60 * 1000;
 
 const STS_STATES = {
   ONLINE: "ONLINE",
@@ -180,6 +181,19 @@ function getStatusInfo(status) {
       priority: 1,
       dot: "#60a5fa",
       panel: "#101a2d",
+    };
+  }
+
+  if (s.includes("no_wifi") || s.includes("sem_wifi")) {
+    return {
+      label: "SEM WIFI",
+      color: "#f59e0b",
+      soft: "#2a2112",
+      border: "#4b3a1d",
+      glow: "0 0 0 1px rgba(245,158,11,0.10)",
+      priority: 2,
+      dot: "#f59e0b",
+      panel: "#15131a",
     };
   }
 
@@ -1906,7 +1920,7 @@ function getAlertTimestamp(item) {
 }
 
 function getAlertDedupeKey(item) {
-  const bucket = Math.floor(getAlertTimestamp(item) / 120000);
+  const bucket = Math.floor(getAlertTimestamp(item) / ALERT_EQUIVALENCE_WINDOW_MS);
   return [
     String(item?.type || "system").toLowerCase(),
     String(item?.level || "").toLowerCase(),
@@ -1927,27 +1941,38 @@ function areEquivalentAlertEvents(a, b) {
   if (aState && bState && aState !== bState) return false;
 
   const diffMs = Math.abs(getAlertTimestamp(a) - getAlertTimestamp(b));
-  return diffMs <= 120000;
+  return diffMs <= ALERT_EQUIVALENCE_WINDOW_MS;
 }
 
 function mergeAlertEvents(backendAlerts, derivedAlerts) {
   const merged = [];
   const seen = new Set();
+  const realAlerts = normalizeAlertRows(backendAlerts).filter(Boolean);
+  const automaticAlerts = (derivedAlerts || []).filter(Boolean);
 
-  [...normalizeAlertRows(backendAlerts), ...(derivedAlerts || [])]
-    .filter(Boolean)
+  realAlerts
     .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
     .forEach((item) => {
       const key = getAlertDedupeKey(item);
       if (seen.has(key)) return;
-      if (item?.derived && merged.some((existing) => !existing?.derived && areEquivalentAlertEvents(existing, item))) {
-        return;
-      }
       seen.add(key);
-      merged.push(item);
+      merged.push({ ...item, derived: false, source: item?.source || "alerts" });
     });
 
-  return merged;
+  automaticAlerts
+    .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
+    .forEach((item) => {
+      if (realAlerts.some((existing) => areEquivalentAlertEvents(existing, item))) return;
+
+      const key = getAlertDedupeKey(item);
+      if (seen.has(key)) return;
+      if (merged.some((existing) => areEquivalentAlertEvents(existing, item))) return;
+
+      seen.add(key);
+      merged.push({ ...item, derived: true });
+    });
+
+  return merged.sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a));
 }
 
 function getDevicePriority(device) {
@@ -2209,6 +2234,13 @@ function DeviceSelector({
       (item) =>
         getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) === "OFFLINE"
     ).length;
+    const noWifi = orderedDevices.filter((item) => {
+      const status = String(
+        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) || ""
+      ).toLowerCase();
+
+      return status.includes("no_wifi");
+    }).length;
 
     const alerts = orderedDevices.filter((item) => {
       const status = String(
@@ -2218,9 +2250,9 @@ function DeviceSelector({
       return status.includes("alert") || status.includes("alarm") || status.includes("critical");
     }).length;
 
-    const normal = Math.max(0, all - offline - alerts);
+    const normal = Math.max(0, all - offline - noWifi - alerts);
 
-    return { all, offline, alerts, normal };
+    return { all, offline, noWifi, alerts, normal };
   }, [orderedDevices]);
 
   useEffect(() => {
@@ -2264,6 +2296,7 @@ function DeviceSelector({
           <span style={styles.selectorSummaryPill}>{stats.all} total</span>
           <span style={styles.selectorSummaryPill}>{stats.normal} normal</span>
           <span style={styles.selectorSummaryPill}>{stats.alerts} alerta</span>
+          <span style={styles.selectorSummaryPill}>{stats.noWifi} sem Wi-Fi</span>
           <span style={styles.selectorSummaryPill}>{stats.offline} offline</span>
         </div>
       </div>
@@ -2622,7 +2655,7 @@ function OperationalInsightCard({ items }) {
 
 
 
-function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summary24h }) {
+function SmartClientInsight({ communicationHealth, isOffline, isNoWifi, statusInfo, summary24h }) {
   const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 90;
   const noReadings24h = (summary24h?.totalReadings ?? 0) === 0;
 
@@ -2630,7 +2663,11 @@ function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summar
   let detail = "Evitar aberturas prolongadas ajuda a estabilizar a temperatura e reduzir consumo.";
   let tag = "Boas práticas";
 
-  if (isOffline) {
+  if (isNoWifi) {
+    title = "Sem Wi-Fi no dispositivo";
+    detail = "O dispositivo esta ativo, mas indicou falha de Wi-Fi. Confirmar rede, sinal e credenciais guardadas.";
+    tag = "Sem Wi-Fi";
+  } else if (isOffline) {
     title = "Verificação recomendada";
     detail = "Confirmar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
     tag = "Dispositivo offline";
@@ -2717,6 +2754,35 @@ function DataChart({
               Dispositivo offline · histórico preservado até à última leitura válida
             </div>
           ) : null}
+          <details style={styles.chartLegend}>
+            <summary style={styles.chartLegendSummary}>Legenda do grafico</summary>
+            <div style={styles.chartLegendGrid}>
+              <span style={styles.chartLegendItem}>
+                <span style={{ ...styles.chartLegendLine, background: "#3b82f6", height: "3px" }} />
+                Media do intervalo
+              </span>
+              <span style={styles.chartLegendItem}>
+                <span style={{ ...styles.chartLegendLine, borderTop: "2px dashed #facc15" }} />
+                Minimo do intervalo
+              </span>
+              <span style={styles.chartLegendItem}>
+                <span style={{ ...styles.chartLegendLine, borderTop: "2px dashed #38bdf8" }} />
+                Maximo do intervalo
+              </span>
+              <span style={styles.chartLegendItem}>
+                <span style={{ ...styles.chartLegendLine, borderTop: "2px dashed #f59e0b" }} />
+                Limite inferior configurado
+              </span>
+              <span style={styles.chartLegendItem}>
+                <span style={{ ...styles.chartLegendLine, borderTop: "2px dashed #ef4444" }} />
+                Limite superior configurado
+              </span>
+              <span style={styles.chartLegendItem}>
+                <span style={styles.chartBackfillDot} />
+                Leitura captada offline
+              </span>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -2958,6 +3024,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
+  const pendingReloadRef = useRef(false);
+  const realtimeRefreshTimerRef = useRef(null);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const isClientAdmin = profile?.role === "client_admin";
@@ -3000,8 +3068,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const loadData = useCallback(
     async ({ silent = false, syncForms = true } = {}) => {
-      if (requestInFlightRef.current) return;
+      if (requestInFlightRef.current) {
+        pendingReloadRef.current = true;
+        return;
+      }
 
+      pendingReloadRef.current = false;
       requestInFlightRef.current = true;
       setPageError("");
 
@@ -3263,6 +3335,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           setLoading(false);
           setRefreshing(false);
         }
+
+        if (pendingReloadRef.current && mountedRef.current) {
+          pendingReloadRef.current = false;
+          window.setTimeout(() => {
+            loadData({ silent: true, syncForms: false });
+          }, 250);
+        }
       }
     },
     [selectedDeviceId, supabase, router, initialLoaded, period]
@@ -3281,6 +3360,72 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   useEffect(() => {
     if (!selectedDeviceId) return;
 
+    const scheduleRealtimeRefresh = () => {
+      if (realtimeRefreshTimerRef.current) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+      }
+
+      realtimeRefreshTimerRef.current = window.setTimeout(() => {
+        realtimeRefreshTimerRef.current = null;
+        loadData({ silent: true, syncForms: false });
+      }, 600);
+    };
+
+    const applyRealtimeReading = (row) => {
+      if (!row?.created_at) return;
+
+      const timestamp = new Date(row.created_at).getTime();
+      if (!Number.isFinite(timestamp)) return;
+
+      const normalized = {
+        ...row,
+        temperature: parseNumber(row.temperature),
+        humidity: parseNumber(row.humidity),
+        telemetry_seq: parseNumber(row.telemetry_seq),
+        sample_age_s: parseNumber(row.sample_age_s),
+        sample_epoch: parseNumber(row.sample_epoch),
+        delivery_attempts: parseNumber(row.delivery_attempts),
+        offline_captured: Boolean(row.offline_captured),
+        timestamp,
+      };
+
+      setReadings((current) => {
+        const withoutDuplicate = (current || []).filter(
+          (item) => item.created_at !== normalized.created_at
+        );
+        return [...withoutDuplicate, normalized].sort((a, b) => a.timestamp - b.timestamp);
+      });
+
+      setDevice((current) =>
+        current
+          ? {
+              ...current,
+              last_temperature: normalized.temperature ?? current.last_temperature,
+              last_humidity: normalized.humidity ?? current.last_humidity,
+              last_seen: normalized.created_at,
+              status: row.device_status
+                ? String(row.device_status).toUpperCase()
+                : current.status,
+              telemetry_seq: normalized.telemetry_seq ?? current.telemetry_seq,
+            }
+          : current
+      );
+
+      setDevices((current) =>
+        (current || []).map((item) =>
+          item.device_id === selectedDeviceId
+            ? {
+                ...item,
+                last_temperature: normalized.temperature ?? item.last_temperature,
+                last_humidity: normalized.humidity ?? item.last_humidity,
+                last_seen: normalized.created_at,
+                status: row.device_status ? String(row.device_status).toUpperCase() : item.status,
+              }
+            : item
+        )
+      );
+    };
+
     const channel = supabase
       .channel(`sts-live-${selectedDeviceId}`)
       .on(
@@ -3291,8 +3436,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           table: "readings",
           filter: `device_id=eq.${selectedDeviceId}`,
         },
-        () => {
-          loadData({ silent: true, syncForms: false });
+        (payload) => {
+          if (payload?.eventType === "INSERT" || payload?.eventType === "UPDATE") {
+            applyRealtimeReading(payload.new);
+          }
+          scheduleRealtimeRefresh();
         }
       )
       .on(
@@ -3304,7 +3452,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           filter: `device_id=eq.${selectedDeviceId}`,
         },
         () => {
-          loadData({ silent: true, syncForms: false });
+          scheduleRealtimeRefresh();
         }
       )
       .on(
@@ -3316,12 +3464,16 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           filter: `device_id=eq.${selectedDeviceId}`,
         },
         () => {
-          loadData({ silent: true, syncForms: false });
+          scheduleRealtimeRefresh();
         }
       )
       .subscribe();
 
     return () => {
+      if (realtimeRefreshTimerRef.current) {
+        window.clearTimeout(realtimeRefreshTimerRef.current);
+        realtimeRefreshTimerRef.current = null;
+      }
       supabase.removeChannel(channel);
     };
   }, [selectedDeviceId, loadData, supabase]);
@@ -3363,24 +3515,25 @@ const communicationHealth = useMemo(
 );
 
   const isDeviceOffline = effectiveStatus === "OFFLINE";
+  const isDeviceNoWifi = String(effectiveStatus || "").toLowerCase().includes("no_wifi");
 
   const predictiveStatus = useMemo(
     () =>
-      isDeviceOffline
+      isDeviceOffline || isDeviceNoWifi
         ? {
             level: "unknown",
             title: "Predição indisponível",
             detail: "Sem dados recentes para prever tendência.",
-            cause: "Dispositivo offline.",
+            cause: isDeviceNoWifi ? "Dispositivo sem Wi-Fi." : "Dispositivo offline.",
             action: "Confirmar alimentação, Wi-Fi e comunicação.",
             chip: "Suspensa",
             source: "none",
-            source_label: "Dispositivo offline",
+            source_label: isDeviceNoWifi ? "Sem Wi-Fi" : "Dispositivo offline",
             eta_minutes: null,
             score: 0,
           }
         : device?.predictive_status || getPredictiveStatus(liveReadings, config),
-    [config, device?.predictive_status, isDeviceOffline, liveReadings]
+    [config, device?.predictive_status, isDeviceOffline, isDeviceNoWifi, liveReadings]
   );
 
   const effectiveLastDelayMs =
@@ -3872,6 +4025,7 @@ async function downloadPdfReport() {
         <SmartClientInsight
           communicationHealth={communicationHealth}
           isOffline={effectiveStatus === "OFFLINE"}
+          isNoWifi={isDeviceNoWifi}
           statusInfo={statusInfo}
           summary24h={summary24h}
         />
@@ -5315,6 +5469,44 @@ const styles = {
     transform: "rotate(45deg)",
     boxShadow: "0 0 12px rgba(249,115,22,0.4)",
     flex: "0 0 auto",
+  },
+
+  chartLegend: {
+    marginTop: "10px",
+    fontSize: "12px",
+    color: "#94a3b8",
+  },
+
+  chartLegendSummary: {
+    cursor: "pointer",
+    color: "#cbd5e1",
+    fontWeight: 800,
+    listStylePosition: "inside",
+  },
+
+  chartLegendGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "8px 14px",
+    marginTop: "10px",
+    padding: "10px",
+    border: "1px solid #1f2937",
+    borderRadius: "8px",
+    background: "#0b1220",
+  },
+
+  chartLegendItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    minWidth: 0,
+    lineHeight: 1.35,
+  },
+
+  chartLegendLine: {
+    width: "28px",
+    minWidth: "28px",
+    display: "inline-block",
   },
 
   chartWrap: {
