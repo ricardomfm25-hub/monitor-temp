@@ -2743,12 +2743,6 @@ function DataChart({
           <div style={styles.chartHint}>
             Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa a média de {periodConfig.sampleLabel}
           </div>
-          {hasOfflineData ? (
-            <div style={styles.chartBackfillHint}>
-              <span style={styles.chartBackfillDot} />
-              Leituras captadas offline assinaladas a laranja
-            </div>
-          ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
               Dispositivo offline · histórico preservado até à última leitura válida
@@ -3198,19 +3192,27 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         }
 
         const baseDeviceData = deviceResponse?.data || null;
+        const overviewHas = (key) =>
+          Object.prototype.hasOwnProperty.call(overviewData || {}, key);
 
         const deviceData = baseDeviceData
           ? {
               ...baseDeviceData,
-              last_temperature:
-                overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
-              last_humidity:
-                overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+              last_temperature: overviewHas("temperature")
+                ? overviewData.temperature
+                : baseDeviceData?.last_temperature ?? null,
+              last_humidity: overviewHas("humidity")
+                ? overviewData.humidity
+                : baseDeviceData?.last_humidity ?? null,
               status:
                 overviewData?.status
                   ? String(overviewData.status).toUpperCase()
                   : baseDeviceData?.status,
               online: overviewData?.online ?? baseDeviceData?.online ?? null,
+              current_data_reliable:
+                overviewData?.current_data_reliable ??
+                baseDeviceData?.current_data_reliable ??
+                null,
               last_seen_seconds:
                 overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
               communication_health: overviewData?.communication_health || null,
@@ -3431,6 +3433,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           last_temperature: normalized.temperature ?? current.last_temperature,
           last_humidity: normalized.humidity ?? current.last_humidity,
           last_seen: normalized.created_at,
+          current_data_reliable: true,
           status: row.device_status ? String(row.device_status).toUpperCase() : current.status,
           telemetry_seq: normalized.telemetry_seq ?? current.telemetry_seq,
         };
@@ -3447,6 +3450,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             last_temperature: normalized.temperature ?? item.last_temperature,
             last_humidity: normalized.humidity ?? item.last_humidity,
             last_seen: normalized.created_at,
+            current_data_reliable: true,
             status: row.device_status ? String(row.device_status).toUpperCase() : item.status,
           };
         })
@@ -3543,6 +3547,8 @@ const communicationHealth = useMemo(
 
   const isDeviceOffline = effectiveStatus === "OFFLINE";
   const isDeviceNoWifi = String(effectiveStatus || "").toLowerCase().includes("no_wifi");
+  const hasReliableCurrentData =
+    device?.current_data_reliable !== false && !isDeviceOffline && !isDeviceNoWifi;
 
   const predictiveStatus = useMemo(
     () =>
@@ -3583,7 +3589,7 @@ const communicationHealth = useMemo(
   );
 
   const currentTempTone =
-    effectiveStatus === "OFFLINE"
+    !hasReliableCurrentData
       ? "neutral"
       : tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh
       ? "warn"
@@ -3592,7 +3598,7 @@ const communicationHealth = useMemo(
       : "neutral";
 
   const currentHumTone =
-    effectiveStatus === "OFFLINE"
+    !hasReliableCurrentData
       ? "neutral"
       : humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh
       ? "warn"
@@ -3602,8 +3608,8 @@ const communicationHealth = useMemo(
 
   const currentTempValue = formatValue(device?.last_temperature, " °C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
-  const currentTempAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
-  const currentHumAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
+  const currentTempAccentLabel = hasReliableCurrentData ? "Tempo real" : "Sem leitura atual";
+  const currentHumAccentLabel = hasReliableCurrentData ? "Tempo real" : "Sem leitura atual";
 
   const summary24h = useMemo(() => {
     const { start, end } = getPeriodWindow("24h");
@@ -3963,26 +3969,26 @@ async function downloadPdfReport() {
               }}
             >
               <MetricBox
-                label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
-                value={isDeviceOffline ? "-" : currentTempValue}
+                label={hasReliableCurrentData ? "Temperatura atual" : "Temperatura atual indisponível"}
+                value={hasReliableCurrentData ? currentTempValue : "-"}
                 tone={currentTempTone}
                 accentLabel={currentTempAccentLabel}
                 subvalue={
-                  isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
+                  !hasReliableCurrentData
+                    ? "Sem leitura recente fidedigna do dispositivo"
                     : tempLow !== null && tempHigh !== null
                     ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
                     : "Sem limites definidos"
                 }
               />
               <MetricBox
-                label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
-                value={isDeviceOffline ? "-" : currentHumValue}
+                label={hasReliableCurrentData ? "Humidade atual" : "Humidade atual indisponível"}
+                value={hasReliableCurrentData ? currentHumValue : "-"}
                 tone={currentHumTone}
                 accentLabel={currentHumAccentLabel}
                 subvalue={
-                  isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
+                  !hasReliableCurrentData
+                    ? "Sem leitura recente fidedigna do dispositivo"
                     : humLow !== null && humHigh !== null
                     ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
                     : "Sem limites definidos"
@@ -5476,16 +5482,6 @@ const styles = {
     marginTop: "6px",
     fontSize: "12px",
     color: "#cbd5e1",
-  },
-
-  chartBackfillHint: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "7px",
-    marginTop: "8px",
-    fontSize: "12px",
-    color: "#fed7aa",
-    fontWeight: 800,
   },
 
   chartBackfillDot: {

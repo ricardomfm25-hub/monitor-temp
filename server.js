@@ -3337,31 +3337,28 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const cfg = getDeviceConfig(deviceRow);
     const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
     const currentReading = latestReading || null;
-
-    const temperature =
-      deviceRow?.last_temperature ?? currentReading?.temperature ?? latestReading?.temperature ?? null;
-    const humidity =
-      deviceRow?.last_humidity ?? currentReading?.humidity ?? latestReading?.humidity ?? null;
-
-    const contactTimes = [
-      deviceRow?.last_contact_at,
-      deviceRow?.updated_at,
-      deviceRow?.last_seen,
-      currentReading?.created_at,
-    ]
-      .map((value) => (value ? new Date(value).getTime() : null))
-      .filter((value) => Number.isFinite(value));
-    const lastSeenIso = contactTimes.length
-      ? new Date(Math.max(...contactTimes)).toISOString()
+    const dataLastSeenTs = deviceRow?.last_seen ? new Date(deviceRow.last_seen).getTime() : null;
+    const dataLastSeenIso = Number.isFinite(dataLastSeenTs)
+      ? new Date(dataLastSeenTs).toISOString()
       : null;
     const lastReadingAt = currentReading?.created_at || null;
-    const lastSeenSeconds = lastSeenIso
-      ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
+    const lastSeenSeconds = dataLastSeenIso
+      ? Math.floor((Date.now() - new Date(dataLastSeenIso).getTime()) / 1000)
       : 999999;
+    const currentDataReliable =
+      lastSeenSeconds <= Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
 
-    const online =
-      lastSeenSeconds <=
-      Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
+    const temperature = currentDataReliable ? deviceRow?.last_temperature ?? null : null;
+    const humidity = currentDataReliable ? deviceRow?.last_humidity ?? null : null;
+
+    const contactTimes = [deviceRow?.last_contact_at, deviceRow?.updated_at, dataLastSeenIso]
+      .map((value) => (value ? new Date(value).getTime() : null))
+      .filter((value) => Number.isFinite(value));
+    const lastContactIso = contactTimes.length
+      ? new Date(Math.max(...contactTimes)).toISOString()
+      : dataLastSeenIso;
+
+    const online = currentDataReliable;
 
     const computedStatus =
       temperature !== null && humidity !== null
@@ -3394,7 +3391,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings: readings24hRows,
       sendIntervalS: cfg.send_interval_s,
-      deviceLastSeen: lastSeenIso,
+      deviceLastSeen: dataLastSeenIso,
       periodHours: 24,
     });
 
@@ -3440,8 +3437,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       hum_high,
       status: statusToApiLabel(normalizedStatus),
       online,
-      last_seen: lastSeenIso,
-      last_contact_at: lastSeenIso,
+      current_data_reliable: currentDataReliable,
+      last_seen: dataLastSeenIso,
+      last_contact_at: lastContactIso,
       last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24hCount || 0,
