@@ -3371,6 +3371,33 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       }, 600);
     };
 
+    const isCurrentRealtimeReading = (reading, targetDevice) => {
+      if (!reading || reading.offline_captured) return false;
+
+      const configuredSendIntervalS = parseNumber(targetDevice?.config?.send_interval_s) || 60;
+      const maxCurrentAgeMs = Math.max(configuredSendIntervalS * 1500, 2 * 60 * 1000);
+      const ageMs = Date.now() - reading.timestamp;
+      const sampleAgeMs =
+        reading.sample_age_s !== null && reading.sample_age_s !== undefined
+          ? reading.sample_age_s * 1000
+          : null;
+      const currentLastSeenTs = targetDevice?.last_seen
+        ? new Date(targetDevice.last_seen).getTime()
+        : 0;
+
+      if (!Number.isFinite(ageMs) || ageMs < -10000 || ageMs > maxCurrentAgeMs) return false;
+      if (sampleAgeMs !== null && sampleAgeMs > maxCurrentAgeMs) return false;
+      if (
+        Number.isFinite(currentLastSeenTs) &&
+        currentLastSeenTs > 0 &&
+        reading.timestamp < currentLastSeenTs - 1000
+      ) {
+        return false;
+      }
+
+      return true;
+    };
+
     const applyRealtimeReading = (row) => {
       if (!row?.created_at) return;
 
@@ -3396,33 +3423,33 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         return [...withoutDuplicate, normalized].sort((a, b) => a.timestamp - b.timestamp);
       });
 
-      setDevice((current) =>
-        current
-          ? {
-              ...current,
-              last_temperature: normalized.temperature ?? current.last_temperature,
-              last_humidity: normalized.humidity ?? current.last_humidity,
-              last_seen: normalized.created_at,
-              status: row.device_status
-                ? String(row.device_status).toUpperCase()
-                : current.status,
-              telemetry_seq: normalized.telemetry_seq ?? current.telemetry_seq,
-            }
-          : current
-      );
+      setDevice((current) => {
+        if (!current || !isCurrentRealtimeReading(normalized, current)) return current;
+
+        return {
+          ...current,
+          last_temperature: normalized.temperature ?? current.last_temperature,
+          last_humidity: normalized.humidity ?? current.last_humidity,
+          last_seen: normalized.created_at,
+          status: row.device_status ? String(row.device_status).toUpperCase() : current.status,
+          telemetry_seq: normalized.telemetry_seq ?? current.telemetry_seq,
+        };
+      });
 
       setDevices((current) =>
-        (current || []).map((item) =>
-          item.device_id === selectedDeviceId
-            ? {
-                ...item,
-                last_temperature: normalized.temperature ?? item.last_temperature,
-                last_humidity: normalized.humidity ?? item.last_humidity,
-                last_seen: normalized.created_at,
-                status: row.device_status ? String(row.device_status).toUpperCase() : item.status,
-              }
-            : item
-        )
+        (current || []).map((item) => {
+          if (item.device_id !== selectedDeviceId || !isCurrentRealtimeReading(normalized, item)) {
+            return item;
+          }
+
+          return {
+            ...item,
+            last_temperature: normalized.temperature ?? item.last_temperature,
+            last_humidity: normalized.humidity ?? item.last_humidity,
+            last_seen: normalized.created_at,
+            status: row.device_status ? String(row.device_status).toUpperCase() : item.status,
+          };
+        })
       );
     };
 
