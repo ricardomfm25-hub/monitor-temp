@@ -101,7 +101,15 @@ function getOfflineLimitMs(sendIntervalS) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  return Math.max(expectedMs * 6, 180 * 1000);
+  return Math.max(expectedMs * 10, 5 * 60 * 1000);
+}
+
+function getMostRecentTimestampMs(values) {
+  const timestamps = values
+    .map((value) => (value ? new Date(value).getTime() : null))
+    .filter((value) => Number.isFinite(value));
+
+  return timestamps.length ? Math.max(...timestamps) : null;
 }
 
 function getStatus({ online, temperature, humidity, config }) {
@@ -259,8 +267,12 @@ export async function GET(_request, context) {
     if (readingsError) throw readingsError;
 
     const config = normalizeConfig(device.config || {});
-    const lastSeen = latestReading?.created_at || null;
-    const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
+    const lastSeenTs = getMostRecentTimestampMs([
+      device.last_seen,
+      device.last_contact_at,
+      latestReading?.created_at,
+    ]);
+    const lastSeen = lastSeenTs ? new Date(lastSeenTs).toISOString() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
       : null;

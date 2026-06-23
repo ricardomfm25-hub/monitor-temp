@@ -797,7 +797,7 @@ function getOfflineThresholdMs(sendIntervalS) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 6);
+  return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 10, 5 * 60 * 1000);
 }
 
 function getTemperatureAlertDirection(temperature, cfg) {

@@ -149,19 +149,34 @@ function getOfflineLimitMs(sendIntervalS) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  return Math.max(expectedMs * 6, 180 * 1000);
+  return Math.max(expectedMs * 10, 5 * 60 * 1000);
+}
+
+function isExplicitOfflineStatus(status) {
+  return String(status || "").trim().toLowerCase() === "offline";
 }
 
 function getEffectiveStatus(device, sendIntervalS) {
+  const status = device?.status || "SEM DADOS";
+  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
+  const lastSeenSeconds = parseNumber(device?.last_seen_seconds);
+  const hasRecentBackendSignal =
+    device?.online === true ||
+    device?.current_data_reliable === true ||
+    (lastSeenSeconds !== null && lastSeenSeconds * 1000 <= offlineLimitMs);
+
+  if (hasRecentBackendSignal) {
+    return isExplicitOfflineStatus(status) ? "NORMAL" : status;
+  }
+
   const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
   const now = Date.now();
-  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
 
   if (!lastSeen || now - lastSeen > offlineLimitMs) {
     return "OFFLINE";
   }
 
-  return device?.status || "SEM DADOS";
+  return isExplicitOfflineStatus(status) ? "NORMAL" : status;
 }
 
 function isOfflineCapturedReading(reading) {
