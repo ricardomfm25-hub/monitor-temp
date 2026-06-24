@@ -14,6 +14,9 @@ const NUMERIC_FIELDS = [
   "display_standby_min",
 ];
 
+const MIN_SEND_INTERVAL_SECONDS = 5;
+const MAX_SEND_INTERVAL_SECONDS = 60;
+
 function parseNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const numeric = Number(String(value).replace(",", "."));
@@ -29,7 +32,10 @@ function normalizeConfig(config = {}) {
     hum_high: parseNumber(config.hum_high) ?? 60,
     hyst_c: parseNumber(config.hyst_c) ?? 0.5,
     hyst_hum: parseNumber(config.hyst_hum) ?? 2,
-    send_interval_s: parseNumber(config.send_interval_s) ?? 30,
+    send_interval_s: Math.min(
+      Math.max(parseNumber(config.send_interval_s) ?? 30, MIN_SEND_INTERVAL_SECONDS),
+      MAX_SEND_INTERVAL_SECONDS
+    ),
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
   };
 }
@@ -105,8 +111,13 @@ function validateConfig(config) {
     errors.push("A histerese não pode ser negativa.");
   }
 
-  if (config.send_interval_s < 5) {
-    errors.push("O intervalo de envio deve ser pelo menos 5 segundos.");
+  if (
+    config.send_interval_s < MIN_SEND_INTERVAL_SECONDS ||
+    config.send_interval_s > MAX_SEND_INTERVAL_SECONDS
+  ) {
+    errors.push(
+      `O intervalo de envio deve estar entre ${MIN_SEND_INTERVAL_SECONDS} e ${MAX_SEND_INTERVAL_SECONDS} segundos.`
+    );
   }
 
   if (config.display_standby_min < 0) {

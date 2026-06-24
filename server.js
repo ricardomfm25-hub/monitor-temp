@@ -40,6 +40,8 @@ const HEALTH_CHECK_INTERVAL_SECONDS = parseInt(
   10
 );
 const ALERT_EQUIVALENCE_WINDOW_MS = 5 * 60 * 1000;
+const MIN_SEND_INTERVAL_SECONDS = 5;
+const MAX_SEND_INTERVAL_SECONDS = 60;
 const READING_MIN_INTERVAL_FACTOR = clamp(
   Number(process.env.READING_MIN_INTERVAL_FACTOR || "0.5"),
   0.5,
@@ -562,9 +564,13 @@ function validateConfigNumbers(payload) {
 
   if (
     sendInterval !== undefined &&
-    (!Number.isFinite(sendInterval) || sendInterval < 5)
+    (!Number.isFinite(sendInterval) ||
+      sendInterval < MIN_SEND_INTERVAL_SECONDS ||
+      sendInterval > MAX_SEND_INTERVAL_SECONDS)
   ) {
-    errors.push("send_interval_s deve ser pelo menos 5");
+    errors.push(
+      `send_interval_s deve estar entre ${MIN_SEND_INTERVAL_SECONDS} e ${MAX_SEND_INTERVAL_SECONDS}`
+    );
   }
 
   if (standby !== undefined && (!Number.isFinite(standby) || standby < 0)) {
@@ -585,7 +591,11 @@ function getDeviceConfig(deviceRow) {
     hum_high: toNumberOrDefault(cfg.hum_high, 60),
     hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
     hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
-    send_interval_s: toNumberOrDefault(cfg.send_interval_s, 30),
+    send_interval_s: clamp(
+      toNumberOrDefault(cfg.send_interval_s, 30),
+      MIN_SEND_INTERVAL_SECONDS,
+      MAX_SEND_INTERVAL_SECONDS
+    ),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     alert_state: {
       temp_active: Boolean(alertState.temp_active),

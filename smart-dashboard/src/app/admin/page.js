@@ -827,8 +827,8 @@ export default function AdminPage() {
       return;
     }
 
-    if (values.send_interval_s < 5) {
-      setMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+    if (values.send_interval_s < 5 || values.send_interval_s > 60) {
+      setMessage("O intervalo de envio deve estar entre 5 e 60 segundos.");
       setMessageType("error");
       return;
     }
@@ -1756,6 +1756,8 @@ export default function AdminPage() {
                   <input
                     type="number"
                     step="1"
+                    min="5"
+                    max="60"
                     placeholder="Intervalo de envio"
                     value={deviceForm.send_interval_s}
                     onChange={(e) =>
