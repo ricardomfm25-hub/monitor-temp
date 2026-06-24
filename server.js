@@ -2486,7 +2486,7 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (!tempInfo.breached && alertState.temp_active) {
-    await sendTemperatureResolvedEmail({
+    const emailResult = await sendTemperatureResolvedEmail({
       device: deviceRow,
       temperature: numericTemperature,
       humidity: numericHumidity,
@@ -2508,6 +2508,10 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.temp_active = false;
     nextAlertState.temp_last_resolved_at = nowIso();
+    nextAlertState = {
+      ...nextAlertState,
+      ...buildEmailAlertStatePatch("temp", emailResult),
+    };
   }
 
   if (humInfo.breached && !alertState.hum_active) {
@@ -2561,7 +2565,7 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (!humInfo.breached && alertState.hum_active) {
-    await sendHumidityResolvedEmail({
+    const emailResult = await sendHumidityResolvedEmail({
       device: deviceRow,
       temperature: numericTemperature,
       humidity: numericHumidity,
@@ -2583,10 +2587,14 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.hum_active = false;
     nextAlertState.hum_last_resolved_at = nowIso();
+    nextAlertState = {
+      ...nextAlertState,
+      ...buildEmailAlertStatePatch("hum", emailResult),
+    };
   }
 
   if (alertState.offline_active) {
-    await sendOnlineRecoveredEmail({
+    const emailResult = await sendOnlineRecoveredEmail({
       device: {
         ...deviceRow,
         last_temperature: numericTemperature,
@@ -2606,6 +2614,10 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.offline_active = false;
     nextAlertState.offline_last_resolved_at = nowIso();
+    nextAlertState = {
+      ...nextAlertState,
+      ...buildEmailAlertStatePatch("offline", emailResult),
+    };
   }
 
   return nextAlertState;
@@ -2976,6 +2988,72 @@ async function sendWeeklyReport() {
 // -------------------- ROOT --------------------
 app.get("/", (req, res) => {
   res.send("Servidor SmartTempSystems ativo!");
+});
+
+// -------------------- EMAIL DIAGNOSTICS --------------------
+app.post("/api/admin/test-email", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "NÃ£o autorizado" });
+  }
+
+  try {
+    const {
+      device_id,
+      alert_type = "general",
+      to,
+      dry_run = false,
+    } = req.body || {};
+
+    const configuredDirectRecipient = String(to || ALERT_TO_EMAIL || "").trim();
+    const recipients = device_id
+      ? await getDeviceAlertRecipients(device_id, alert_type)
+      : configuredDirectRecipient
+      ? [{ email: configuredDirectRecipient }]
+      : [];
+
+    const diagnostics = {
+      brevo_api_key_configured: Boolean(BREVO_API_KEY),
+      alert_from_email_configured: Boolean(ALERT_FROM_EMAIL),
+      fallback_to_email_configured: Boolean(ALERT_TO_EMAIL),
+      recipient_count: recipients.length,
+      alert_type,
+      device_id: device_id || null,
+    };
+
+    if (dry_run) {
+      return res.json({
+        ok: diagnostics.brevo_api_key_configured &&
+          diagnostics.alert_from_email_configured &&
+          diagnostics.recipient_count > 0,
+        dry_run: true,
+        ...diagnostics,
+      });
+    }
+
+    const emailResult = await sendEmail({
+      to: recipients,
+      subject: "[STS] Teste de email",
+      htmlContent: buildEmailShell({
+        heading: "Teste de email STS",
+        intro:
+          "Este email confirma que o backend consegue comunicar com o fornecedor de email.",
+        blocks: [
+          { label: "Hora", value: formatDateTimePt(new Date(), true) },
+          { label: "Tipo", value: String(alert_type) },
+          { label: "Device ID", value: device_id || "-" },
+        ],
+      }),
+    });
+
+    res.json({
+      ok: Boolean(emailResult.ok),
+      ...diagnostics,
+      result: emailResult,
+    });
+  } catch (error) {
+    console.error("Erro em /api/admin/test-email:", error);
+    res.status(500).json({ error: "Erro ao testar email" });
+  }
 });
 
 // -------------------- WEEKLY REPORT --------------------
