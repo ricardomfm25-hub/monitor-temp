@@ -417,6 +417,32 @@ function hasSeriesValue(data, key) {
   return (data || []).some((item) => parseNumber(item?.[key]) !== null);
 }
 
+function getSeriesCoverage(data, dataKey) {
+  const expected = (data || []).filter((item) => !item?.confirmed_gap).length;
+  const received = (data || []).filter(
+    (item) =>
+      !item?.confirmed_gap &&
+      (parseNumber(item?.[dataKey]) !== null ||
+        parseNumber(item?.[`${dataKey}_offline`]) !== null ||
+        parseNumber(item?.[`${dataKey}_min`]) !== null ||
+        parseNumber(item?.[`${dataKey}_max`]) !== null)
+  ).length;
+
+  return {
+    expected,
+    received,
+    percent: expected > 0 ? Math.round((received / expected) * 100) : 0,
+  };
+}
+
+function getSampleDescription(periodKey, sampleLabel) {
+  if (periodKey === "1h") {
+    return `valor real mais recente a cada ${sampleLabel}`;
+  }
+
+  return `media de ${sampleLabel}`;
+}
+
 function getNiceTemperatureTicks(domain) {
   if (!Array.isArray(domain) || domain.length !== 2) return undefined;
 
@@ -564,6 +590,10 @@ function createTimeBucket(bucketTime) {
     timestamp: bucketTime,
     created_at: new Date(bucketTime).toISOString(),
     latestTimestamp: null,
+    latestTempTimestamp: null,
+    latestHumTimestamp: null,
+    temperatureLatest: null,
+    humidityLatest: null,
     temperatureSum: 0,
     temperatureCount: 0,
     temperatureMin: null,
@@ -583,6 +613,7 @@ function createTimeBucket(bucketTime) {
 
 function buildTimeSeries(readings, periodKey, sendIntervalS) {
   const { start, end, bucketMs } = getPeriodWindow(periodKey);
+  const usesLatestValue = periodKey === "1h";
 
   const filtered = (readings || [])
     .filter((item) => Number.isFinite(item?.timestamp))
@@ -590,6 +621,13 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     .sort((a, b) => a.timestamp - b.timestamp);
 
   const buckets = new Map();
+  const firstBucket = floorToPeriodBucket(start, periodKey, bucketMs);
+
+  for (let bucketTime = firstBucket; bucketTime <= end; bucketTime += bucketMs) {
+    if (bucketTime + bucketMs > start && bucketTime <= end) {
+      buckets.set(bucketTime, createTimeBucket(bucketTime));
+    }
+  }
 
   for (const item of filtered) {
     const bucketTime = floorToPeriodBucket(item.timestamp, periodKey, bucketMs);
@@ -608,6 +646,11 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       bucket.hasData = true;
       if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
         bucket.latestTimestamp = item.timestamp;
+      }
+
+      if (bucket.latestTempTimestamp === null || item.timestamp >= bucket.latestTempTimestamp) {
+        bucket.temperatureLatest = temp;
+        bucket.latestTempTimestamp = item.timestamp;
       }
 
       bucket.temperatureSum += temp;
@@ -630,6 +673,11 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       bucket.hasData = true;
       if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
         bucket.latestTimestamp = item.timestamp;
+      }
+
+      if (bucket.latestHumTimestamp === null || item.timestamp >= bucket.latestHumTimestamp) {
+        bucket.humidityLatest = hum;
+        bucket.latestHumTimestamp = item.timestamp;
       }
 
       bucket.humiditySum += hum;
@@ -662,11 +710,23 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       humidity_count: bucket.humidityCount,
       temperature:
         bucket.temperatureCount > 0
-          ? Number((bucket.temperatureSum / bucket.temperatureCount).toFixed(2))
+          ? Number(
+              (
+                usesLatestValue && bucket.temperatureLatest !== null
+                  ? bucket.temperatureLatest
+                  : bucket.temperatureSum / bucket.temperatureCount
+              ).toFixed(2)
+            )
           : null,
       humidity:
         bucket.humidityCount > 0
-          ? Number((bucket.humiditySum / bucket.humidityCount).toFixed(2))
+          ? Number(
+              (
+                usesLatestValue && bucket.humidityLatest !== null
+                  ? bucket.humidityLatest
+                  : bucket.humiditySum / bucket.humidityCount
+              ).toFixed(2)
+            )
           : null,
       temperature_min: bucket.temperatureMin,
       temperature_max: bucket.temperatureMax,
@@ -681,7 +741,6 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       offline_count: bucket.offlineCount,
     }))
     .filter((item) => item.timestamp + bucketMs > start && item.timestamp <= end)
-    .filter((item) => item.hasData)
     .sort((a, b) => a.timestamp - b.timestamp);
 
   return addConfirmedGapMarkers(series, filtered, sendIntervalS);
@@ -2030,7 +2089,7 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
 }
 
-function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
+function CustomTooltip({ active, payload, label, unit, digits = 1, valueLabel = "Media" }) {
   if (!active || !payload || !payload.length) return null;
 
   const visiblePayload =
@@ -2054,7 +2113,7 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
           ? "Sem leitura neste intervalo"
           : (
             <>
-              {isOfflineSeries ? "Offline" : "Média"}: <strong>{formatValue(value, unit, digits)}</strong>
+              {isOfflineSeries ? "Offline" : valueLabel}: <strong>{formatValue(value, unit, digits)}</strong>
             </>
           )}
       </div>
@@ -2743,6 +2802,8 @@ function DataChart({
   const timeWindow = getPeriodWindow(periodKey);
   const periodConfig = getPeriodConfig(periodKey);
   const xTicks = getXAxisTicks(periodKey);
+  const coverage = getSeriesCoverage(data, dataKey);
+  const sampleDescription = getSampleDescription(periodKey, periodConfig.sampleLabel);
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
@@ -2756,7 +2817,7 @@ function DataChart({
             Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
           </div>
           <div style={styles.chartHint}>
-            Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa a média de {periodConfig.sampleLabel}
+            Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa {sampleDescription} · cobertura {coverage.received}/{coverage.expected} ({coverage.percent}%)
           </div>
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
@@ -2768,7 +2829,7 @@ function DataChart({
             <div style={styles.chartLegendGrid}>
               <span style={styles.chartLegendItem}>
                 <span style={{ ...styles.chartLegendLine, background: "#3b82f6", height: "3px" }} />
-                Media do intervalo
+                {periodKey === "1h" ? "Leitura real do intervalo" : "Media do intervalo"}
               </span>
               <span style={styles.chartLegendItem}>
                 <span style={{ ...styles.chartLegendLine, borderTop: "2px dashed #facc15" }} />
@@ -2834,7 +2895,15 @@ function DataChart({
                 tickFormatter={yTickFormatter}
               />
 
-              <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
+              <Tooltip
+                content={
+                  <CustomTooltip
+                    unit={unit}
+                    digits={valueDigits}
+                    valueLabel={periodKey === "1h" ? "Leitura" : "Media"}
+                  />
+                }
+              />
 
               {minThreshold !== null && minThreshold !== undefined && (
                 <ReferenceLine

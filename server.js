@@ -639,7 +639,8 @@ function shouldStoreReading({ latestReading, cfg, incoming }) {
       ? Number(cfg.send_interval_s) * 1000
       : 30 * 1000;
   const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
-  const isBackfill = isOfflineCapturedReading(incoming, cfg);
+  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
+  const isBackfill = isOfflineCapturedReading(incoming, cfg) || deliveryAttempts > 0;
 
   if (!latestReading?.created_at) return true;
 
