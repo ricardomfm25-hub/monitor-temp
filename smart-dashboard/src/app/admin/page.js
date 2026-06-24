@@ -142,6 +142,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [accessState, setAccessState] = useState("checking");
+  const [isMobile, setIsMobile] = useState(false);
 
   const [creatingUser, setCreatingUser] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
@@ -152,6 +153,17 @@ export default function AdminPage() {
   const [savingPasswordPermission, setSavingPasswordPermission] = useState(false);
   const [savingPasswordUpdate, setSavingPasswordUpdate] = useState(false);
   const [deletingUser, setDeletingUser] = useState(false);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 820);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== "super_admin"),
@@ -937,9 +949,9 @@ export default function AdminPage() {
   }
 
   return (
-    <main style={styles.page}>
+    <main style={{ ...styles.page, ...(isMobile ? styles.pageMobile : {}) }}>
       <div style={styles.container}>
-        <div style={styles.headerBar}>
+        <div style={{ ...styles.headerBar, ...(isMobile ? styles.headerBarMobile : {}) }}>
           <div style={styles.header}>
             <h1 style={styles.title}>STS Admin {STS_SYSTEM_VERSION}</h1>
             <div style={styles.versionBadge}>ADMIN PAGE - {STS_ADMIN_VERSION}</div>
@@ -948,14 +960,14 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <div style={styles.topActions}>
+          <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
             {refreshing ? <div style={styles.refreshingText}>A atualizar...</div> : null}
 
-            <button onClick={() => router.push("/")} style={styles.secondaryButton}>
+            <button onClick={() => router.push("/")} style={{ ...styles.secondaryButton, ...(isMobile ? styles.mobileActionButton : {}) }}>
               Dashboard
             </button>
 
-            <button onClick={() => loadData()} style={styles.secondaryButton}>
+            <button onClick={() => loadData()} style={{ ...styles.secondaryButton, ...(isMobile ? styles.mobileActionButton : {}) }}>
               Atualizar
             </button>
 
@@ -964,7 +976,7 @@ export default function AdminPage() {
                 await supabase.auth.signOut();
                 router.replace("/login");
               }}
-              style={styles.secondaryButton}
+              style={{ ...styles.secondaryButton, ...(isMobile ? styles.mobileActionButton : {}) }}
             >
               Sair
             </button>
@@ -984,7 +996,7 @@ export default function AdminPage() {
         ) : null}
 
 
-        <section style={styles.workflowCard}>
+        <section style={{ ...styles.workflowCard, ...(isMobile ? styles.workflowCardMobile : {}) }}>
           <div>
             <div style={styles.workflowTitle}>Fluxo recomendado</div>
             <div style={styles.workflowHint}>
@@ -992,7 +1004,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div style={styles.workflowSteps}>
+          <div style={{ ...styles.workflowSteps, ...(isMobile ? styles.workflowStepsMobile : {}) }}>
             <div style={styles.workflowStep}>
               <span style={styles.workflowNumber}>1</span>
               <strong style={styles.workflowStepTitle}>Dispositivo</strong>
@@ -1017,7 +1029,7 @@ export default function AdminPage() {
         </section>
 
         
-        <section style={styles.commandCenter}>
+        <section style={{ ...styles.commandCenter, ...(isMobile ? styles.commandCenterMobile : {}) }}>
           <div>
             <div style={styles.commandEyebrow}>STS Cold Admin</div>
             <div style={styles.commandTitle}>Centro técnico operacional</div>
@@ -1026,7 +1038,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div style={styles.commandGrid}>
+          <div style={{ ...styles.commandGrid, ...(isMobile ? styles.commandGridMobile : {}) }}>
             <div style={styles.commandItem}>
               <span>Clientes</span>
               <strong>Gestão e permissões</strong>
@@ -1050,7 +1062,7 @@ export default function AdminPage() {
         </section>
 
 
-        <section style={styles.adminProtectionCard}>
+        <section style={{ ...styles.adminProtectionCard, ...(isMobile ? styles.adminProtectionCardMobile : {}) }}>
           <div>
             <div style={styles.adminProtectionTitle}>Conta principal protegida</div>
             <div style={styles.adminProtectionText}>
@@ -1063,7 +1075,7 @@ export default function AdminPage() {
         <section style={styles.card}>
           <div style={styles.sectionStep}>01</div><div style={styles.cardTitle}>Dispositivo em gestão</div><div style={styles.cardHint}>Escolhe o equipamento que queres configurar ou consultar.</div>
 
-          <div style={styles.devicePickerGrid}>
+          <div style={{ ...styles.devicePickerGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
             <div style={styles.devicePickerLeft}>
               <input
                 type="text"
@@ -1136,7 +1148,7 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  <div style={styles.selectedDeviceStats}>
+                  <div style={{ ...styles.selectedDeviceStats, ...(isMobile ? styles.singleColumnGrid : {}) }}>
                     <SmallStat
                       label="Localização"
                       value={selectedDeviceData.location || "-"}
@@ -1166,11 +1178,11 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <div style={styles.topGrid}>
+        <div style={{ ...styles.topGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
           <section style={styles.card}>
             <div style={styles.sectionStep}>02</div><div style={styles.cardTitle}>Clientes e utilizadores</div><div style={styles.cardHint}>Cria uma conta para acesso à plataforma STS.</div>
 
-            <div style={styles.formGrid}>
+            <div style={{ ...styles.formGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
               <input
                 type="text"
                 placeholder="Nome completo"
@@ -1239,7 +1251,7 @@ export default function AdminPage() {
           <section style={styles.card}>
             <div style={styles.sectionStep}>03</div><div style={styles.cardTitle}>Associação de dispositivo</div><div style={styles.cardHint}>Liga o cliente ao dispositivo selecionado.</div>
 
-            <div style={styles.formGrid}>
+            <div style={{ ...styles.formGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
               <select
                 value={accessUserId}
                 onChange={(e) => setAccessUserId(e.target.value)}
@@ -1295,7 +1307,7 @@ export default function AdminPage() {
               Seleciona primeiro um dispositivo.
             </div>
           ) : (
-            <div style={styles.clientSectionGrid}>
+            <div style={{ ...styles.clientSectionGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
               <div style={styles.clientListPanel}>
                 <input
                   type="text"
@@ -1372,7 +1384,7 @@ export default function AdminPage() {
                         <div style={styles.meta}>{selectedClient.email}</div>
                       </div>
 
-                      <div style={styles.clientActionRow}>
+                      <div style={{ ...styles.clientActionRow, ...(isMobile ? styles.clientActionRowMobile : {}) }}>
                         <button
                           onClick={toggleSelectedClientActive}
                           style={styles.smallActionButton}
@@ -1395,7 +1407,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <div style={styles.clientMiniStats}>
+                    <div style={{ ...styles.clientMiniStats, ...(isMobile ? styles.singleColumnGrid : {}) }}>
                       <SmallStat label="Role atual" value={selectedClient.role} />
                       <SmallStat
                         label="Estado"
@@ -1608,7 +1620,7 @@ export default function AdminPage() {
           ) : (
             <>
               <div style={styles.configSectionTitle}>Identificação</div>
-              <div style={styles.configGrid}>
+              <div style={{ ...styles.configGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
                 <ConfigField
                   label="Nome do dispositivo"
                   help="Nome apresentado na dashboard, emails e área administrativa."
@@ -1647,7 +1659,7 @@ export default function AdminPage() {
               </div>
 
               <div style={styles.configSectionTitle}>Limites de temperatura</div>
-              <div style={styles.configGrid}>
+              <div style={{ ...styles.configGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
                 <ConfigField
                   label="Temperatura mínima (°C)"
                   help="Abaixo deste valor, o sistema entra em alerta de temperatura baixa."
@@ -1688,7 +1700,7 @@ export default function AdminPage() {
               </div>
 
               <div style={styles.configSectionTitle}>Limites de humidade</div>
-              <div style={styles.configGrid}>
+              <div style={{ ...styles.configGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
                 <ConfigField
                   label="Humidade mínima (%)"
                   help="Abaixo deste valor, o sistema entra em alerta de humidade baixa."
@@ -1729,7 +1741,7 @@ export default function AdminPage() {
               </div>
 
               <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
-              <div style={styles.configGrid}>
+              <div style={{ ...styles.configGrid, ...(isMobile ? styles.singleColumnGrid : {}) }}>
                 <ConfigField
                   label="Histerese (°C)"
                   help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
@@ -1965,6 +1977,12 @@ const styles = {
     alignItems: "center",
   },
 
+  commandCenterMobile: {
+    gridTemplateColumns: "1fr",
+    padding: "16px",
+    borderRadius: "18px",
+  },
+
   commandEyebrow: {
     fontSize: "11px",
     fontWeight: 900,
@@ -2040,6 +2058,11 @@ const styles = {
     background: "#0b1220",
     padding: "24px",
     color: "#e5edf7",
+    overflowX: "hidden",
+  },
+
+  pageMobile: {
+    padding: "12px",
   },
 
   container: {
@@ -2056,6 +2079,11 @@ const styles = {
     alignItems: "flex-start",
     gap: "16px",
     flexWrap: "wrap",
+  },
+
+  headerBarMobile: {
+    flexDirection: "column",
+    gap: "12px",
   },
 
   header: {
@@ -2082,6 +2110,19 @@ const styles = {
     gap: "10px",
     flexWrap: "wrap",
     alignItems: "center",
+  },
+
+  topActionsMobile: {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "8px",
+  },
+
+  mobileActionButton: {
+    width: "100%",
+    padding: "10px 8px",
+    fontSize: "13px",
   },
 
   refreshingText: {
@@ -2150,6 +2191,8 @@ const styles = {
     border: "1px solid #1f2937",
     borderRadius: "20px",
     padding: "18px",
+    minWidth: 0,
+    overflow: "hidden",
   },
 
 
@@ -2187,6 +2230,12 @@ const styles = {
     alignItems: "center",
   },
 
+  workflowCardMobile: {
+    gridTemplateColumns: "1fr",
+    padding: "16px",
+    borderRadius: "18px",
+  },
+
   workflowTitle: {
     fontSize: "18px",
     fontWeight: 900,
@@ -2206,6 +2255,30 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: "10px",
+  },
+
+  workflowStepsMobile: {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  },
+
+  commandGridMobile: {
+    gridTemplateColumns: "1fr",
+  },
+
+  adminProtectionCardMobile: {
+    alignItems: "flex-start",
+    padding: "14px",
+    borderRadius: "18px",
+  },
+
+  singleColumnGrid: {
+    gridTemplateColumns: "1fr",
+  },
+
+  clientActionRowMobile: {
+    width: "100%",
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
   },
 
 

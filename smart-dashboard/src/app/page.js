@@ -2798,11 +2798,15 @@ function DataChart({
       {!hasData ? (
         <div style={styles.emptyChartState}>Sem leituras neste período.</div>
       ) : (
-        <div style={styles.chartWrap}>
-          <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
+        <div style={{ ...styles.chartWrap, ...(isMobile ? styles.chartWrapMobile : {}) }}>
+          <ResponsiveContainer width="100%" height={isMobile ? 250 : 320}>
             <LineChart
               data={data}
-              margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
+              margin={
+                isMobile
+                  ? { top: 18, right: 8, left: -8, bottom: 4 }
+                  : { top: 20, right: 24, left: 8, bottom: 8 }
+              }
             >
               <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
 
@@ -2814,17 +2818,17 @@ function DataChart({
                 scale="time"
                 tickFormatter={(value) => formatShortTime(value, periodKey)}
                 stroke="#7c8aa0"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: isMobile ? 10 : 12 }}
                 tickMargin={8}
-                minTickGap={24}
+                minTickGap={isMobile ? 16 : 24}
               />
 
               <YAxis
                 stroke="#7c8aa0"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: isMobile ? 10 : 12 }}
                 domain={yDomain}
                 ticks={yTicks}
-                width={64}
+                width={isMobile ? 44 : 64}
                 tickMargin={8}
                 allowDecimals={dataKey === "temperature"}
                 tickFormatter={yTickFormatter}
@@ -5552,6 +5556,11 @@ const styles = {
     minWidth: 0,
     overflow: "hidden",
     paddingTop: "4px",
+  },
+
+  chartWrapMobile: {
+    marginLeft: "-6px",
+    marginRight: "-4px",
   },
 
   periodRow: {
