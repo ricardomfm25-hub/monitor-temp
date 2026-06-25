@@ -3033,9 +3033,19 @@ function BootScreen() {
 }
 
 async function fetchJsonOrThrow(url, options = {}) {
+  const retries = options.retries ?? 1;
+  const timeoutMs = options.timeoutMs ?? 10000;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
   const response = await fetch(url, {
     ...options,
     cache: "no-store",
+    signal: controller.signal,
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -3059,6 +3069,21 @@ async function fetchJsonOrThrow(url, options = {}) {
   }
 
   return payload;
+    } catch (error) {
+      lastError =
+        error?.name === "AbortError"
+          ? new Error("Tempo de resposta excedido. A tentar recuperar ligaÃ§Ã£o.")
+          : error;
+
+      if (attempt < retries) {
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error("Ocorreu um erro ao contactar a API.");
 }
 
 export default function DashboardPage() {
@@ -3108,6 +3133,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const mountedRef = useRef(true);
   const pendingReloadRef = useRef(false);
   const realtimeRefreshTimerRef = useRef(null);
+  const lastGoodReadingsRef = useRef([]);
+  const lastGoodReadingsDeviceIdRef = useRef(null);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const isClientAdmin = profile?.role === "client_admin";
@@ -3261,7 +3288,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           nextSelectedDeviceId
             ? fetchJsonOrThrow(
                 `/api/sts/device/${nextSelectedDeviceId}/history?hours=${getPeriodConfig(period).hours}&limit=25000`
-              )
+              ).catch((error) => {
+                console.warn("history:", error);
+                return null;
+              })
             : Promise.resolve([]),
 
           nextSelectedDeviceId
@@ -3333,7 +3363,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             }
           : null;
 
-        const readingsData = (historyRows || [])
+        const historyRowsAvailable = Array.isArray(historyRows);
+        const fallbackReadings =
+          lastGoodReadingsDeviceIdRef.current === nextSelectedDeviceId
+            ? lastGoodReadingsRef.current
+            : [];
+        const readingsData = (historyRowsAvailable ? historyRows : fallbackReadings)
           .map((item) => {
             const apiTimestamp = Number(item.timestamp);
             const timestamp = Number.isFinite(apiTimestamp)
@@ -3353,6 +3388,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             };
           })
           .filter((item) => Number.isFinite(item.timestamp));
+
+        if (historyRowsAvailable) {
+          lastGoodReadingsRef.current = readingsData;
+          lastGoodReadingsDeviceIdRef.current = nextSelectedDeviceId;
+        }
 
         const derivedAlerts = deriveAlertEventsFromReadings(
           readingsData,
