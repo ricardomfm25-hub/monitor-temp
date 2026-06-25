@@ -3592,7 +3592,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         const withoutDuplicate = (current || []).filter(
           (item) => item.created_at !== normalized.created_at
         );
-        return [...withoutDuplicate, normalized].sort((a, b) => a.timestamp - b.timestamp);
+        const periodWindow = getPeriodWindow(period);
+        const keepAfter = periodWindow.start - 10 * 60 * 1000;
+        return [...withoutDuplicate, normalized]
+          .filter((item) => item.timestamp >= keepAfter)
+          .sort((a, b) => a.timestamp - b.timestamp);
       });
 
       setDevice((current) => {
@@ -3630,19 +3634,16 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     const syncLatestReadings = async () => {
       if (typeof document !== "undefined" && document.hidden) return;
 
-      const { data, error } = await supabase
-        .from("readings")
-        .select("*")
-        .eq("device_id", selectedDeviceId)
-        .order("created_at", { ascending: false })
-        .limit(8);
+      try {
+        const rows = await fetchJsonOrThrow(
+          `/api/sts/device/${selectedDeviceId}/history?limit=8`,
+          { retries: 0, timeoutMs: 6000 }
+        );
 
-      if (error) {
+        (rows || []).forEach((row) => applyRealtimeReading(row));
+      } catch (error) {
         console.warn("live readings:", error);
-        return;
       }
-
-      [...(data || [])].reverse().forEach((row) => applyRealtimeReading(row));
     };
 
     const channel = supabase
@@ -3702,7 +3703,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       window.clearInterval(liveReadingsInterval);
       supabase.removeChannel(channel);
     };
-  }, [selectedDeviceId, loadData, supabase]);
+  }, [selectedDeviceId, loadData, period, supabase]);
 
   const config = useMemo(() => device?.config ?? {}, [device?.config]);
 
