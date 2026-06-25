@@ -1,6 +1,6 @@
 {
   "name": "monitor-temp",
-  "version": "2.4.55",
+  "version": "2.4.46",
   "description": "",
   "main": "index.js",
   "scripts": {

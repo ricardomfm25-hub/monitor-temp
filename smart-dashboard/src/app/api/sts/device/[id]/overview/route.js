@@ -31,8 +31,7 @@ function normalizeDeviceStatus(status) {
   if (value.includes("ack")) return "alarm_ack";
   if (value.includes("sensor")) return "sensor_fail";
   if (value.includes("setup")) return "setup_wifi";
-  if (value.includes("no_wifi") || value.includes("wifi")) return "no_wifi";
-  if (value.includes("offline")) return "offline";
+  if (value.includes("offline") || value.includes("no_wifi")) return "offline";
   if (value.includes("alarm") || value.includes("critical")) return "alarm";
   if (value.includes("alert") || value.includes("warning")) return "alert";
   if (value.includes("normal") || value.includes("online") || value.includes("ok")) {
@@ -67,8 +66,7 @@ function resolveTelemetryStatus({
 
   if (
     normalizedIncoming === "sensor_fail" ||
-    normalizedIncoming === "setup_wifi" ||
-    normalizedIncoming === "no_wifi"
+    normalizedIncoming === "setup_wifi"
   ) {
     return normalizedIncoming;
   }
@@ -101,15 +99,7 @@ function getOfflineLimitMs(sendIntervalS) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  return Math.max(expectedMs * 10, 5 * 60 * 1000);
-}
-
-function getMostRecentTimestampMs(values) {
-  const timestamps = values
-    .map((value) => (value ? new Date(value).getTime() : null))
-    .filter((value) => Number.isFinite(value));
-
-  return timestamps.length ? Math.max(...timestamps) : null;
+  return Math.max(expectedMs * 6, 180 * 1000);
 }
 
 function getStatus({ online, temperature, humidity, config }) {
@@ -267,12 +257,8 @@ export async function GET(_request, context) {
     if (readingsError) throw readingsError;
 
     const config = normalizeConfig(device.config || {});
-    const lastSeenTs = getMostRecentTimestampMs([
-      device.last_seen,
-      device.last_contact_at,
-      latestReading?.created_at,
-    ]);
-    const lastSeen = lastSeenTs ? new Date(lastSeenTs).toISOString() : null;
+    const lastSeen = latestReading?.created_at || null;
+    const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))
       : null;

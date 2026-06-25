@@ -13,17 +13,6 @@ const API_TOKEN = process.env.API_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const REQUIRED_ENV = { API_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY };
-const missingRequiredEnv = Object.entries(REQUIRED_ENV)
-  .filter(([, value]) => !String(value || "").trim())
-  .map(([name]) => name);
-
-if (missingRequiredEnv.length > 0) {
-  throw new Error(
-    `Configuracao insegura: variaveis obrigatorias em falta: ${missingRequiredEnv.join(", ")}`
-  );
-}
-
 const TEMP_LIMIT = parseFloat(process.env.TEMP_LIMIT || "25");
 const COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || "30", 10);
 
@@ -39,9 +28,6 @@ const HEALTH_CHECK_INTERVAL_SECONDS = parseInt(
   process.env.HEALTH_CHECK_INTERVAL_SECONDS || "60",
   10
 );
-const ALERT_EQUIVALENCE_WINDOW_MS = 5 * 60 * 1000;
-const MIN_SEND_INTERVAL_SECONDS = 5;
-const MAX_SEND_INTERVAL_SECONDS = 60;
 const READING_MIN_INTERVAL_FACTOR = clamp(
   Number(process.env.READING_MIN_INTERVAL_FACTOR || "0.5"),
   0.5,
@@ -79,8 +65,7 @@ function getAuthToken(req) {
 }
 
 function isAuthorized(req) {
-  const token = getAuthToken(req);
-  return Boolean(token && API_TOKEN && token === API_TOKEN);
+  return getAuthToken(req) === API_TOKEN;
 }
 
 function nowIso() {
@@ -165,11 +150,6 @@ function average(values, digits = 1) {
   return Number(avgValue.toFixed(digits));
 }
 
-function getAverageRaw(values) {
-  if (!Array.isArray(values) || !values.length) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
 function getReportPeriodRange(period = "24h") {
   const normalized = String(period || "24h").toLowerCase();
 
@@ -182,67 +162,16 @@ function getReportPeriodRange(period = "24h") {
   };
 
   const selected = map[normalized] || map["24h"];
-  const requestedEnd = new Date();
-  const requestedStart = new Date(
-    requestedEnd.getTime() - selected.hours * 60 * 60 * 1000
-  );
+  const sinceIso = new Date(
+    Date.now() - selected.hours * 60 * 60 * 1000
+  ).toISOString();
 
   return {
     key: normalized in map ? normalized : "24h",
     label: selected.label,
     hours: selected.hours,
-    sinceIso: requestedStart.toISOString(),
-    untilIso: requestedEnd.toISOString(),
-    requestedStartIso: requestedStart.toISOString(),
-    requestedEndIso: requestedEnd.toISOString(),
+    sinceIso,
   };
-}
-
-function buildReportIntervalSummary(rows, requestedStartIso, requestedEndIso, periodKey) {
-  const startMs = new Date(requestedStartIso).getTime();
-  const endMs = new Date(requestedEndIso).getTime();
-
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-    return [];
-  }
-
-  const bucketCount = periodKey === "1h" ? 6 : periodKey === "6h" ? 6 : periodKey === "12h" ? 6 : periodKey === "24h" ? 8 : 7;
-  const bucketMs = (endMs - startMs) / bucketCount;
-  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
-    startMs: startMs + bucketMs * index,
-    endMs: index === bucketCount - 1 ? endMs : startMs + bucketMs * (index + 1),
-    temperatures: [],
-    humidities: [],
-    readings: 0,
-    offline: 0,
-  }));
-
-  for (const row of rows || []) {
-    const ts = new Date(row?.created_at).getTime();
-    if (!Number.isFinite(ts) || ts < startMs || ts > endMs) continue;
-
-    const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((ts - startMs) / bucketMs)));
-    const bucket = buckets[index];
-    const temperature = toOptionalNumber(row?.temperature);
-    const humidity = toOptionalNumber(row?.humidity);
-
-    bucket.readings += 1;
-    if (row?.offline_captured === true) bucket.offline += 1;
-    if (temperature !== null) bucket.temperatures.push(temperature);
-    if (humidity !== null) bucket.humidities.push(humidity);
-  }
-
-  return buckets.map((bucket) => ({
-    label: `${formatDateTimePt(bucket.startMs)} - ${formatDateTimePt(bucket.endMs)}`,
-    readings: bucket.readings,
-    offline: bucket.offline,
-    tempMin: bucket.temperatures.length ? Math.min(...bucket.temperatures) : null,
-    tempAvg: getAverageRaw(bucket.temperatures),
-    tempMax: bucket.temperatures.length ? Math.max(...bucket.temperatures) : null,
-    humMin: bucket.humidities.length ? Math.min(...bucket.humidities) : null,
-    humAvg: getAverageRaw(bucket.humidities),
-    humMax: bucket.humidities.length ? Math.max(...bucket.humidities) : null,
-  }));
 }
 
 function formatPeriodLabelForFilename(periodKey = "24h") {
@@ -473,7 +402,7 @@ function mergeReportAlertHistory(storedEvents, derivedEvents) {
       const storedTs = new Date(storedEvent.when).getTime();
       if (!Number.isFinite(eventTs) || !Number.isFinite(storedTs)) return false;
       if (storedEvent.kind !== event.kind) return false;
-      if (Math.abs(storedTs - eventTs) > ALERT_EQUIVALENCE_WINDOW_MS) return false;
+      if (Math.abs(storedTs - eventTs) > 90000) return false;
       const storedType = getReportEventType(storedEvent);
       const eventType = getReportEventType(event);
       if (storedType && eventType && storedType !== eventType) return false;
@@ -564,13 +493,9 @@ function validateConfigNumbers(payload) {
 
   if (
     sendInterval !== undefined &&
-    (!Number.isFinite(sendInterval) ||
-      sendInterval < MIN_SEND_INTERVAL_SECONDS ||
-      sendInterval > MAX_SEND_INTERVAL_SECONDS)
+    (!Number.isFinite(sendInterval) || sendInterval < 5)
   ) {
-    errors.push(
-      `send_interval_s deve estar entre ${MIN_SEND_INTERVAL_SECONDS} e ${MAX_SEND_INTERVAL_SECONDS}`
-    );
+    errors.push("send_interval_s deve ser pelo menos 5");
   }
 
   if (standby !== undefined && (!Number.isFinite(standby) || standby < 0)) {
@@ -591,11 +516,7 @@ function getDeviceConfig(deviceRow) {
     hum_high: toNumberOrDefault(cfg.hum_high, 60),
     hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
     hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
-    send_interval_s: clamp(
-      toNumberOrDefault(cfg.send_interval_s, 30),
-      MIN_SEND_INTERVAL_SECONDS,
-      MAX_SEND_INTERVAL_SECONDS
-    ),
+    send_interval_s: toNumberOrDefault(cfg.send_interval_s, 30),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     alert_state: {
       temp_active: Boolean(alertState.temp_active),
@@ -639,8 +560,7 @@ function shouldStoreReading({ latestReading, cfg, incoming }) {
       ? Number(cfg.send_interval_s) * 1000
       : 30 * 1000;
   const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
-  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
-  const isBackfill = isOfflineCapturedReading(incoming, cfg) || deliveryAttempts > 0;
+  const isBackfill = isOfflineCapturedReading(incoming, cfg);
 
   if (!latestReading?.created_at) return true;
 
@@ -691,8 +611,7 @@ function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
 }
 
 function isOfflineCapturedReading(incoming, cfg) {
-  const captureNetworkKnown = toBoolean(incoming.capture_network_known);
-  const capturedOffline = toBoolean(incoming.captured_offline);
+  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
   const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
   const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
   const expectedMs =
@@ -700,9 +619,7 @@ function isOfflineCapturedReading(incoming, cfg) {
       ? Number(cfg.send_interval_s) * 1000
       : 30 * 1000;
 
-  if (captureNetworkKnown) return capturedOffline;
-
-  // Compatibility for records captured before network state was persisted.
+  if (deliveryAttempts > 1) return true;
   if (sampleAgeS !== null && sampleAgeS * 1000 > Math.max(expectedMs, 60 * 1000)) {
     return true;
   }
@@ -713,33 +630,6 @@ function isOfflineCapturedReading(incoming, cfg) {
   }
 
   return false;
-}
-
-function isHistoricalReadingBackfill({ readingCreatedAt, incoming, cfg, hasExistingDevice }) {
-  if (!hasExistingDevice) return false;
-
-  const createdTs = new Date(readingCreatedAt).getTime();
-  if (!Number.isFinite(createdTs)) return false;
-
-  const expectedMs =
-    Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
-      ? Number(cfg.send_interval_s) * 1000
-      : 30 * 1000;
-  const historicalThresholdMs = Math.max(expectedMs * 2, 60 * 1000);
-  const ageMs = Date.now() - createdTs;
-
-  if (!Number.isFinite(ageMs) || ageMs <= historicalThresholdMs) return false;
-
-  const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
-  const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
-  const hasBackdatedSample =
-    sampleAgeS !== null && sampleAgeS * 1000 > historicalThresholdMs;
-
-  return (
-    isOfflineCapturedReading(incoming, cfg) ||
-    deliveryAttempts > 0 ||
-    hasBackdatedSample
-  );
 }
 
 function isMissingReadingTelemetryColumnError(error) {
@@ -808,7 +698,7 @@ function getOfflineThresholdMs(sendIntervalS) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 10, 5 * 60 * 1000);
+  return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 6);
 }
 
 function getTemperatureAlertDirection(temperature, cfg) {
@@ -873,7 +763,6 @@ function statusToDbLabel(status) {
     alarm: "ALARM",
     alarm_ack: "ALARM_ACK",
     offline: "OFFLINE",
-    no_wifi: "NO_WIFI",
     sensor_fail: "SENSOR_FAIL",
     setup_wifi: "SETUP_WIFI",
   };
@@ -888,7 +777,6 @@ function statusToApiLabel(status) {
     alarm: "alarm",
     alarm_ack: "alarm_ack",
     offline: "offline",
-    no_wifi: "no_wifi",
     sensor_fail: "sensor_fail",
     setup_wifi: "setup_wifi",
   };
@@ -905,8 +793,7 @@ function normalizeDeviceStatus(status) {
   if (value.includes("ack")) return "alarm_ack";
   if (value.includes("sensor")) return "sensor_fail";
   if (value.includes("setup")) return "setup_wifi";
-  if (value.includes("no_wifi") || value.includes("wifi")) return "no_wifi";
-  if (value.includes("offline")) return "offline";
+  if (value.includes("offline") || value.includes("no_wifi")) return "offline";
   if (value.includes("alarm") || value.includes("critical")) return "alarm";
   if (value.includes("alert") || value.includes("warning")) return "alert";
   if (value.includes("normal") || value.includes("online") || value.includes("ok")) {
@@ -942,8 +829,7 @@ function resolveTelemetryStatus({
   if (
     normalizedIncoming === "sensor_fail" ||
     normalizedIncoming === "setup_wifi" ||
-    normalizedIncoming === "offline" ||
-    normalizedIncoming === "no_wifi"
+    normalizedIncoming === "offline"
   ) {
     return normalizedIncoming;
   }
@@ -2487,7 +2373,7 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (!tempInfo.breached && alertState.temp_active) {
-    const emailResult = await sendTemperatureResolvedEmail({
+    await sendTemperatureResolvedEmail({
       device: deviceRow,
       temperature: numericTemperature,
       humidity: numericHumidity,
@@ -2509,10 +2395,6 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.temp_active = false;
     nextAlertState.temp_last_resolved_at = nowIso();
-    nextAlertState = {
-      ...nextAlertState,
-      ...buildEmailAlertStatePatch("temp", emailResult),
-    };
   }
 
   if (humInfo.breached && !alertState.hum_active) {
@@ -2566,7 +2448,7 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (!humInfo.breached && alertState.hum_active) {
-    const emailResult = await sendHumidityResolvedEmail({
+    await sendHumidityResolvedEmail({
       device: deviceRow,
       temperature: numericTemperature,
       humidity: numericHumidity,
@@ -2588,14 +2470,10 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.hum_active = false;
     nextAlertState.hum_last_resolved_at = nowIso();
-    nextAlertState = {
-      ...nextAlertState,
-      ...buildEmailAlertStatePatch("hum", emailResult),
-    };
   }
 
   if (alertState.offline_active) {
-    const emailResult = await sendOnlineRecoveredEmail({
+    await sendOnlineRecoveredEmail({
       device: {
         ...deviceRow,
         last_temperature: numericTemperature,
@@ -2615,10 +2493,6 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.offline_active = false;
     nextAlertState.offline_last_resolved_at = nowIso();
-    nextAlertState = {
-      ...nextAlertState,
-      ...buildEmailAlertStatePatch("offline", emailResult),
-    };
   }
 
   return nextAlertState;
@@ -2991,72 +2865,6 @@ app.get("/", (req, res) => {
   res.send("Servidor SmartTempSystems ativo!");
 });
 
-// -------------------- EMAIL DIAGNOSTICS --------------------
-app.post("/api/admin/test-email", async (req, res) => {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: "NÃ£o autorizado" });
-  }
-
-  try {
-    const {
-      device_id,
-      alert_type = "general",
-      to,
-      dry_run = false,
-    } = req.body || {};
-
-    const configuredDirectRecipient = String(to || ALERT_TO_EMAIL || "").trim();
-    const recipients = device_id
-      ? await getDeviceAlertRecipients(device_id, alert_type)
-      : configuredDirectRecipient
-      ? [{ email: configuredDirectRecipient }]
-      : [];
-
-    const diagnostics = {
-      brevo_api_key_configured: Boolean(BREVO_API_KEY),
-      alert_from_email_configured: Boolean(ALERT_FROM_EMAIL),
-      fallback_to_email_configured: Boolean(ALERT_TO_EMAIL),
-      recipient_count: recipients.length,
-      alert_type,
-      device_id: device_id || null,
-    };
-
-    if (dry_run) {
-      return res.json({
-        ok: diagnostics.brevo_api_key_configured &&
-          diagnostics.alert_from_email_configured &&
-          diagnostics.recipient_count > 0,
-        dry_run: true,
-        ...diagnostics,
-      });
-    }
-
-    const emailResult = await sendEmail({
-      to: recipients,
-      subject: "[STS] Teste de email",
-      htmlContent: buildEmailShell({
-        heading: "Teste de email STS",
-        intro:
-          "Este email confirma que o backend consegue comunicar com o fornecedor de email.",
-        blocks: [
-          { label: "Hora", value: formatDateTimePt(new Date(), true) },
-          { label: "Tipo", value: String(alert_type) },
-          { label: "Device ID", value: device_id || "-" },
-        ],
-      }),
-    });
-
-    res.json({
-      ok: Boolean(emailResult.ok),
-      ...diagnostics,
-      result: emailResult,
-    });
-  } catch (error) {
-    console.error("Erro em /api/admin/test-email:", error);
-    res.status(500).json({ error: "Erro ao testar email" });
-  }
-});
-
 // -------------------- WEEKLY REPORT --------------------
 app.post("/api/weekly-report", async (req, res) => {
   if (!isAuthorized(req)) {
@@ -3116,8 +2924,6 @@ app.post("/api/temperature", async (req, res) => {
       sample_age_s,
       sample_epoch,
       delivery_attempts,
-      captured_offline,
-      capture_network_known,
     } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
@@ -3183,24 +2989,13 @@ app.post("/api/temperature", async (req, res) => {
       sample_epoch: toOptionalNumber(sample_epoch),
       delivery_attempts: toOptionalNumber(delivery_attempts) || 0,
     };
-    const captureNetworkMeta = {
-      captured_offline: toBoolean(captured_offline),
-      capture_network_known: toBoolean(capture_network_known),
-    };
     const enrichedReadingPayload = {
       ...readingPayload,
       ...incomingReadingMeta,
-      offline_captured: isOfflineCapturedReading(
-        { ...incomingReadingMeta, ...captureNetworkMeta },
-        cfg
-      ),
+      offline_captured: isOfflineCapturedReading(incomingReadingMeta, cfg),
     };
-    const isHistoricalBackfill = isHistoricalReadingBackfill({
-      readingCreatedAt,
-      incoming: { ...incomingReadingMeta, ...captureNetworkMeta },
-      cfg,
-      hasExistingDevice: Boolean(existingDeviceRow),
-    });
+    const isHistoricalBackfill =
+      enrichedReadingPayload.offline_captured && Boolean(existingDeviceRow);
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
@@ -3260,15 +3055,6 @@ app.post("/api/temperature", async (req, res) => {
       alarmMask: readingPayload.alarm_mask,
       computedStatus,
     });
-    const deviceTelemetryStatus = enrichedReadingPayload.offline_captured
-      ? resolveTelemetryStatus({
-          online: true,
-          incomingStatus: null,
-          alarmAck: readingPayload.alarm_ack,
-          alarmMask: readingPayload.alarm_mask,
-          computedStatus,
-        })
-      : telemetryStatus;
 
     const currentNowIso = nowIso();
 
@@ -3278,14 +3064,14 @@ app.post("/api/temperature", async (req, res) => {
       location: sanitizeLocation(baseDeviceRow.location),
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
+      last_seen: currentNowIso,
       updated_at: currentNowIso,
     };
 
     if (!isHistoricalBackfill) {
-      upsertPayload.last_seen = currentNowIso;
       upsertPayload.last_temperature = numericTemperature;
       upsertPayload.last_humidity = numericHumidity;
-      upsertPayload.status = statusToDbLabel(deviceTelemetryStatus);
+      upsertPayload.status = statusToDbLabel(telemetryStatus);
     }
 
     const { error: upsertError } = await supabase
@@ -3355,8 +3141,8 @@ app.post("/api/temperature", async (req, res) => {
 
     await updateDeviceConfigAndStatus(freshDeviceRow, {
       configPatch: finalConfig,
-      status: isHistoricalBackfill ? null : statusToDbLabel(deviceTelemetryStatus),
-      last_seen: isHistoricalBackfill ? undefined : currentNowIso,
+      status: isHistoricalBackfill ? null : statusToDbLabel(telemetryStatus),
+      last_seen: currentNowIso,
       last_temperature: isHistoricalBackfill ? undefined : numericTemperature,
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });
@@ -3365,7 +3151,7 @@ app.post("/api/temperature", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings: last24hReadings,
       sendIntervalS: refreshedCfg.send_interval_s,
-      deviceLastSeen: isHistoricalBackfill ? freshDeviceRow.last_seen : currentNowIso,
+      deviceLastSeen: currentNowIso,
       periodHours: 24,
     });
 
@@ -3426,28 +3212,31 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const cfg = getDeviceConfig(deviceRow);
     const { temp_low_c, temp_high_c, hum_low, hum_high, alert_state } = cfg;
     const currentReading = latestReading || null;
-    const dataLastSeenTs = deviceRow?.last_seen ? new Date(deviceRow.last_seen).getTime() : null;
-    const dataLastSeenIso = Number.isFinite(dataLastSeenTs)
-      ? new Date(dataLastSeenTs).toISOString()
-      : null;
-    const lastReadingAt = currentReading?.created_at || null;
-    const lastSeenSeconds = dataLastSeenIso
-      ? Math.floor((Date.now() - new Date(dataLastSeenIso).getTime()) / 1000)
-      : 999999;
-    const currentDataReliable =
-      lastSeenSeconds <= Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
 
-    const temperature = currentDataReliable ? deviceRow?.last_temperature ?? null : null;
-    const humidity = currentDataReliable ? deviceRow?.last_humidity ?? null : null;
+    const temperature =
+      currentReading?.temperature ?? deviceRow?.last_temperature ?? latestReading?.temperature ?? null;
+    const humidity =
+      currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
-    const contactTimes = [deviceRow?.last_contact_at, deviceRow?.updated_at, dataLastSeenIso]
+    const contactTimes = [
+      deviceRow?.last_contact_at,
+      deviceRow?.updated_at,
+      deviceRow?.last_seen,
+      currentReading?.created_at,
+    ]
       .map((value) => (value ? new Date(value).getTime() : null))
       .filter((value) => Number.isFinite(value));
-    const lastContactIso = contactTimes.length
+    const lastSeenIso = contactTimes.length
       ? new Date(Math.max(...contactTimes)).toISOString()
-      : dataLastSeenIso;
+      : null;
+    const lastReadingAt = currentReading?.created_at || null;
+    const lastSeenSeconds = lastSeenIso
+      ? Math.floor((Date.now() - new Date(lastSeenIso).getTime()) / 1000)
+      : 999999;
 
-    const online = currentDataReliable;
+    const online =
+      lastSeenSeconds <=
+      Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
 
     const computedStatus =
       temperature !== null && humidity !== null
@@ -3480,7 +3269,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings: readings24hRows,
       sendIntervalS: cfg.send_interval_s,
-      deviceLastSeen: dataLastSeenIso,
+      deviceLastSeen: lastSeenIso,
       periodHours: 24,
     });
 
@@ -3526,9 +3315,8 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       hum_high,
       status: statusToApiLabel(normalizedStatus),
       online,
-      current_data_reliable: currentDataReliable,
-      last_seen: dataLastSeenIso,
-      last_contact_at: lastContactIso,
+      last_seen: lastSeenIso,
+      last_contact_at: lastSeenIso,
       last_reading_at: lastReadingAt,
       last_seen_seconds: lastSeenSeconds,
       alerts_24h: alerts24hCount || 0,
@@ -3792,15 +3580,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     const sendEmailCopy =
       String(req.query.email || "false").toLowerCase() === "true";
 
-    const {
-      key: periodKey,
-      label: periodLabel,
-      hours: periodHours,
-      sinceIso,
-      untilIso,
-      requestedStartIso,
-      requestedEndIso,
-    } =
+    const { key: periodKey, label: periodLabel, hours: periodHours, sinceIso } =
       getReportPeriodRange(period);
 
     const [
@@ -3817,11 +3597,10 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       supabase
         .from("readings")
         .select(
-          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason, offline_captured"
+          "temperature, humidity, created_at, device_status, alarm_ack, alarm_ack_count, alarm_ack_time, alarm_ack_age_s, alarm_event_count, alarm_event_time, alarm_event_age_s, alarm_mask, alarm_reason"
         )
         .eq("device_id", deviceId)
         .gte("created_at", sinceIso)
-        .lte("created_at", untilIso)
         .order("created_at", { ascending: true }),
 
       supabase
@@ -3829,7 +3608,6 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
         .select("*")
         .eq("device_id", deviceId)
         .or(`sent_at.gte.${sinceIso},created_at.gte.${sinceIso}`)
-        .lte("created_at", untilIso)
         .order("sent_at", { ascending: true }),
     ]);
 
@@ -3852,10 +3630,9 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
       const { data: fallbackReadings, error: fallbackReadingsError } =
         await supabase
           .from("readings")
-          .select("temperature, humidity, created_at, offline_captured")
+          .select("temperature, humidity, created_at")
           .eq("device_id", deviceId)
           .gte("created_at", sinceIso)
-          .lte("created_at", untilIso)
           .order("created_at", { ascending: true });
 
       if (fallbackReadingsError) {
@@ -3900,13 +3677,6 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
 
     const firstReadingAt = rows[0]?.created_at || null;
     const lastReadingAt = rows[rows.length - 1]?.created_at || null;
-    const offlineReadingCount = rows.filter((row) => row?.offline_captured === true).length;
-    const reportIntervalRows = buildReportIntervalSummary(
-      rows,
-      requestedStartIso,
-      requestedEndIso,
-      periodKey
-    );
 
     const safeFilenameName = sanitizeDeviceName(
       deviceRow?.name,
@@ -4110,14 +3880,6 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     doc.text(`${communicationHealth.delivery_pct}%`, 448, y + 76);
     doc.text(formatDurationCompact(communicationHealth.expected_interval_ms), 190, y + 100);
 
-    doc.fillColor("#64748b").font("Helvetica").fontSize(9);
-    doc.text(
-      `Periodo pedido: ${formatDateTimePt(requestedStartIso, true)} ate ${formatDateTimePt(requestedEndIso, true)}`,
-      320,
-      y + 100,
-      { width: 210, align: "right" }
-    );
-
     y += 150;
 
     doc
@@ -4167,75 +3929,6 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
           }
         );
     };
-
-    drawFooter();
-    doc.addPage();
-
-    let summaryY = 54;
-    doc
-      .fillColor("#0f172a")
-      .font("Helvetica-Bold")
-      .fontSize(18)
-      .text("Resumo por intervalos", 42, summaryY);
-
-    summaryY += 24;
-
-    doc
-      .fillColor("#64748b")
-      .font("Helvetica")
-      .fontSize(10)
-      .text(
-        `Periodo pedido: ${formatDateTimePt(requestedStartIso, true)} ate ${formatDateTimePt(requestedEndIso, true)}`,
-        42,
-        summaryY,
-        { width: 511 }
-      );
-
-    summaryY += 30;
-
-    doc
-      .roundedRect(42, summaryY, 511, 28, 8)
-      .fillAndStroke("#f8fafc", "#e2e8f0");
-
-    doc.fillColor("#475569").font("Helvetica-Bold").fontSize(8);
-    doc.text("Intervalo", 52, summaryY + 10, { width: 138 });
-    doc.text("Temp min/med/max", 196, summaryY + 10, { width: 104, align: "right" });
-    doc.text("Hum min/med/max", 308, summaryY + 10, { width: 104, align: "right" });
-    doc.text("Leit.", 428, summaryY + 10, { width: 42, align: "right" });
-    doc.text("Off.", 486, summaryY + 10, { width: 42, align: "right" });
-
-    summaryY += 34;
-
-    reportIntervalRows.forEach((row, index) => {
-      if (summaryY > 742) {
-        drawFooter();
-        doc.addPage();
-        summaryY = 54;
-      }
-
-      const fill = index % 2 === 0 ? "#ffffff" : "#f8fafc";
-      doc
-        .roundedRect(42, summaryY, 511, 38, 6)
-        .fillAndStroke(fill, "#e2e8f0");
-
-      const tempText =
-        row.tempMin !== null
-          ? `${formatNumber(row.tempMin, 1)}/${formatNumber(row.tempAvg, 1)}/${formatNumber(row.tempMax, 1)} C`
-          : "-";
-      const humText =
-        row.humMin !== null
-          ? `${formatNumber(row.humMin, 0)}/${formatNumber(row.humAvg, 0)}/${formatNumber(row.humMax, 0)} %`
-          : "-";
-
-      doc.fillColor("#0f172a").font("Helvetica").fontSize(8);
-      doc.text(row.label, 52, summaryY + 9, { width: 138 });
-      doc.text(tempText, 196, summaryY + 9, { width: 104, align: "right" });
-      doc.text(humText, 308, summaryY + 9, { width: 104, align: "right" });
-      doc.text(String(row.readings), 428, summaryY + 9, { width: 42, align: "right" });
-      doc.text(String(row.offline), 486, summaryY + 9, { width: 42, align: "right" });
-
-      summaryY += 44;
-    });
 
     if (alertHistory.length) {
       drawFooter();
