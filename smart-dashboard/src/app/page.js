@@ -18,7 +18,6 @@ import {
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 8000;
-const LIVE_READINGS_REFRESH_MS = 2500;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const STS_PRODUCT = {
@@ -150,34 +149,19 @@ function getOfflineLimitMs(sendIntervalS) {
       ? Number(sendIntervalS) * 1000
       : 30 * 1000;
 
-  return Math.max(expectedMs * 10, 5 * 60 * 1000);
-}
-
-function isExplicitOfflineStatus(status) {
-  return String(status || "").trim().toLowerCase() === "offline";
+  return Math.max(expectedMs * 6, 180 * 1000);
 }
 
 function getEffectiveStatus(device, sendIntervalS) {
-  const status = device?.status || "SEM DADOS";
-  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
-  const lastSeenSeconds = parseNumber(device?.last_seen_seconds);
-  const hasRecentBackendSignal =
-    device?.online === true ||
-    device?.current_data_reliable === true ||
-    (lastSeenSeconds !== null && lastSeenSeconds * 1000 <= offlineLimitMs);
-
-  if (hasRecentBackendSignal) {
-    return isExplicitOfflineStatus(status) ? "NORMAL" : status;
-  }
-
   const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
   const now = Date.now();
+  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
 
   if (!lastSeen || now - lastSeen > offlineLimitMs) {
     return "OFFLINE";
   }
 
-  return isExplicitOfflineStatus(status) ? "NORMAL" : status;
+  return device?.status || "SEM DADOS";
 }
 
 function isOfflineCapturedReading(reading) {
@@ -418,32 +402,6 @@ function hasSeriesValue(data, key) {
   return (data || []).some((item) => parseNumber(item?.[key]) !== null);
 }
 
-function getSeriesCoverage(data, dataKey) {
-  const expected = (data || []).filter((item) => !item?.confirmed_gap).length;
-  const received = (data || []).filter(
-    (item) =>
-      !item?.confirmed_gap &&
-      (parseNumber(item?.[dataKey]) !== null ||
-        parseNumber(item?.[`${dataKey}_offline`]) !== null ||
-        parseNumber(item?.[`${dataKey}_min`]) !== null ||
-        parseNumber(item?.[`${dataKey}_max`]) !== null)
-  ).length;
-
-  return {
-    expected,
-    received,
-    percent: expected > 0 ? Math.round((received / expected) * 100) : 0,
-  };
-}
-
-function getSampleDescription(periodKey, sampleLabel) {
-  if (periodKey === "1h") {
-    return `valor real mais recente a cada ${sampleLabel}`;
-  }
-
-  return `media de ${sampleLabel}`;
-}
-
 function getNiceTemperatureTicks(domain) {
   if (!Array.isArray(domain) || domain.length !== 2) return undefined;
 
@@ -591,10 +549,6 @@ function createTimeBucket(bucketTime) {
     timestamp: bucketTime,
     created_at: new Date(bucketTime).toISOString(),
     latestTimestamp: null,
-    latestTempTimestamp: null,
-    latestHumTimestamp: null,
-    temperatureLatest: null,
-    humidityLatest: null,
     temperatureSum: 0,
     temperatureCount: 0,
     temperatureMin: null,
@@ -614,7 +568,6 @@ function createTimeBucket(bucketTime) {
 
 function buildTimeSeries(readings, periodKey, sendIntervalS) {
   const { start, end, bucketMs } = getPeriodWindow(periodKey);
-  const usesLatestValue = periodKey === "1h";
 
   const filtered = (readings || [])
     .filter((item) => Number.isFinite(item?.timestamp))
@@ -622,13 +575,6 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     .sort((a, b) => a.timestamp - b.timestamp);
 
   const buckets = new Map();
-  const firstBucket = floorToPeriodBucket(start, periodKey, bucketMs);
-
-  for (let bucketTime = firstBucket; bucketTime <= end; bucketTime += bucketMs) {
-    if (bucketTime + bucketMs > start && bucketTime <= end) {
-      buckets.set(bucketTime, createTimeBucket(bucketTime));
-    }
-  }
 
   for (const item of filtered) {
     const bucketTime = floorToPeriodBucket(item.timestamp, periodKey, bucketMs);
@@ -647,11 +593,6 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       bucket.hasData = true;
       if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
         bucket.latestTimestamp = item.timestamp;
-      }
-
-      if (bucket.latestTempTimestamp === null || item.timestamp >= bucket.latestTempTimestamp) {
-        bucket.temperatureLatest = temp;
-        bucket.latestTempTimestamp = item.timestamp;
       }
 
       bucket.temperatureSum += temp;
@@ -674,11 +615,6 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       bucket.hasData = true;
       if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
         bucket.latestTimestamp = item.timestamp;
-      }
-
-      if (bucket.latestHumTimestamp === null || item.timestamp >= bucket.latestHumTimestamp) {
-        bucket.humidityLatest = hum;
-        bucket.latestHumTimestamp = item.timestamp;
       }
 
       bucket.humiditySum += hum;
@@ -711,23 +647,11 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       humidity_count: bucket.humidityCount,
       temperature:
         bucket.temperatureCount > 0
-          ? Number(
-              (
-                usesLatestValue && bucket.temperatureLatest !== null
-                  ? bucket.temperatureLatest
-                  : bucket.temperatureSum / bucket.temperatureCount
-              ).toFixed(2)
-            )
+          ? Number((bucket.temperatureSum / bucket.temperatureCount).toFixed(2))
           : null,
       humidity:
         bucket.humidityCount > 0
-          ? Number(
-              (
-                usesLatestValue && bucket.humidityLatest !== null
-                  ? bucket.humidityLatest
-                  : bucket.humiditySum / bucket.humidityCount
-              ).toFixed(2)
-            )
+          ? Number((bucket.humiditySum / bucket.humidityCount).toFixed(2))
           : null,
       temperature_min: bucket.temperatureMin,
       temperature_max: bucket.temperatureMax,
@@ -742,6 +666,7 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
       offline_count: bucket.offlineCount,
     }))
     .filter((item) => item.timestamp + bucketMs > start && item.timestamp <= end)
+    .filter((item) => item.hasData)
     .sort((a, b) => a.timestamp - b.timestamp);
 
   return addConfirmedGapMarkers(series, filtered, sendIntervalS);
@@ -2090,7 +2015,7 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return ordered[0]?.device_id || safeDevices[0]?.device_id || null;
 }
 
-function CustomTooltip({ active, payload, label, unit, digits = 1, valueLabel = "Media" }) {
+function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   if (!active || !payload || !payload.length) return null;
 
   const visiblePayload =
@@ -2114,7 +2039,7 @@ function CustomTooltip({ active, payload, label, unit, digits = 1, valueLabel = 
           ? "Sem leitura neste intervalo"
           : (
             <>
-              {isOfflineSeries ? "Offline" : valueLabel}: <strong>{formatValue(value, unit, digits)}</strong>
+              {isOfflineSeries ? "Offline" : "Média"}: <strong>{formatValue(value, unit, digits)}</strong>
             </>
           )}
       </div>
@@ -2803,8 +2728,6 @@ function DataChart({
   const timeWindow = getPeriodWindow(periodKey);
   const periodConfig = getPeriodConfig(periodKey);
   const xTicks = getXAxisTicks(periodKey);
-  const coverage = getSeriesCoverage(data, dataKey);
-  const sampleDescription = getSampleDescription(periodKey, periodConfig.sampleLabel);
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
@@ -2818,7 +2741,7 @@ function DataChart({
             Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
           </div>
           <div style={styles.chartHint}>
-            Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa {sampleDescription} · cobertura {coverage.received}/{coverage.expected} ({coverage.percent}%)
+            Intervalo exibido: {periodKey.toUpperCase()} · cada ponto representa a média de {periodConfig.sampleLabel}
           </div>
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
@@ -2830,7 +2753,7 @@ function DataChart({
             <div style={styles.chartLegendGrid}>
               <span style={styles.chartLegendItem}>
                 <span style={{ ...styles.chartLegendLine, background: "#3b82f6", height: "3px" }} />
-                {periodKey === "1h" ? "Leitura real do intervalo" : "Media do intervalo"}
+                Media do intervalo
               </span>
               <span style={styles.chartLegendItem}>
                 <span style={{ ...styles.chartLegendLine, borderTop: "2px dashed #facc15" }} />
@@ -2860,15 +2783,11 @@ function DataChart({
       {!hasData ? (
         <div style={styles.emptyChartState}>Sem leituras neste período.</div>
       ) : (
-        <div style={{ ...styles.chartWrap, ...(isMobile ? styles.chartWrapMobile : {}) }}>
-          <ResponsiveContainer width="100%" height={isMobile ? 250 : 320}>
+        <div style={styles.chartWrap}>
+          <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
             <LineChart
               data={data}
-              margin={
-                isMobile
-                  ? { top: 18, right: 8, left: -8, bottom: 4 }
-                  : { top: 20, right: 24, left: 8, bottom: 8 }
-              }
+              margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
             >
               <CartesianGrid stroke="#273142" strokeDasharray="3 3" />
 
@@ -2880,31 +2799,23 @@ function DataChart({
                 scale="time"
                 tickFormatter={(value) => formatShortTime(value, periodKey)}
                 stroke="#7c8aa0"
-                tick={{ fontSize: isMobile ? 10 : 12 }}
+                tick={{ fontSize: 12 }}
                 tickMargin={8}
-                minTickGap={isMobile ? 16 : 24}
+                minTickGap={24}
               />
 
               <YAxis
                 stroke="#7c8aa0"
-                tick={{ fontSize: isMobile ? 10 : 12 }}
+                tick={{ fontSize: 12 }}
                 domain={yDomain}
                 ticks={yTicks}
-                width={isMobile ? 44 : 64}
+                width={64}
                 tickMargin={8}
                 allowDecimals={dataKey === "temperature"}
                 tickFormatter={yTickFormatter}
               />
 
-              <Tooltip
-                content={
-                  <CustomTooltip
-                    unit={unit}
-                    digits={valueDigits}
-                    valueLabel={periodKey === "1h" ? "Leitura" : "Media"}
-                  />
-                }
-              />
+              <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
 
               {minThreshold !== null && minThreshold !== undefined && (
                 <ReferenceLine
@@ -3034,19 +2945,9 @@ function BootScreen() {
 }
 
 async function fetchJsonOrThrow(url, options = {}) {
-  const retries = options.retries ?? 1;
-  const timeoutMs = options.timeoutMs ?? 10000;
-  let lastError = null;
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
   const response = await fetch(url, {
     ...options,
     cache: "no-store",
-    signal: controller.signal,
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -3070,21 +2971,6 @@ async function fetchJsonOrThrow(url, options = {}) {
   }
 
   return payload;
-    } catch (error) {
-      lastError =
-        error?.name === "AbortError"
-          ? new Error("Tempo de resposta excedido. A tentar recuperar ligaÃ§Ã£o.")
-          : error;
-
-      if (attempt < retries) {
-        await new Promise((resolve) => window.setTimeout(resolve, 600));
-      }
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }
-
-  throw lastError || new Error("Ocorreu um erro ao contactar a API.");
 }
 
 export default function DashboardPage() {
@@ -3134,8 +3020,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const mountedRef = useRef(true);
   const pendingReloadRef = useRef(false);
   const realtimeRefreshTimerRef = useRef(null);
-  const lastGoodReadingsRef = useRef([]);
-  const lastGoodReadingsDeviceIdRef = useRef(null);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const isClientAdmin = profile?.role === "client_admin";
@@ -3289,10 +3173,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           nextSelectedDeviceId
             ? fetchJsonOrThrow(
                 `/api/sts/device/${nextSelectedDeviceId}/history?hours=${getPeriodConfig(period).hours}&limit=25000`
-              ).catch((error) => {
-                console.warn("history:", error);
-                return null;
-              })
+              )
             : Promise.resolve([]),
 
           nextSelectedDeviceId
@@ -3314,7 +3195,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         const overviewHas = (key) =>
           Object.prototype.hasOwnProperty.call(overviewData || {}, key);
 
-        let deviceData = baseDeviceData
+        const deviceData = baseDeviceData
           ? {
               ...baseDeviceData,
               last_temperature: overviewHas("temperature")
@@ -3364,12 +3245,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             }
           : null;
 
-        const historyRowsAvailable = Array.isArray(historyRows);
-        const fallbackReadings =
-          lastGoodReadingsDeviceIdRef.current === nextSelectedDeviceId
-            ? lastGoodReadingsRef.current
-            : [];
-        const readingsData = (historyRowsAvailable ? historyRows : fallbackReadings)
+        const readingsData = (historyRows || [])
           .map((item) => {
             const apiTimestamp = Number(item.timestamp);
             const timestamp = Number.isFinite(apiTimestamp)
@@ -3389,47 +3265,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             };
           })
           .filter((item) => Number.isFinite(item.timestamp));
-
-        if (historyRowsAvailable) {
-          lastGoodReadingsRef.current = readingsData;
-          lastGoodReadingsDeviceIdRef.current = nextSelectedDeviceId;
-        }
-
-        const latestCurrentReading = [...readingsData]
-          .reverse()
-          .find((item) => !item.offline_captured);
-        const latestCurrentAgeMs =
-          latestCurrentReading?.timestamp !== null &&
-          latestCurrentReading?.timestamp !== undefined
-            ? Date.now() - latestCurrentReading.timestamp
-            : null;
-        const nextSendIntervalS =
-          parseNumber(deviceData?.config?.send_interval_s) ||
-          parseNumber(baseDeviceData?.config?.send_interval_s) ||
-          30;
-        const latestReadingIsRecent =
-          latestCurrentAgeMs !== null &&
-          Number.isFinite(latestCurrentAgeMs) &&
-          latestCurrentAgeMs >= -10000 &&
-          latestCurrentAgeMs <= getOfflineLimitMs(nextSendIntervalS);
-
-        if (deviceData && latestReadingIsRecent) {
-          deviceData = {
-            ...deviceData,
-            last_temperature:
-              latestCurrentReading.temperature ?? deviceData.last_temperature,
-            last_humidity: latestCurrentReading.humidity ?? deviceData.last_humidity,
-            last_seen: latestCurrentReading.created_at || deviceData.last_seen,
-            last_seen_seconds: Math.max(0, Math.floor(latestCurrentAgeMs / 1000)),
-            online: true,
-            current_data_reliable: true,
-            status: latestCurrentReading.device_status
-              ? String(latestCurrentReading.device_status).toUpperCase()
-              : isExplicitOfflineStatus(deviceData.status)
-              ? "NORMAL"
-              : deviceData.status,
-          };
-        }
 
         const derivedAlerts = deriveAlertEventsFromReadings(
           readingsData,
@@ -3565,13 +3400,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       return true;
     };
 
-    const normalizeRealtimeReading = (row) => {
+    const applyRealtimeReading = (row) => {
       if (!row?.created_at) return;
 
       const timestamp = new Date(row.created_at).getTime();
       if (!Number.isFinite(timestamp)) return;
 
-      return {
+      const normalized = {
         ...row,
         temperature: parseNumber(row.temperature),
         humidity: parseNumber(row.humidity),
@@ -3582,21 +3417,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         offline_captured: Boolean(row.offline_captured),
         timestamp,
       };
-    };
-
-    const applyRealtimeReading = (row) => {
-      const normalized = normalizeRealtimeReading(row);
-      if (!normalized) return;
 
       setReadings((current) => {
         const withoutDuplicate = (current || []).filter(
           (item) => item.created_at !== normalized.created_at
         );
-        const periodWindow = getPeriodWindow(period);
-        const keepAfter = periodWindow.start - 10 * 60 * 1000;
-        return [...withoutDuplicate, normalized]
-          .filter((item) => item.timestamp >= keepAfter)
-          .sort((a, b) => a.timestamp - b.timestamp);
+        return [...withoutDuplicate, normalized].sort((a, b) => a.timestamp - b.timestamp);
       });
 
       setDevice((current) => {
@@ -3629,21 +3455,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           };
         })
       );
-    };
-
-    const syncLatestReadings = async () => {
-      if (typeof document !== "undefined" && document.hidden) return;
-
-      try {
-        const rows = await fetchJsonOrThrow(
-          `/api/sts/device/${selectedDeviceId}/history?limit=8`,
-          { retries: 0, timeoutMs: 6000 }
-        );
-
-        (rows || []).forEach((row) => applyRealtimeReading(row));
-      } catch (error) {
-        console.warn("live readings:", error);
-      }
     };
 
     const channel = supabase
@@ -3689,21 +3500,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       )
       .subscribe();
 
-    const liveReadingsInterval = window.setInterval(() => {
-      syncLatestReadings();
-    }, LIVE_READINGS_REFRESH_MS);
-
-    syncLatestReadings();
-
     return () => {
       if (realtimeRefreshTimerRef.current) {
         window.clearTimeout(realtimeRefreshTimerRef.current);
         realtimeRefreshTimerRef.current = null;
       }
-      window.clearInterval(liveReadingsInterval);
       supabase.removeChannel(channel);
     };
-  }, [selectedDeviceId, loadData, period, supabase]);
+  }, [selectedDeviceId, loadData, supabase]);
 
   const config = useMemo(() => device?.config ?? {}, [device?.config]);
 
@@ -5733,11 +5537,6 @@ const styles = {
     minWidth: 0,
     overflow: "hidden",
     paddingTop: "4px",
-  },
-
-  chartWrapMobile: {
-    marginLeft: "-6px",
-    marginRight: "-4px",
   },
 
   periodRow: {
