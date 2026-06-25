@@ -18,6 +18,7 @@ import {
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 8000;
+const LIVE_READINGS_REFRESH_MS = 2500;
 const DEVICE_STORAGE_KEY = "sts_selected_device_id";
 
 const STS_PRODUCT = {
@@ -3564,13 +3565,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       return true;
     };
 
-    const applyRealtimeReading = (row) => {
+    const normalizeRealtimeReading = (row) => {
       if (!row?.created_at) return;
 
       const timestamp = new Date(row.created_at).getTime();
       if (!Number.isFinite(timestamp)) return;
 
-      const normalized = {
+      return {
         ...row,
         temperature: parseNumber(row.temperature),
         humidity: parseNumber(row.humidity),
@@ -3581,6 +3582,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         offline_captured: Boolean(row.offline_captured),
         timestamp,
       };
+    };
+
+    const applyRealtimeReading = (row) => {
+      const normalized = normalizeRealtimeReading(row);
+      if (!normalized) return;
 
       setReadings((current) => {
         const withoutDuplicate = (current || []).filter(
@@ -3619,6 +3625,24 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           };
         })
       );
+    };
+
+    const syncLatestReadings = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      const { data, error } = await supabase
+        .from("readings")
+        .select("*")
+        .eq("device_id", selectedDeviceId)
+        .order("created_at", { ascending: false })
+        .limit(8);
+
+      if (error) {
+        console.warn("live readings:", error);
+        return;
+      }
+
+      [...(data || [])].reverse().forEach((row) => applyRealtimeReading(row));
     };
 
     const channel = supabase
@@ -3664,11 +3688,18 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       )
       .subscribe();
 
+    const liveReadingsInterval = window.setInterval(() => {
+      syncLatestReadings();
+    }, LIVE_READINGS_REFRESH_MS);
+
+    syncLatestReadings();
+
     return () => {
       if (realtimeRefreshTimerRef.current) {
         window.clearTimeout(realtimeRefreshTimerRef.current);
         realtimeRefreshTimerRef.current = null;
       }
+      window.clearInterval(liveReadingsInterval);
       supabase.removeChannel(channel);
     };
   }, [selectedDeviceId, loadData, supabase]);
