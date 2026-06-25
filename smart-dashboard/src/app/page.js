@@ -3313,7 +3313,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         const overviewHas = (key) =>
           Object.prototype.hasOwnProperty.call(overviewData || {}, key);
 
-        const deviceData = baseDeviceData
+        let deviceData = baseDeviceData
           ? {
               ...baseDeviceData,
               last_temperature: overviewHas("temperature")
@@ -3392,6 +3392,42 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         if (historyRowsAvailable) {
           lastGoodReadingsRef.current = readingsData;
           lastGoodReadingsDeviceIdRef.current = nextSelectedDeviceId;
+        }
+
+        const latestCurrentReading = [...readingsData]
+          .reverse()
+          .find((item) => !item.offline_captured);
+        const latestCurrentAgeMs =
+          latestCurrentReading?.timestamp !== null &&
+          latestCurrentReading?.timestamp !== undefined
+            ? Date.now() - latestCurrentReading.timestamp
+            : null;
+        const nextSendIntervalS =
+          parseNumber(deviceData?.config?.send_interval_s) ||
+          parseNumber(baseDeviceData?.config?.send_interval_s) ||
+          30;
+        const latestReadingIsRecent =
+          latestCurrentAgeMs !== null &&
+          Number.isFinite(latestCurrentAgeMs) &&
+          latestCurrentAgeMs >= -10000 &&
+          latestCurrentAgeMs <= getOfflineLimitMs(nextSendIntervalS);
+
+        if (deviceData && latestReadingIsRecent) {
+          deviceData = {
+            ...deviceData,
+            last_temperature:
+              latestCurrentReading.temperature ?? deviceData.last_temperature,
+            last_humidity: latestCurrentReading.humidity ?? deviceData.last_humidity,
+            last_seen: latestCurrentReading.created_at || deviceData.last_seen,
+            last_seen_seconds: Math.max(0, Math.floor(latestCurrentAgeMs / 1000)),
+            online: true,
+            current_data_reliable: true,
+            status: latestCurrentReading.device_status
+              ? String(latestCurrentReading.device_status).toUpperCase()
+              : isExplicitOfflineStatus(deviceData.status)
+              ? "NORMAL"
+              : deviceData.status,
+          };
         }
 
         const derivedAlerts = deriveAlertEventsFromReadings(
