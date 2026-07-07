@@ -143,6 +143,17 @@ function parseNumber(value) {
   return Number.isNaN(numeric) ? null : numeric;
 }
 
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "sim"].includes(normalized)) return true;
+    if (["0", "false", "no", "nao", "não"].includes(normalized)) return false;
+  }
+  return null;
+}
+
 function getOfflineLimitMs(sendIntervalS) {
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
@@ -165,7 +176,8 @@ function getEffectiveStatus(device, sendIntervalS) {
 }
 
 function isOfflineCapturedReading(reading, sendIntervalS) {
-  if (reading?.offline_captured === true) return true;
+  const explicitOffline = parseBoolean(reading?.offline_captured);
+  if (explicitOffline !== null) return explicitOffline;
 
   const deliveryAttempts = parseNumber(reading?.delivery_attempts) || 0;
   const sampleAgeS = parseNumber(reading?.sample_age_s);
@@ -3094,7 +3106,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               sample_age_s: parseNumber(item.sample_age_s),
               sample_epoch: parseNumber(item.sample_epoch),
               delivery_attempts: parseNumber(item.delivery_attempts),
-              offline_captured: Boolean(item.offline_captured),
+              offline_captured: parseBoolean(item.offline_captured) === true,
               timestamp: Number.isFinite(timestamp) ? timestamp : null,
             };
           })

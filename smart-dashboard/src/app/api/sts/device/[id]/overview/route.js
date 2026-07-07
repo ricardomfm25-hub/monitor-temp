@@ -257,7 +257,17 @@ export async function GET(_request, context) {
     if (readingsError) throw readingsError;
 
     const config = normalizeConfig(device.config || {});
-    const lastSeen = latestReading?.created_at || null;
+    const contactTimes = [
+      device.last_seen,
+      device.last_contact_at,
+      device.updated_at,
+      latestReading?.created_at,
+    ]
+      .map((value) => (value ? new Date(value).getTime() : null))
+      .filter((value) => Number.isFinite(value));
+    const lastSeen = contactTimes.length
+      ? new Date(Math.max(...contactTimes)).toISOString()
+      : null;
     const lastSeenTs = lastSeen ? new Date(lastSeen).getTime() : null;
     const lastSeenSeconds = lastSeenTs
       ? Math.max(0, Math.floor((Date.now() - lastSeenTs) / 1000))

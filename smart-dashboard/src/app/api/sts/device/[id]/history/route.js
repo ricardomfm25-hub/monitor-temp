@@ -52,6 +52,17 @@ async function requireDeviceAccess(supabase, deviceId) {
   return { ok: true };
 }
 
+function toBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "sim"].includes(normalized)) return true;
+    if (["0", "false", "no", "nao", "não"].includes(normalized)) return false;
+  }
+  return false;
+}
+
 function parseLimit(request) {
   const value = Number(request.nextUrl.searchParams.get("limit") || 2000);
   if (!Number.isFinite(value)) return 2000;
@@ -166,7 +177,7 @@ export async function GET(request, context) {
           row.delivery_attempts === null || row.delivery_attempts === undefined
             ? null
             : Number(row.delivery_attempts),
-        offline_captured: Boolean(row.offline_captured),
+        offline_captured: toBoolean(row.offline_captured),
       }))
       .filter((row) => Number.isFinite(row.timestamp));
 

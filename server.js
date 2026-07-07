@@ -611,6 +611,10 @@ function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
 }
 
 function isOfflineCapturedReading(incoming, cfg) {
+  if (incoming.captured_offline !== undefined && incoming.captured_offline !== null) {
+    return toBoolean(incoming.captured_offline);
+  }
+
   const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
   const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
   const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
@@ -2924,6 +2928,8 @@ app.post("/api/temperature", async (req, res) => {
       sample_age_s,
       sample_epoch,
       delivery_attempts,
+      captured_offline,
+      capture_network_known,
     } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
@@ -2988,6 +2994,14 @@ app.post("/api/temperature", async (req, res) => {
       sample_age_s: toOptionalNumber(sample_age_s),
       sample_epoch: toOptionalNumber(sample_epoch),
       delivery_attempts: toOptionalNumber(delivery_attempts) || 0,
+      captured_offline:
+        captured_offline === undefined || captured_offline === null
+          ? null
+          : toBoolean(captured_offline),
+      capture_network_known:
+        capture_network_known === undefined || capture_network_known === null
+          ? null
+          : toBoolean(capture_network_known),
     };
     const enrichedReadingPayload = {
       ...readingPayload,
