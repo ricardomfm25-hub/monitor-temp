@@ -19,6 +19,7 @@ const COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || "30", 10);
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const ALERT_FROM_EMAIL = process.env.ALERT_FROM_EMAIL;
 const ALERT_TO_EMAIL = process.env.ALERT_TO_EMAIL;
+const APP_URL = process.env.FRONTEND_URL || "https://app.ar3dparts.com";
 
 const OFFLINE_ALERT_SECONDS = parseInt(
   process.env.OFFLINE_ALERT_SECONDS || "180",
@@ -1925,7 +1926,7 @@ async function insertAlertHistory({
   }
 }
 
-function buildEmailShell({ heading, intro, blocks, footer }) {
+function buildEmailShell({ heading, intro, blocks, footer, actionUrl = APP_URL }) {
   const blocksHtml = (blocks || [])
     .map(
       (block) => `
@@ -1954,6 +1955,15 @@ function buildEmailShell({ heading, intro, blocks, footer }) {
           <table style="width:100%;border-collapse:collapse;">
             ${blocksHtml}
           </table>
+          ${
+            actionUrl
+              ? `<div style="margin:24px 0 4px 0;">
+                  <a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px;border-radius:8px;">
+                    Abrir dashboard STS
+                  </a>
+                </div>`
+              : ""
+          }
           <p style="margin:22px 0 0 0;color:#64748b;font-size:13px;line-height:1.6;">
             ${escapeHtml(
               footer || "Enviado automaticamente pelo SmartTempSystems."
