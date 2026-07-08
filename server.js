@@ -1826,15 +1826,20 @@ async function sendEmail({ to, subject, htmlContent, attachment = [] }) {
   }
 
   try {
+    const emailPayload = {
+      sender: { email: ALERT_FROM_EMAIL, name: "SmartTempSystems" },
+      to: normalizedTo,
+      subject,
+      htmlContent,
+    };
+
+    if (Array.isArray(attachment) && attachment.length > 0) {
+      emailPayload.attachment = attachment;
+    }
+
     const response = await axios.post(
       "https://api.brevo.com/v3/smtp/email",
-      {
-        sender: { email: ALERT_FROM_EMAIL, name: "SmartTempSystems" },
-        to: normalizedTo,
-        subject,
-        htmlContent,
-        attachment: attachment || [],
-      },
+      emailPayload,
       {
         headers: {
           "api-key": BREVO_API_KEY,
