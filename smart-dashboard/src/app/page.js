@@ -4141,7 +4141,7 @@ async function downloadPdfReport() {
           style={{
             ...styles.commandGrid,
             display: activeDeviceSection === "overview" ? "grid" : "none",
-            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.65fr) minmax(340px, 0.85fr)",
+            gridTemplateColumns: "1fr",
           }}
         >
           <section
@@ -4150,34 +4150,14 @@ async function downloadPdfReport() {
             ...styles.heroCard,
             background: `linear-gradient(135deg, ${statusInfo.panel} 0%, rgba(15,23,42,0.92) 100%)`,
             borderColor: statusInfo.border,
-            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.28fr) minmax(260px, 0.72fr)",
+            gridTemplateColumns: "1fr",
           }}
         >
           <div style={styles.heroLeft}>
             <div style={styles.heroHeaderTop}>
               <div>
-                <div style={styles.sectionEyebrow}>Dispositivo ativo</div>
-                <div style={styles.deviceName}>{deviceDisplayName}</div>
-
-                <div style={styles.deviceMetaLine}>
-                  <span style={styles.deviceMetaBadge}>
-                    {selectedDeviceId || DEFAULT_DEVICE_ID}
-                  </span>
-                  <span style={styles.deviceMetaDot}>•</span>
-                  <span style={styles.deviceMetaLocation}>{deviceLocation}</span>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  ...styles.statusPillLarge,
-                  color: statusInfo.color,
-                  background: statusInfo.soft,
-                  borderColor: "transparent",
-                  boxShadow: statusInfo.glow,
-                }}
-              >
-                {statusInfo.label}
+                <div style={styles.sectionEyebrow}>Overview</div>
+                <div style={styles.deviceName}>Condição atual</div>
               </div>
             </div>
 
@@ -4190,53 +4170,18 @@ async function downloadPdfReport() {
               }}
             >
               <MetricBox
-                label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
+                label={isDeviceOffline ? "Última temperatura" : "Temperatura"}
                 value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
                 accentLabel={currentTempAccentLabel}
                 icon={Thermometer}
-                subvalue={
-                  isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
-                    : tempLow !== null && tempHigh !== null
-                    ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
-                    : "Sem limites definidos"
-                }
               />
               <MetricBox
-                label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
+                label={isDeviceOffline ? "Última humidade" : "Humidade"}
                 value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
                 accentLabel={currentHumAccentLabel}
                 icon={Droplets}
-                subvalue={
-                  isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
-                    : humLow !== null && humHigh !== null
-                    ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
-                    : "Sem limites definidos"
-                }
-              />
-            </div>
-
-            <div
-              style={{
-                ...styles.heroMetaRow,
-                gridTemplateColumns: isMobile
-                  ? "1fr"
-                  : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              <InfoItem
-                label="Última atualização do dispositivo"
-                value={`${formatDateTime(device?.last_seen)} (${formatRelativeTime(device?.last_seen)})`}
-                icon={Clock}
-              />
-              <InfoItem
-                label="Estado operacional"
-                value={statusInfo.label}
-                valueColor={statusInfo.color}
-                icon={CircleGauge}
               />
             </div>
           </div>
@@ -4244,6 +4189,7 @@ async function downloadPdfReport() {
           <div
             style={{
               ...styles.heroRight,
+              display: "none",
               borderLeft: isMobile ? "none" : styles.heroRight.borderLeft,
               borderTop: isMobile ? "1px solid rgba(148, 163, 184, 0.28)" : "none",
               paddingLeft: isMobile ? "0" : styles.heroRight.paddingLeft,
@@ -4276,19 +4222,7 @@ async function downloadPdfReport() {
           </div>
           </section>
 
-          <aside style={styles.commandSide}>
-            <SmartClientInsight
-              communicationHealth={communicationHealth}
-              isOffline={effectiveStatus === "OFFLINE"}
-              statusInfo={statusInfo}
-              summary24h={summary24h}
-            />
-          </aside>
         </section>
-
-        {activeDeviceSection === "overview" ? (
-          <OperationalInsightCard items={operationalInsights} />
-        ) : null}
 
         {activeDeviceSection === "readings" ? (
           <section style={styles.card}>
