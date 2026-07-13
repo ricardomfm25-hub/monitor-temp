@@ -27,7 +27,6 @@ import {
   Line,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
@@ -3151,8 +3150,6 @@ function DataChart({
               data={data}
               margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
             >
-              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-
               <XAxis
                 type="number"
                 dataKey="timestamp"
