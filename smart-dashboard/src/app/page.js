@@ -1,9 +1,26 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
+import {
+  Activity,
+  ArrowLeft,
+  BarChart3,
+  Bell,
+  Building2,
+  ChevronDown,
+  CircleGauge,
+  Info,
+  LayoutDashboard,
+  MapPin,
+  MoreHorizontal,
+  Settings,
+  Thermometer,
+  Wrench,
+  Wifi,
+} from "lucide-react";
 import {
   LineChart,
   Line,
@@ -26,7 +43,7 @@ const STS_PRODUCT = {
   product: "STS Cold",
   domain: "stsapp.pt",
 };
-const STS_TAGLINE = "Monitorizar Hoje. Proteger Amanhã.";
+const STS_TAGLINE = "Monitorizar Hoje. Proteger AmanhÃ£.";
 const STS_LOGO_SRC = "/sts-logo.png";
 
 const STS_STATES = {
@@ -102,16 +119,16 @@ function formatRelativeTime(value) {
 
   const seconds = Math.floor(diff / 1000);
   if (seconds < 10) return "agora";
-  if (seconds < 60) return `há ${seconds}s`;
+  if (seconds < 60) return `hÃ¡ ${seconds}s`;
 
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `há ${minutes} min`;
+  if (minutes < 60) return `hÃ¡ ${minutes} min`;
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `há ${hours} h`;
+  if (hours < 24) return `hÃ¡ ${hours} h`;
 
   const days = Math.floor(hours / 24);
-  return `há ${days} d`;
+  return `hÃ¡ ${days} d`;
 }
 
 function formatDurationCompact(ms) {
@@ -149,7 +166,7 @@ function parseBoolean(value) {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (["1", "true", "yes", "sim"].includes(normalized)) return true;
-    if (["0", "false", "no", "nao", "não"].includes(normalized)) return false;
+    if (["0", "false", "no", "nao", "nÃ£o"].includes(normalized)) return false;
   }
   return null;
 }
@@ -205,12 +222,12 @@ function getStatusInfo(status) {
     return {
       label: "ACK",
       color: "#60a5fa",
-      soft: "#dbeafe",
-      border: "#93c5fd",
+      soft: "rgba(37, 99, 235, 0.16)",
+      border: "rgba(96, 165, 250, 0.28)",
       glow: "0 0 0 1px rgba(96,165,250,0.12)",
       priority: 1,
       dot: "#60a5fa",
-      panel: "#eff6ff",
+      panel: "#101a2d",
     };
   }
 
@@ -218,12 +235,12 @@ function getStatusInfo(status) {
     return {
       label: "OFFLINE",
       color: "#ef4444",
-      soft: "#fee2e2",
-      border: "#fecaca",
+      soft: "rgba(239, 68, 68, 0.14)",
+      border: "rgba(248, 113, 113, 0.28)",
       glow: "0 0 0 1px rgba(239,68,68,0.12)",
       priority: 3,
       dot: "#ef4444",
-      panel: "#fff1f2",
+      panel: "#17151d",
     };
   }
 
@@ -231,12 +248,12 @@ function getStatusInfo(status) {
     return {
       label: "ALARME",
       color: "#ef4444",
-      soft: "#fee2e2",
-      border: "#fecaca",
+      soft: "rgba(239, 68, 68, 0.14)",
+      border: "rgba(248, 113, 113, 0.28)",
       glow: "0 0 0 1px rgba(239,68,68,0.12)",
       priority: 0,
       dot: "#ef4444",
-      panel: "#fff1f2",
+      panel: "#17151d",
     };
   }
 
@@ -244,12 +261,12 @@ function getStatusInfo(status) {
     return {
       label: "ALERTA",
       color: "#f59e0b",
-      soft: "#fef3c7",
-      border: "#fde68a",
+      soft: "rgba(245, 158, 11, 0.14)",
+      border: "rgba(251, 191, 36, 0.28)",
       glow: "0 0 0 1px rgba(245,158,11,0.10)",
       priority: 1,
       dot: "#f59e0b",
-      panel: "#fffbeb",
+      panel: "#17181d",
     };
   }
 
@@ -257,24 +274,24 @@ function getStatusInfo(status) {
     return {
       label: "NORMAL",
       color: "#22c55e",
-      soft: "#dcfce7",
-      border: "#bbf7d0",
+      soft: "rgba(34, 197, 94, 0.14)",
+      border: "rgba(74, 222, 128, 0.24)",
       glow: "0 0 0 1px rgba(34,197,94,0.10)",
       priority: 2,
       dot: "#22c55e",
-      panel: "#f0fdf4",
+      panel: "#101c1b",
     };
   }
 
   return {
     label: status || "SEM DADOS",
     color: "#94a3b8",
-    soft: "#f1f5f9",
-    border: "#cbd5e1",
+    soft: "rgba(148, 163, 184, 0.12)",
+    border: "rgba(148, 163, 184, 0.20)",
     glow: "0 0 0 1px rgba(148,163,184,0.08)",
     priority: 4,
     dot: "#94a3b8",
-    panel: "#f8fafc",
+    panel: "#121a24",
   };
 }
 
@@ -720,7 +737,7 @@ function getCommunicationHealth({
     Math.min(100, Math.round(deliveryPct - penalty))
   );
 
-  let label = "Estável";
+  let label = "EstÃ¡vel";
   let tone = "good";
   let summary = "Boa cobertura com apenas pequenas falhas pontuais.";
 
@@ -729,7 +746,7 @@ function getCommunicationHealth({
   if (isOffline) {
     label = "Offline";
     tone = "bad";
-    summary = "Sem comunicação recente do dispositivo.";
+    summary = "Sem comunicaÃ§Ã£o recente do dispositivo.";
   } else if (
     deliveryPct >= 98 &&
     relevantGapCount <= 1 &&
@@ -737,22 +754,22 @@ function getCommunicationHealth({
   ) {
     label = "Excelente";
     tone = "good";
-    summary = "Cobertura muito alta e comunicação muito consistente.";
+    summary = "Cobertura muito alta e comunicaÃ§Ã£o muito consistente.";
   } else if (
     deliveryPct >= 90 &&
     severeGapCount === 0
   ) {
-    label = "Estável";
+    label = "EstÃ¡vel";
     tone = "good";
     summary = "Boa cobertura com apenas pequenas falhas pontuais.";
   } else if (deliveryPct >= 80 && severeGapCount <= 2) {
     label = "Com falhas";
     tone = "warn";
-    summary = "Existem falhas pontuais, mas a comunicação continua aceitável.";
+    summary = "Existem falhas pontuais, mas a comunicaÃ§Ã£o continua aceitÃ¡vel.";
   } else {
-    label = "Instável";
+    label = "InstÃ¡vel";
     tone = "bad";
-    summary = "Perdas ou gaps relevantes na comunicação.";
+    summary = "Perdas ou gaps relevantes na comunicaÃ§Ã£o.";
   }
 
   return {
@@ -791,7 +808,7 @@ function getTrendDirectionLabel(direction, type) {
       : "Humidade a descer de forma consistente";
   }
 
-  return "Sem tendência relevante";
+  return "Sem tendÃªncia relevante";
 }
 
 function getMetricLabel(type) {
@@ -801,7 +818,7 @@ function getMetricLabel(type) {
 function formatMetricValue(value, type) {
   if (!Number.isFinite(Number(value))) return "-";
   return type === "temperature"
-    ? `${Number(value).toFixed(1)} °C`
+    ? `${Number(value).toFixed(1)} Â°C`
     : `${Math.round(Number(value))}%`;
 }
 
@@ -874,44 +891,44 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
         : "Risco ligeiro";
 
     const detail = short
-      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite, mas ainda por curta duração.`
+      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite, mas ainda por curta duraÃ§Ã£o.`
       : persistent
-      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite há ~${durationMin} min.`
+      ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite hÃ¡ ~${durationMin} min.`
       : !hasTrustedDuration
       ? `${metric} ${isHigh ? "acima" : "abaixo"} do limite na leitura atual.`
       : `${metric} ${isHigh ? "acima" : "abaixo"} do limite com desvio ${band}.`;
 
     let cause = `${metric} fora do limite definido.`;
-    let action = "Confirmar condições do equipamento e acompanhar a próxima leitura.";
+    let action = "Confirmar condiÃ§Ãµes do equipamento e acompanhar a prÃ³xima leitura.";
 
     if (type === "temperature" && isHigh) {
       cause = direction === "up"
-        ? "Subida gradual compatível com abertura prolongada, carga recente ou refrigeração insuficiente."
-        : "Valor acima do limite sem subida forte; pode ser exposição curta ou recuperação lenta.";
+        ? "Subida gradual compatÃ­vel com abertura prolongada, carga recente ou refrigeraÃ§Ã£o insuficiente."
+        : "Valor acima do limite sem subida forte; pode ser exposiÃ§Ã£o curta ou recuperaÃ§Ã£o lenta.";
       action = persistent || band !== "ligeiro"
-        ? "Verificar porta, ventilação e carga; reduzir aberturas até normalizar."
-        : "Confirmar fecho da porta e aguardar a próxima leitura.";
+        ? "Verificar porta, ventilaÃ§Ã£o e carga; reduzir aberturas atÃ© normalizar."
+        : "Confirmar fecho da porta e aguardar a prÃ³xima leitura.";
     } else if (type === "temperature" && !isHigh) {
       cause = direction === "down"
-        ? "Descida gradual compatível com regulação demasiado baixa ou zona fria."
-        : "Valor abaixo do limite sem tendência forte; pode ser oscilação curta.";
+        ? "Descida gradual compatÃ­vel com regulaÃ§Ã£o demasiado baixa ou zona fria."
+        : "Valor abaixo do limite sem tendÃªncia forte; pode ser oscilaÃ§Ã£o curta.";
       action = persistent || band !== "ligeiro"
-        ? "Confirmar setpoint e posição do sensor; ajustar refrigeração se necessário."
-        : "Acompanhar a próxima leitura antes de alterar configuração.";
+        ? "Confirmar setpoint e posiÃ§Ã£o do sensor; ajustar refrigeraÃ§Ã£o se necessÃ¡rio."
+        : "Acompanhar a prÃ³xima leitura antes de alterar configuraÃ§Ã£o.";
     } else if (type === "humidity" && isHigh) {
       cause = direction === "up"
-        ? "Humidade a subir, compatível com entrada de ar húmido, porta aberta ou condensação."
-        : "Humidade acima do limite, possivelmente por condensação ou ventilação reduzida.";
+        ? "Humidade a subir, compatÃ­vel com entrada de ar hÃºmido, porta aberta ou condensaÃ§Ã£o."
+        : "Humidade acima do limite, possivelmente por condensaÃ§Ã£o ou ventilaÃ§Ã£o reduzida.";
       action = persistent || band !== "ligeiro"
-        ? "Verificar vedação, condensação e tempo de porta aberta."
-        : "Confirmar fecho e observar se baixa nas próximas leituras.";
+        ? "Verificar vedaÃ§Ã£o, condensaÃ§Ã£o e tempo de porta aberta."
+        : "Confirmar fecho e observar se baixa nas prÃ³ximas leituras.";
     } else if (type === "humidity" && !isHigh) {
       cause = direction === "down"
-        ? "Humidade a descer, compatível com secagem excessiva ou circulação intensa."
-        : "Humidade abaixo do limite sem tendência forte; pode ser variação pontual.";
+        ? "Humidade a descer, compatÃ­vel com secagem excessiva ou circulaÃ§Ã£o intensa."
+        : "Humidade abaixo do limite sem tendÃªncia forte; pode ser variaÃ§Ã£o pontual.";
       action = persistent || band !== "ligeiro"
-        ? "Rever ventilação e exposição do produto; confirmar posição do sensor."
-        : "Acompanhar sem intervenção imediata se recuperar.";
+        ? "Rever ventilaÃ§Ã£o e exposiÃ§Ã£o do produto; confirmar posiÃ§Ã£o do sensor."
+        : "Acompanhar sem intervenÃ§Ã£o imediata se recuperar.";
     }
 
     return { title, detail, cause, action, band, persistent, short };
@@ -920,11 +937,11 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
   if (Number.isFinite(etaMinutes)) {
     return {
       title: etaMinutes <= 45 ? "Risco elevado" : "Risco moderado",
-      detail: `${metric} aproxima-se do limite; possível alerta em ~${Math.max(1, Math.round(etaMinutes))} min.`,
-      cause: `${trendText}; ainda dentro do limite, mas com aproximação consistente.`,
+      detail: `${metric} aproxima-se do limite; possÃ­vel alerta em ~${Math.max(1, Math.round(etaMinutes))} min.`,
+      cause: `${trendText}; ainda dentro do limite, mas com aproximaÃ§Ã£o consistente.`,
       action: type === "temperature"
-        ? "Reduzir aberturas e confirmar se a refrigeração está estável."
-        : "Confirmar porta, condensação e circulação de ar.",
+        ? "Reduzir aberturas e confirmar se a refrigeraÃ§Ã£o estÃ¡ estÃ¡vel."
+        : "Confirmar porta, condensaÃ§Ã£o e circulaÃ§Ã£o de ar.",
       band: etaMinutes <= 45 ? "grave" : "moderado",
       persistent: false,
       short: false,
@@ -933,9 +950,9 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
 
   return {
     title: "Risco baixo",
-    detail: "Sem tendência relevante nas últimas leituras recentes.",
+    detail: "Sem tendÃªncia relevante nas Ãºltimas leituras recentes.",
     cause: "Dados dentro do comportamento esperado.",
-    action: "Manter monitorização normal.",
+    action: "Manter monitorizaÃ§Ã£o normal.",
     band: "baixo",
     persistent: false,
     short: false,
@@ -977,12 +994,12 @@ function buildNearLimitSignal({ latest, lowLimit, highLimit, type }) {
     active: true,
     severity: "medium",
     eta_minutes: null,
-    title: "Atenção preventiva",
-    detail: `${metric} muito próxima do limite ${isHigh ? "máximo" : "mínimo"} (${formatMetricValue(nearest.limit, type)}).`,
+    title: "AtenÃ§Ã£o preventiva",
+    detail: `${metric} muito prÃ³xima do limite ${isHigh ? "mÃ¡ximo" : "mÃ­nimo"} (${formatMetricValue(nearest.limit, type)}).`,
     cause: "Valor ainda dentro do intervalo, mas com margem curta face ao limite configurado.",
     action: type === "temperature"
-      ? "Confirmar porta, carga e estabilidade da refrigeração antes de atingir o limite."
-      : "Confirmar porta, condensação e circulação de ar antes de atingir o limite.",
+      ? "Confirmar porta, carga e estabilidade da refrigeraÃ§Ã£o antes de atingir o limite."
+      : "Confirmar porta, condensaÃ§Ã£o e circulaÃ§Ã£o de ar antes de atingir o limite.",
     source: type,
     score: 60,
     current_value: latest.value,
@@ -1069,8 +1086,8 @@ function buildPredictiveSignal({
       severity: "none",
       eta_minutes: null,
       title: "Risco baixo",
-      detail: "Sem leituras suficientes para avaliar tendência.",
-      cause: "A amostra recente ainda é curta.",
+      detail: "Sem leituras suficientes para avaliar tendÃªncia.",
+      cause: "A amostra recente ainda Ã© curta.",
       action: "Aguardar novas leituras antes de concluir.",
       source: type,
       score: 0,
@@ -1102,8 +1119,8 @@ function buildPredictiveSignal({
       severity: "none",
       eta_minutes: null,
       title: "Risco baixo",
-      detail: "Sem leituras suficientes para avaliar tendência.",
-      cause: "Intervalos de leitura insuficientes para cálculo fiável.",
+      detail: "Sem leituras suficientes para avaliar tendÃªncia.",
+      cause: "Intervalos de leitura insuficientes para cÃ¡lculo fiÃ¡vel.",
       action: "Aguardar novas leituras antes de concluir.",
       source: type,
       score: 0,
@@ -1167,9 +1184,9 @@ function buildPredictiveSignal({
       severity: "none",
       eta_minutes: null,
       title: "Risco baixo",
-      detail: "Sem tendência relevante nas últimas leituras recentes.",
-      cause: "Valores sem direção consistente.",
-      action: "Manter monitorização normal.",
+      detail: "Sem tendÃªncia relevante nas Ãºltimas leituras recentes.",
+      cause: "Valores sem direÃ§Ã£o consistente.",
+      action: "Manter monitorizaÃ§Ã£o normal.",
       source: type,
       score: 0,
     };
@@ -1188,8 +1205,8 @@ function buildPredictiveSignal({
       severity: "none",
       eta_minutes: null,
       title: "Risco baixo",
-      detail: "Limites de referência incompletos.",
-      cause: "A configuração de limites não está completa.",
+      detail: "Limites de referÃªncia incompletos.",
+      cause: "A configuraÃ§Ã£o de limites nÃ£o estÃ¡ completa.",
       action: "Confirmar limites definidos para o dispositivo.",
       source: type,
       score: 0,
@@ -1244,9 +1261,9 @@ function buildPredictiveSignal({
       severity: "none",
       eta_minutes: null,
       title: "Risco baixo",
-      detail: "Sem tendência relevante nas últimas leituras recentes.",
-      cause: "Valores estáveis face aos limites definidos.",
-      action: "Manter monitorização normal.",
+      detail: "Sem tendÃªncia relevante nas Ãºltimas leituras recentes.",
+      cause: "Valores estÃ¡veis face aos limites definidos.",
+      action: "Manter monitorizaÃ§Ã£o normal.",
       source: type,
       score: 0,
     };
@@ -1274,9 +1291,9 @@ function buildPredictiveSignal({
       severity: "none",
       eta_minutes: null,
       title: "Risco baixo",
-      detail: "Sem tendência relevante nas últimas leituras recentes.",
-      cause: "Cálculo de aproximação inconclusivo.",
-      action: "Manter monitorização normal.",
+      detail: "Sem tendÃªncia relevante nas Ãºltimas leituras recentes.",
+      cause: "CÃ¡lculo de aproximaÃ§Ã£o inconclusivo.",
+      action: "Manter monitorizaÃ§Ã£o normal.",
       source: type,
       score: 0,
     };
@@ -1336,9 +1353,9 @@ function buildPredictiveSignal({
     severity: "none",
     eta_minutes: null,
     title: "Risco baixo",
-    detail: "Sem tendência relevante nas últimas leituras recentes.",
+    detail: "Sem tendÃªncia relevante nas Ãºltimas leituras recentes.",
     cause: "Valores dentro do comportamento esperado.",
-    action: "Manter monitorização normal.",
+    action: "Manter monitorizaÃ§Ã£o normal.",
     source: type,
     score: 0,
   };
@@ -1366,10 +1383,10 @@ function getPredictiveStatus(readings, config) {
   if (!readings?.length) {
   return {
     level: "unknown",
-    title: "Predição indisponível",
-    detail: "Sem leituras recentes suficientes para calcular tendência.",
-    cause: "A dashboard ainda não recebeu dados suficientes.",
-    action: "Confirmar comunicação e aguardar novas leituras.",
+    title: "PrediÃ§Ã£o indisponÃ­vel",
+    detail: "Sem leituras recentes suficientes para calcular tendÃªncia.",
+    cause: "A dashboard ainda nÃ£o recebeu dados suficientes.",
+    action: "Confirmar comunicaÃ§Ã£o e aguardar novas leituras.",
     chip: "Sem dados",
     source: "none",
     source_label: "Sem dados recentes",
@@ -1382,12 +1399,12 @@ if (!best || best.score <= 0) {
   return {
     level: "low",
     title: "Risco baixo",
-    detail: "Sem tendência relevante nas últimas leituras recentes.",
+    detail: "Sem tendÃªncia relevante nas Ãºltimas leituras recentes.",
     cause: "Valores dentro do comportamento esperado face aos limites definidos.",
-    action: "Manter monitorização normal.",
+    action: "Manter monitorizaÃ§Ã£o normal.",
     chip: "Baixo",
     source: "none",
-    source_label: "Sem variável crítica",
+    source_label: "Sem variÃ¡vel crÃ­tica",
     eta_minutes: null,
     score: 0,
   };
@@ -1405,8 +1422,8 @@ if (!best || best.score <= 0) {
       chip: "Elevado",
       source: best.source,
       source_label: isTemperature
-        ? "Variável crítica: Temperatura"
-        : "Variável crítica: Humidade",
+        ? "VariÃ¡vel crÃ­tica: Temperatura"
+        : "VariÃ¡vel crÃ­tica: Humidade",
       eta_minutes: best.eta_minutes,
       score: best.score,
     };
@@ -1421,8 +1438,8 @@ if (!best || best.score <= 0) {
     chip: "Moderado",
     source: best.source,
     source_label: isTemperature
-      ? "Variável crítica: Temperatura"
-      : "Variável crítica: Humidade",
+      ? "VariÃ¡vel crÃ­tica: Temperatura"
+      : "VariÃ¡vel crÃ­tica: Humidade",
     eta_minutes: best.eta_minutes,
     score: best.score,
   };
@@ -1442,17 +1459,17 @@ function getOperationalInsights({
 
   if (isLongOffline) {
     insights.push({
-      title: "Comunicação interrompida",
+      title: "ComunicaÃ§Ã£o interrompida",
       detail:
         lastSeenSeconds > 86400
-          ? `Sem comunicação há ${Math.floor(lastSeenSeconds / 86400)} dias.`
-          : "Sem comunicação recente com o equipamento.",
+          ? `Sem comunicaÃ§Ã£o hÃ¡ ${Math.floor(lastSeenSeconds / 86400)} dias.`
+          : "Sem comunicaÃ§Ã£o recente com o equipamento.",
       tone: "bad",
     });
 
     insights.push({
       title: "Tempo real suspenso",
-      detail: "Últimos valores disponíveis apenas como histórico.",
+      detail: "Ãšltimos valores disponÃ­veis apenas como histÃ³rico.",
       tone: "warn",
     });
 
@@ -1469,13 +1486,13 @@ function getOperationalInsights({
   if (Number.isFinite(temp) && Number.isFinite(tempHigh) && temp > tempHigh) {
     insights.push({
       title: "Temperatura acima do limite",
-      detail: `Valor atual ${formatValue(temp, " °C")} face ao máximo configurado de ${formatValue(tempHigh, " °C")}.`,
+      detail: `Valor atual ${formatValue(temp, " Â°C")} face ao mÃ¡ximo configurado de ${formatValue(tempHigh, " Â°C")}.`,
       tone: "warn",
     });
   } else if (Number.isFinite(temp) && Number.isFinite(tempLow) && temp < tempLow) {
     insights.push({
       title: "Temperatura abaixo do limite",
-      detail: `Valor atual ${formatValue(temp, " °C")} face ao mínimo configurado de ${formatValue(tempLow, " °C")}.`,
+      detail: `Valor atual ${formatValue(temp, " Â°C")} face ao mÃ­nimo configurado de ${formatValue(tempLow, " Â°C")}.`,
       tone: "warn",
     });
   }
@@ -1483,27 +1500,27 @@ function getOperationalInsights({
   if (Number.isFinite(hum) && Number.isFinite(humHigh) && hum > humHigh) {
     insights.push({
       title: "Humidade acima do limite",
-      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao máximo configurado de ${formatValue(humHigh, " %", 0)}.`,
+      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao mÃ¡ximo configurado de ${formatValue(humHigh, " %", 0)}.`,
       tone: "warn",
     });
   } else if (Number.isFinite(hum) && Number.isFinite(humLow) && hum < humLow) {
     insights.push({
       title: "Humidade abaixo do limite",
-      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao mínimo configurado de ${formatValue(humLow, " %", 0)}.`,
+      detail: `Valor atual ${formatValue(hum, " %", 0)} face ao mÃ­nimo configurado de ${formatValue(humLow, " %", 0)}.`,
       tone: "warn",
     });
   }
 
-  if (communicationHealth?.label === "Instável") {
+  if (communicationHealth?.label === "InstÃ¡vel") {
     insights.push({
-      title: "Comunicação instável",
+      title: "ComunicaÃ§Ã£o instÃ¡vel",
       detail: communicationHealth?.summary || "Existem perdas relevantes nas leituras.",
       tone: "warn",
     });
   } else if (communicationHealth?.label === "Com falhas") {
     insights.push({
-      title: "Pequenas falhas de comunicação",
-      detail: communicationHealth?.summary || "A comunicação continua aceitável.",
+      title: "Pequenas falhas de comunicaÃ§Ã£o",
+      detail: communicationHealth?.summary || "A comunicaÃ§Ã£o continua aceitÃ¡vel.",
       tone: "warn",
     });
   }
@@ -1511,21 +1528,21 @@ function getOperationalInsights({
   if (predictiveStatus?.level === "high") {
     insights.push({
       title: "Risco preditivo elevado",
-      detail: predictiveStatus?.detail || "Tendência com potencial de alerta em breve.",
+      detail: predictiveStatus?.detail || "TendÃªncia com potencial de alerta em breve.",
       tone: "bad",
     });
   } else if (predictiveStatus?.level === "medium") {
     insights.push({
       title: "Risco preditivo moderado",
-      detail: predictiveStatus?.detail || "A variável aproxima-se do limite.",
+      detail: predictiveStatus?.detail || "A variÃ¡vel aproxima-se do limite.",
       tone: "warn",
     });
   }
 
   if (!insights.length) {
     insights.push({
-      title: "Operação dentro do esperado",
-      detail: "Sem desvios críticos detetados neste momento.",
+      title: "OperaÃ§Ã£o dentro do esperado",
+      detail: "Sem desvios crÃ­ticos detetados neste momento.",
       tone: "good",
     });
   }
@@ -1927,6 +1944,86 @@ function sortDevices(devices) {
   });
 }
 
+function getDeviceCompany(device, profile) {
+  return (
+    device?.company ||
+    device?.company_name ||
+    device?.organization ||
+    device?.client_name ||
+    profile?.company_name ||
+    profile?.client_name ||
+    STS_PRODUCT.family
+  );
+}
+
+function getLocationParts(device) {
+  const raw = String(device?.location || "").trim();
+  if (!raw || raw === "LocalizaÃ§Ã£o por definir") {
+    return {
+      building: "LocalizaÃ§Ã£o",
+      room: "Por definir",
+    };
+  }
+
+  const parts = raw
+    .split(/\s*(?:>|\/|,|â€“|-)\s*/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return {
+    building: device?.building || device?.site || parts[0] || "LocalizaÃ§Ã£o",
+    room: device?.room || device?.division || device?.area || parts[1] || parts[0] || "Dispositivos",
+  };
+}
+
+function buildDeviceHierarchy(devices, profile) {
+  const companies = new Map();
+
+  for (const item of sortDevices(devices)) {
+    const companyName = getDeviceCompany(item, profile);
+    const { building, room } = getLocationParts(item);
+
+    if (!companies.has(companyName)) {
+      companies.set(companyName, {
+        name: companyName,
+        buildings: new Map(),
+        count: 0,
+      });
+    }
+
+    const company = companies.get(companyName);
+    company.count += 1;
+
+    if (!company.buildings.has(building)) {
+      company.buildings.set(building, {
+        name: building,
+        rooms: new Map(),
+        count: 0,
+      });
+    }
+
+    const buildingNode = company.buildings.get(building);
+    buildingNode.count += 1;
+
+    if (!buildingNode.rooms.has(room)) {
+      buildingNode.rooms.set(room, {
+        name: room,
+        devices: [],
+      });
+    }
+
+    buildingNode.rooms.get(room).devices.push(item);
+  }
+
+  return Array.from(companies.values()).map((company) => ({
+    ...company,
+    buildings: Array.from(company.buildings.values()).map((building) => ({
+      ...building,
+      rooms: Array.from(building.rooms.values()),
+    })),
+  }));
+}
+
 function getBestInitialDeviceId(devices, currentSelectedId) {
   const safeDevices = devices || [];
   if (!safeDevices.length) return null;
@@ -1982,32 +2079,32 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
 function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
   const toneMap = {
     neutral: {
-      border: "rgba(148, 163, 184, 0.28)",
-      bg: "rgba(255, 255, 255, 0.78)",
-      value: "#102033",
+      border: "rgba(148, 163, 184, 0.16)",
+      bg: "rgba(8, 13, 23, 0.54)",
+      value: "#f8fafc",
       accent: "#64748b",
-      chipBg: "#f1f5f9",
+      chipBg: "rgba(148, 163, 184, 0.12)",
     },
     good: {
       border: "rgba(34, 197, 94, 0.24)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)",
-      value: "#102033",
+      bg: "linear-gradient(135deg, rgba(34,197,94,0.12), rgba(8,13,23,0.66))",
+      value: "#f8fafc",
       accent: "#22c55e",
-      chipBg: "#dcfce7",
+      chipBg: "rgba(34, 197, 94, 0.12)",
     },
     warn: {
       border: "rgba(245, 158, 11, 0.30)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #fffbeb 100%)",
-      value: "#102033",
+      bg: "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(8,13,23,0.66))",
+      value: "#f8fafc",
       accent: "#f59e0b",
-      chipBg: "#fef3c7",
+      chipBg: "rgba(245, 158, 11, 0.12)",
     },
     bad: {
       border: "rgba(239, 68, 68, 0.28)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #fff1f2 100%)",
-      value: "#102033",
+      bg: "linear-gradient(135deg, rgba(239,68,68,0.12), rgba(8,13,23,0.66))",
+      value: "#f8fafc",
       accent: "#ef4444",
-      chipBg: "#fee2e2",
+      chipBg: "rgba(239, 68, 68, 0.12)",
     },
   };
 
@@ -2187,7 +2284,7 @@ function DeviceSelector({
         <div style={styles.cardHeader}>
           <div>
             <div style={styles.cardTitle}>Dispositivo</div>
-            <div style={styles.cardHint}>Nenhum dispositivo disponível</div>
+            <div style={styles.cardHint}>Nenhum dispositivo disponÃ­vel</div>
           </div>
         </div>
 
@@ -2202,7 +2299,7 @@ function DeviceSelector({
         <div>
           <div style={styles.cardTitle}>Dispositivos monitorizados</div>
           <div style={styles.cardHint}>
-            Seleção do equipamento em monitorização
+            SeleÃ§Ã£o do equipamento em monitorizaÃ§Ã£o
           </div>
         </div>
 
@@ -2233,8 +2330,8 @@ function DeviceSelector({
                 {selectedDevice?.name || selectedDevice?.device_id || "Selecionar dispositivo"}
               </div>
               <div style={styles.selectorMainMeta}>
-                {selectedDevice?.location || "Localização por definir"} ·{" "}
-                {formatValue(selectedDevice?.last_temperature, " °C")} ·{" "}
+                {selectedDevice?.location || "LocalizaÃ§Ã£o por definir"} Â·{" "}
+                {formatValue(selectedDevice?.last_temperature, " Â°C")} Â·{" "}
                 {formatValue(selectedDevice?.last_humidity, " %")}
               </div>
             </div>
@@ -2258,7 +2355,7 @@ function DeviceSelector({
                 transform: open ? "rotate(180deg)" : "rotate(0deg)",
               }}
             >
-              ▼
+              â–¼
             </div>
           </div>
         </button>
@@ -2301,14 +2398,14 @@ function DeviceSelector({
                         {item?.name || item?.device_id}
                       </div>
                       <div style={styles.selectorOptionMeta}>
-                        {item?.location || "Localização por definir"}
+                        {item?.location || "LocalizaÃ§Ã£o por definir"}
                       </div>
                     </div>
                   </div>
 
                   <div style={styles.selectorOptionRight}>
                     <div style={styles.selectorOptionTemp}>
-                      {formatValue(item?.last_temperature, " °C")}
+                      {formatValue(item?.last_temperature, " Â°C")}
                     </div>
                     <div
                       style={{
@@ -2331,6 +2428,181 @@ function DeviceSelector({
   );
 }
 
+const DEVICE_NAV_SECTIONS = [
+  { key: "overview", label: "Overview", group: "main", icon: LayoutDashboard },
+  { key: "readings", label: "Readings", group: "Monitoring", icon: Thermometer },
+  { key: "charts", label: "Charts", group: "Monitoring", icon: BarChart3 },
+  { key: "alerts", label: "Alerts", group: "Monitoring", icon: Bell },
+  { key: "diagnostics", label: "Diagnostics", group: "System", icon: CircleGauge },
+  { key: "settings", label: "Settings", group: "System", icon: Settings },
+  { key: "information", label: "Information", group: "System", icon: Info },
+];
+
+function DeviceSidebar({
+  devices,
+  profile,
+  selectedDeviceId,
+  onSelectDevice,
+  activeSection,
+  onSectionChange,
+}) {
+  const hierarchy = useMemo(
+    () => buildDeviceHierarchy(devices, profile),
+    [devices, profile]
+  );
+
+  const monitoringItems = DEVICE_NAV_SECTIONS.filter(
+    (item) => item.group === "Monitoring"
+  );
+  const systemItems = DEVICE_NAV_SECTIONS.filter((item) => item.group === "System");
+  const overviewItem = DEVICE_NAV_SECTIONS.find((item) => item.key === "overview");
+  const OverviewIcon = overviewItem.icon;
+
+  return (
+    <aside style={styles.appSidebar}>
+      <div style={styles.sidebarBrandBlock}>
+        <Image
+          src={STS_LOGO_SRC}
+          alt="STS"
+          width={104}
+          height={46}
+          priority
+          style={styles.sidebarLogo}
+        />
+        <div>
+          <div style={styles.sidebarProductName}>{STS_PRODUCT.product}</div>
+          <div style={styles.sidebarProductMeta}>Device OS</div>
+        </div>
+      </div>
+
+      <div style={styles.sidebarSectionTitle}>OrganizaÃ§Ã£o</div>
+      <div style={styles.deviceTree}>
+        {hierarchy.length ? (
+          hierarchy.map((company) => (
+            <div key={company.name} style={styles.treeCompany}>
+              <div style={styles.treeCompanyHeader}>
+                <Building2 size={15} />
+                <span>{company.name}</span>
+                <small>{company.count}</small>
+              </div>
+
+              {company.buildings.map((building) => (
+                <div key={`${company.name}-${building.name}`} style={styles.treeBuilding}>
+                  <div style={styles.treeBuildingHeader}>
+                    <ChevronDown size={13} />
+                    <span>{building.name}</span>
+                  </div>
+
+                  {building.rooms.map((room) => (
+                    <div
+                      key={`${company.name}-${building.name}-${room.name}`}
+                      style={styles.treeRoom}
+                    >
+                      <div style={styles.treeRoomHeader}>
+                        <MapPin size={12} />
+                        <span>{room.name}</span>
+                      </div>
+
+                      <div style={styles.treeDeviceList}>
+                        {room.devices.map((item) => {
+                          const info = getStatusInfo(
+                            getEffectiveStatus(
+                              item,
+                              parseNumber(item?.config?.send_interval_s)
+                            )
+                          );
+                          const active = item.device_id === selectedDeviceId;
+
+                          return (
+                            <button
+                              key={item.device_id}
+                              type="button"
+                              onClick={() => onSelectDevice(item.device_id)}
+                              style={{
+                                ...styles.treeDeviceButton,
+                                ...(active ? styles.treeDeviceButtonActive : {}),
+                              }}
+                            >
+                              <span
+                                style={{
+                                  ...styles.treeDeviceDot,
+                                  background: info.dot,
+                                  boxShadow: active ? `0 0 14px ${info.dot}` : "none",
+                                }}
+                              />
+                              <span style={styles.treeDeviceName}>
+                                {item?.name || item?.device_id}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))
+        ) : (
+          <div style={styles.sidebarEmpty}>Nenhum dispositivo encontrado.</div>
+        )}
+      </div>
+
+      <nav style={styles.deviceNav}>
+        <button
+          type="button"
+          onClick={() => onSectionChange(overviewItem.key)}
+          style={{
+            ...styles.deviceNavItem,
+            ...(activeSection === overviewItem.key ? styles.deviceNavItemActive : {}),
+          }}
+        >
+          <OverviewIcon size={16} />
+          <span>{overviewItem.label}</span>
+        </button>
+
+        <div style={styles.sidebarSectionTitle}>Monitoring</div>
+        {monitoringItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onSectionChange(item.key)}
+              style={{
+                ...styles.deviceNavItem,
+                ...(activeSection === item.key ? styles.deviceNavItemActive : {}),
+              }}
+            >
+              <Icon size={16} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+
+        <div style={styles.sidebarSectionTitle}>System</div>
+        {systemItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onSectionChange(item.key)}
+              style={{
+                ...styles.deviceNavItem,
+                ...(activeSection === item.key ? styles.deviceNavItemActive : {}),
+              }}
+            >
+              <Icon size={16} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
 function AlertRow({ item }) {
   const levelInfo = getAlertLevelInfo(item?.level);
   const isAck = String(item?.level || "").toLowerCase().includes("ack");
@@ -2338,7 +2610,7 @@ function AlertRow({ item }) {
   const typeMap = {
     temperature: "Temperatura",
     humidity: "Humidade",
-    offline: "Ligação",
+    offline: "LigaÃ§Ã£o",
     system: "Sistema",
   };
 
@@ -2359,7 +2631,7 @@ function AlertRow({ item }) {
     <div
       style={{
         ...styles.alertRow,
-        background: `linear-gradient(90deg, ${levelInfo.bg}66 0%, #ffffff 100%)`,
+        background: `linear-gradient(90deg, ${levelInfo.bg}66 0%, rgba(15,23,42,0.72) 100%)`,
         borderColor: levelInfo.border,
       }}
     >
@@ -2381,7 +2653,7 @@ function AlertRow({ item }) {
         <span>{formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)}</span>
 
         {item?.temperature !== null && item?.temperature !== undefined ? (
-          <span>Temp: {formatValue(item.temperature, " °C")}</span>
+          <span>Temp: {formatValue(item.temperature, " Â°C")}</span>
         ) : null}
 
         {item?.humidity !== null && item?.humidity !== undefined ? (
@@ -2450,8 +2722,8 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
     >
       <div style={styles.smartSurfaceHeader}>
         <div>
-          <div style={styles.smartSurfaceEyebrow}>Análise preditiva</div>
-          <div style={styles.cardTitle}>Tendência de risco</div>
+          <div style={styles.smartSurfaceEyebrow}>AnÃ¡lise preditiva</div>
+          <div style={styles.cardTitle}>TendÃªncia de risco</div>
           <div style={styles.smartSurfaceHint}>
             Leitura preditiva resumida do comportamento recente
           </div>
@@ -2472,11 +2744,11 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
       <div style={styles.smartSignalLine} />
 
       <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
-        {prediction?.title || "Predição indisponível"}
+        {prediction?.title || "PrediÃ§Ã£o indisponÃ­vel"}
       </div>
 
       <div style={styles.predictionMainDetail}>
-        {prediction?.detail || "Sem dados recentes para prever tendência."}
+        {prediction?.detail || "Sem dados recentes para prever tendÃªncia."}
       </div>
 
       {shouldShowSourceLabel ? (
@@ -2489,14 +2761,14 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
         <div style={styles.predictionAdviceGrid}>
           {prediction?.cause ? (
             <div style={styles.predictionAdviceItem}>
-              <span style={styles.predictionAdviceLabel}>Causa provável</span>
+              <span style={styles.predictionAdviceLabel}>Causa provÃ¡vel</span>
               <span>{prediction.cause}</span>
             </div>
           ) : null}
 
           {prediction?.action ? (
             <div style={styles.predictionAdviceItem}>
-              <span style={styles.predictionAdviceLabel}>Ação sugerida</span>
+              <span style={styles.predictionAdviceLabel}>AÃ§Ã£o sugerida</span>
               <span>{prediction.action}</span>
             </div>
           ) : null}
@@ -2505,7 +2777,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Predição suspensa até voltar online.
+          PrediÃ§Ã£o suspensa atÃ© voltar online.
         </div>
       ) : null}
     </section>
@@ -2519,7 +2791,7 @@ function OperationalInsightCard({ items }) {
         <div>
           <div style={styles.cardTitle}>Leitura operacional</div>
           <div style={styles.cardHint}>
-            Leitura simples para decidir rapidamente o que precisa de atenção
+            Leitura simples para decidir rapidamente o que precisa de atenÃ§Ã£o
           </div>
         </div>
       </div>
@@ -2572,26 +2844,26 @@ function SmartClientInsight({ communicationHealth, isOffline, statusInfo, summar
   const lowCoverage = (communicationHealth?.delivery_pct ?? 100) < 90;
   const noReadings24h = (summary24h?.totalReadings ?? 0) === 0;
 
-  let title = "Recomendação STS";
+  let title = "RecomendaÃ§Ã£o STS";
   let detail = "Evitar aberturas prolongadas ajuda a estabilizar a temperatura e reduzir consumo.";
-  let tag = "Boas práticas";
+  let tag = "Boas prÃ¡ticas";
 
   if (isOffline) {
-    title = "Verificação recomendada";
-    detail = "Confirmar alimentação, Wi-Fi e posição do dispositivo antes de confiar nos valores.";
+    title = "VerificaÃ§Ã£o recomendada";
+    detail = "Confirmar alimentaÃ§Ã£o, Wi-Fi e posiÃ§Ã£o do dispositivo antes de confiar nos valores.";
     tag = "Dispositivo offline";
   } else if (noReadings24h) {
     title = "Sem leituras recentes";
-    detail = "Não existem dados suficientes nas últimas 24h para avaliar a operação.";
+    detail = "NÃ£o existem dados suficientes nas Ãºltimas 24h para avaliar a operaÃ§Ã£o.";
     tag = "Sem dados";
-  } else if (lowCoverage || communicationHealth?.label === "Com falhas" || communicationHealth?.label === "Instável") {
-    title = "Atenção à comunicação";
+  } else if (lowCoverage || communicationHealth?.label === "Com falhas" || communicationHealth?.label === "InstÃ¡vel") {
+    title = "AtenÃ§Ã£o Ã  comunicaÃ§Ã£o";
     detail = "Falhas frequentes podem atrasar alertas. Confirma a cobertura Wi-Fi junto ao equipamento.";
-    tag = "Comunicação";
+    tag = "ComunicaÃ§Ã£o";
   } else if (String(statusInfo?.label || "").toLowerCase().includes("normal")) {
-    title = "Operação estável";
-    detail = "A estabilidade térmica ajuda a preservar qualidade, reduzir desperdício e controlar consumo.";
-    tag = "Operação";
+    title = "OperaÃ§Ã£o estÃ¡vel";
+    detail = "A estabilidade tÃ©rmica ajuda a preservar qualidade, reduzir desperdÃ­cio e controlar consumo.";
+    tag = "OperaÃ§Ã£o";
   }
 
   return (
@@ -2661,14 +2933,14 @@ function DataChart({
           ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
-              Dispositivo offline · histórico preservado até à última leitura válida
+              Dispositivo offline Â· histÃ³rico preservado atÃ© Ã  Ãºltima leitura vÃ¡lida
             </div>
           ) : null}
         </div>
       </div>
 
       {!hasData ? (
-        <div style={styles.emptyChartState}>Sem leituras neste período.</div>
+        <div style={styles.emptyChartState}>Sem leituras neste perÃ­odo.</div>
       ) : (
         <div style={styles.chartWrap}>
           <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
@@ -2826,7 +3098,7 @@ async function fetchJsonOrThrow(url, options = {}) {
     payload = raw ? JSON.parse(raw) : null;
   } catch {
     payload = {
-      error: "Resposta inválida da API.",
+      error: "Resposta invÃ¡lida da API.",
       details: raw?.slice?.(0, 300) || "",
     };
   }
@@ -2878,6 +3150,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [clientMessage, setClientMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const [pageError, setPageError] = useState("");
+  const [activeDeviceSection, setActiveDeviceSection] = useState("overview");
 
   const [isMobile, setIsMobile] = useState(false);
 
@@ -2960,23 +3233,23 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         if (profileResponse.error) {
           console.warn("profile:", JSON.stringify(profileResponse.error, null, 2));
-          throw new Error("Não foi possível carregar o perfil do utilizador.");
+          throw new Error("NÃ£o foi possÃ­vel carregar o perfil do utilizador.");
         }
 
         if (permissionsResponse.error) {
           console.warn("permissions:", JSON.stringify(permissionsResponse.error, null, 2));
-          throw new Error("Não foi possível carregar as permissões do utilizador.");
+          throw new Error("NÃ£o foi possÃ­vel carregar as permissÃµes do utilizador.");
         }
 
         const profileData = profileResponse.data || null;
         const permissionsData = permissionsResponse.data || [];
 
         if (!profileData) {
-          throw new Error("O utilizador autenticado não tem perfil criado em public.profiles.");
+          throw new Error("O utilizador autenticado nÃ£o tem perfil criado em public.profiles.");
         }
 
         if (!profileData.is_active) {
-          throw new Error("O teu utilizador está inativo.");
+          throw new Error("O teu utilizador estÃ¡ inativo.");
         }
 
         let devicesQuery = supabase
@@ -3006,7 +3279,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         if (devicesError) {
           console.warn("devices list:", JSON.stringify(devicesError, null, 2));
-          throw new Error("Não foi possível carregar a lista de dispositivos.");
+          throw new Error("NÃ£o foi possÃ­vel carregar a lista de dispositivos.");
         }
 
         const safeDevices = devicesData || [];
@@ -3045,7 +3318,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         if (deviceResponse?.error) {
           console.warn("device:", JSON.stringify(deviceResponse.error, null, 2));
-          throw new Error("Não foi possível carregar o dispositivo selecionado.");
+          throw new Error("NÃ£o foi possÃ­vel carregar o dispositivo selecionado.");
         }
 
         const baseDeviceData = deviceResponse?.data || null;
@@ -3269,7 +3542,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
   const statusInfo = getStatusInfo(effectiveStatus);
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || DEFAULT_DEVICE_ID;
-  const deviceLocation = device?.location || "Localização por definir";
+  const deviceLocation = device?.location || "LocalizaÃ§Ã£o por definir";
 
 const communicationHealth = useMemo(
   () =>
@@ -3289,10 +3562,10 @@ const communicationHealth = useMemo(
       isDeviceOffline
         ? {
             level: "unknown",
-            title: "Predição indisponível",
-            detail: "Sem dados recentes para prever tendência.",
+            title: "PrediÃ§Ã£o indisponÃ­vel",
+            detail: "Sem dados recentes para prever tendÃªncia.",
             cause: "Dispositivo offline.",
-            action: "Confirmar alimentação, Wi-Fi e comunicação.",
+            action: "Confirmar alimentaÃ§Ã£o, Wi-Fi e comunicaÃ§Ã£o.",
             chip: "Suspensa",
             source: "none",
             source_label: "Dispositivo offline",
@@ -3340,7 +3613,7 @@ const communicationHealth = useMemo(
       ? "warn"
       : "neutral";
 
-  const currentTempValue = formatValue(device?.last_temperature, " °C");
+  const currentTempValue = formatValue(device?.last_temperature, " Â°C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
   const currentTempAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
   const currentHumAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
@@ -3393,19 +3666,19 @@ const communicationHealth = useMemo(
       newHumLow === null ||
       newHumHigh === null
     ) {
-      setClientMessage("Preenche todos os campos do cliente com valores válidos.");
+      setClientMessage("Preenche todos os campos do cliente com valores vÃ¡lidos.");
       setSavingClient(false);
       return;
     }
 
     if (newTempLow >= newTempHigh) {
-      setClientMessage("A temperatura mínima deve ser inferior à máxima.");
+      setClientMessage("A temperatura mÃ­nima deve ser inferior Ã  mÃ¡xima.");
       setSavingClient(false);
       return;
     }
 
     if (newHumLow >= newHumHigh) {
-      setClientMessage("A humidade mínima deve ser inferior à máxima.");
+      setClientMessage("A humidade mÃ­nima deve ser inferior Ã  mÃ¡xima.");
       setSavingClient(false);
       return;
     }
@@ -3423,7 +3696,7 @@ const communicationHealth = useMemo(
         }),
       });
     } catch (error) {
-      setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
+      setClientMessage(error?.message || "Erro ao guardar configuraÃ§Ãµes do cliente.");
       setSavingClient(false);
       return;
     }
@@ -3458,7 +3731,7 @@ const communicationHealth = useMemo(
       hum_high: toInputValue(refreshedConfig?.hum_high),
     });
 
-    setClientMessage("Configurações do cliente guardadas com sucesso.");
+    setClientMessage("ConfiguraÃ§Ãµes do cliente guardadas com sucesso.");
     setSavingClient(false);
   }
 
@@ -3477,7 +3750,7 @@ const communicationHealth = useMemo(
       newSendInterval === null ||
       newDisplayStandby === null
     ) {
-      setAdminMessage("Preenche todos os campos admin com valores válidos.");
+      setAdminMessage("Preenche todos os campos admin com valores vÃ¡lidos.");
       setSavingAdmin(false);
       return;
     }
@@ -3495,14 +3768,14 @@ const communicationHealth = useMemo(
         method: "POST",
         body: JSON.stringify({
           name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
-          location: adminForm.location.trim() || "Localização por definir",
+          location: adminForm.location.trim() || "LocalizaÃ§Ã£o por definir",
           hyst_c: newHyst,
           send_interval_s: newSendInterval,
           display_standby_min: newDisplayStandby,
         }),
       });
     } catch (error) {
-      setAdminMessage(error?.message || "Erro ao guardar configurações admin.");
+      setAdminMessage(error?.message || "Erro ao guardar configuraÃ§Ãµes admin.");
       setSavingAdmin(false);
       return;
     }
@@ -3538,7 +3811,7 @@ const communicationHealth = useMemo(
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
 
-    setAdminMessage("Configurações admin guardadas com sucesso.");
+    setAdminMessage("ConfiguraÃ§Ãµes admin guardadas com sucesso.");
     setSavingAdmin(false);
   }
 
@@ -3556,7 +3829,7 @@ async function downloadPdfReport() {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      throw new Error(payload?.error || "Não foi possível gerar o PDF.");
+      throw new Error(payload?.error || "NÃ£o foi possÃ­vel gerar o PDF.");
     }
 
     const blob = await response.blob();
@@ -3571,7 +3844,7 @@ async function downloadPdfReport() {
 
     window.URL.revokeObjectURL(url);
   } catch (error) {
-    setPageError(error?.message || "Erro ao descarregar relatório PDF.");
+    setPageError(error?.message || "Erro ao descarregar relatÃ³rio PDF.");
   }
 }
 
@@ -3586,25 +3859,42 @@ async function downloadPdfReport() {
     <main style={styles.page}>
       <div style={styles.container}>
         <div style={styles.topBar}>
-          <div style={styles.brandLockup}>
-            <Image
-              src={STS_LOGO_SRC}
-              alt="STS"
-              width={132}
-              height={58}
-              priority
-              style={styles.headerLogo}
-            />
+          <div style={styles.deviceHeaderMain}>
             <div>
-            <h1 style={styles.title}>Cold</h1>
-            <div style={styles.tagline}>{STS_TAGLINE}</div>
-            <p style={styles.subtitle}>
-              Monitorização inteligente para frio, conservação e operação crítica
-            </p>
+              <div style={styles.deviceHeaderKicker}>{STS_PRODUCT.product}</div>
+              <h1 style={styles.title}>{deviceDisplayName}</h1>
+              <div style={styles.deviceHeaderMeta}>
+                <span>{deviceLocation}</span>
+                <span>•</span>
+                <span>{formatDateTime(device?.last_seen)} ({formatRelativeTime(device?.last_seen)})</span>
+              </div>
+            </div>
+            <div
+              style={{
+                ...styles.statusPillLarge,
+                color: statusInfo.color,
+                background: statusInfo.soft,
+                borderColor: statusInfo.border,
+              }}
+            >
+              {statusInfo.label}
             </div>
           </div>
 
           <div style={styles.topActions}>
+            <button
+              onClick={() => setActiveDeviceSection("overview")}
+              style={styles.refreshButton}
+            >
+              <ArrowLeft size={15} />
+              Divisão
+            </button>
+
+            <div style={styles.headerSignal}>
+              <Wifi size={15} />
+              <span>{communicationHealth.label}</span>
+            </div>
+
             {refreshing ? (
               <div style={styles.refreshingText}>A atualizar...</div>
             ) : null}
@@ -3615,6 +3905,7 @@ async function downloadPdfReport() {
               }}
               style={styles.refreshButton}
             >
+              <Activity size={15} />
               Atualizar
             </button>
 
@@ -3623,6 +3914,7 @@ async function downloadPdfReport() {
                 onClick={() => router.push("/admin")}
                 style={styles.refreshButton}
               >
+                <Wrench size={15} />
                 Admin
               </button>
             ) : null}
@@ -3634,15 +3926,39 @@ async function downloadPdfReport() {
               }}
               style={styles.refreshButton}
             >
+              <MoreHorizontal size={15} />
               Sair
             </button>
           </div>
         </div>
-
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
+        <div
+          style={{
+            ...styles.appLayout,
+            gridTemplateColumns: isMobile ? "1fr" : "320px minmax(0, 1fr)",
+          }}
+        >
+          <DeviceSidebar
+            devices={devices}
+            profile={profile}
+            selectedDeviceId={selectedDeviceId}
+            activeSection={activeDeviceSection}
+            onSectionChange={setActiveDeviceSection}
+            onSelectDevice={(deviceId) => {
+              setSelectedDeviceId(deviceId);
+              setActiveDeviceSection("overview");
+              setClientMessage("");
+              setAdminMessage("");
+              setPageError("");
+              setRefreshing(true);
+            }}
+          />
+
+          <div style={styles.deviceWorkspace}>
         <section
           style={{
             ...styles.operationStrip,
+            display: activeDeviceSection === "overview" ? "grid" : "none",
             gridTemplateColumns: isMobile
               ? "1fr"
               : "1.2fr repeat(3, minmax(0, 1fr))",
@@ -3682,6 +3998,7 @@ async function downloadPdfReport() {
         <section
           style={{
             ...styles.commandGrid,
+            display: activeDeviceSection === "overview" ? "grid" : "none",
             gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.65fr) minmax(340px, 0.85fr)",
           }}
         >
@@ -3689,7 +4006,7 @@ async function downloadPdfReport() {
             id="overview"
           style={{
             ...styles.heroCard,
-            background: `linear-gradient(135deg, ${statusInfo.panel} 0%, #ffffff 100%)`,
+            background: `linear-gradient(135deg, ${statusInfo.panel} 0%, rgba(15,23,42,0.92) 100%)`,
             borderColor: statusInfo.border,
             gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.28fr) minmax(260px, 0.72fr)",
           }}
@@ -3704,7 +4021,7 @@ async function downloadPdfReport() {
                   <span style={styles.deviceMetaBadge}>
                     {selectedDeviceId || DEFAULT_DEVICE_ID}
                   </span>
-                  <span style={styles.deviceMetaDot}>•</span>
+                  <span style={styles.deviceMetaDot}>â€¢</span>
                   <span style={styles.deviceMetaLocation}>{deviceLocation}</span>
                 </div>
               </div>
@@ -3731,26 +4048,26 @@ async function downloadPdfReport() {
               }}
             >
               <MetricBox
-                label={isDeviceOffline ? "Última temperatura conhecida" : "Temperatura atual"}
+                label={isDeviceOffline ? "Ãšltima temperatura conhecida" : "Temperatura atual"}
                 value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
                 accentLabel={currentTempAccentLabel}
                 subvalue={
                   isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
+                    ? `Ãšltimo registo: ${formatValue(device?.last_temperature, " Â°C")}`
                     : tempLow !== null && tempHigh !== null
-                    ? `Limite configurado: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
+                    ? `Limite configurado: ${formatValue(tempLow, " Â°C")} a ${formatValue(tempHigh, " Â°C")}`
                     : "Sem limites definidos"
                 }
               />
               <MetricBox
-                label={isDeviceOffline ? "Última humidade conhecida" : "Humidade atual"}
+                label={isDeviceOffline ? "Ãšltima humidade conhecida" : "Humidade atual"}
                 value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
                 accentLabel={currentHumAccentLabel}
                 subvalue={
                   isDeviceOffline
-                    ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
+                    ? `Ãšltimo registo: ${formatValue(device?.last_humidity, " %")}`
                     : humLow !== null && humHigh !== null
                     ? `Limite configurado: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
                     : "Sem limites definidos"
@@ -3767,7 +4084,7 @@ async function downloadPdfReport() {
               }}
             >
               <InfoItem
-                label="Última atualização do dispositivo"
+                label="Ãšltima atualizaÃ§Ã£o do dispositivo"
                 value={`${formatDateTime(device?.last_seen)} (${formatRelativeTime(device?.last_seen)})`}
               />
               <InfoItem
@@ -3791,12 +4108,12 @@ async function downloadPdfReport() {
 
             <div style={styles.sideSummary}>
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Média temp.</span>
-                <span style={styles.summaryValue}>{formatValue(summary24h.tempAvg, " °C")}</span>
+                <span style={styles.summaryLabel}>MÃ©dia temp.</span>
+                <span style={styles.summaryValue}>{formatValue(summary24h.tempAvg, " Â°C")}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Média hum.</span>
+                <span style={styles.summaryLabel}>MÃ©dia hum.</span>
                 <span style={styles.summaryValue}>{formatValue(summary24h.humAvg, " %", 0)}</span>
               </div>
 
@@ -3806,7 +4123,7 @@ async function downloadPdfReport() {
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Comunicação</span>
+                <span style={styles.summaryLabel}>ComunicaÃ§Ã£o</span>
                 <span style={styles.summaryValue}>{communicationHealth.label}</span>
               </div>
             </div>
@@ -3814,21 +4131,6 @@ async function downloadPdfReport() {
           </section>
 
           <aside style={styles.commandSide}>
-            <div id="devices">
-              <DeviceSelector
-                devices={devices}
-                selectedDeviceId={selectedDeviceId}
-                onSelect={(deviceId) => {
-                  setSelectedDeviceId(deviceId);
-                  setClientMessage("");
-                  setAdminMessage("");
-                  setPageError("");
-                  setRefreshing(true);
-                }}
-                isMobile={isMobile}
-              />
-            </div>
-
             <SmartClientInsight
               communicationHealth={communicationHealth}
               isOffline={effectiveStatus === "OFFLINE"}
@@ -3843,13 +4145,70 @@ async function downloadPdfReport() {
           </aside>
         </section>
 
-        <OperationalInsightCard items={operationalInsights} />
-        <section id="maintenance" style={{ ...styles.card, order: 20 }}>
+        {activeDeviceSection === "overview" ? (
+          <OperationalInsightCard items={operationalInsights} />
+        ) : null}
+
+        {activeDeviceSection === "readings" ? (
+          <section style={styles.card}>
+            <div style={styles.cardHeader}>
+              <div>
+                <div style={styles.cardTitle}>Readings</div>
+                <div style={styles.cardHint}>Leituras detalhadas, limites e tendência do dispositivo.</div>
+              </div>
+            </div>
+            <div
+              style={{
+                ...styles.metricsRow,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              }}
+            >
+              <MetricBox
+                label="Temperatura interior"
+                value={isDeviceOffline ? "-" : currentTempValue}
+                tone={currentTempTone}
+                accentLabel="Interior"
+                subvalue={
+                  tempLow !== null && tempHigh !== null
+                    ? `Limites: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
+                    : "Sem limites definidos"
+                }
+              />
+              <MetricBox
+                label="Humidade interior"
+                value={isDeviceOffline ? "-" : currentHumValue}
+                tone={currentHumTone}
+                accentLabel="Interior"
+                subvalue={
+                  humLow !== null && humHigh !== null
+                    ? `Limites: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
+                    : "Sem limites definidos"
+                }
+              />
+              <MetricBox
+                label="Resumo 24h"
+                value={`${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
+                tone="neutral"
+                accentLabel="Min / Max"
+                subvalue={`Humidade: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
+              />
+            </div>
+          </section>
+        ) : null}
+
+        <section
+          id="maintenance"
+          style={{
+            ...styles.card,
+            order: 20,
+            display: activeDeviceSection === "diagnostics" ? "block" : "none",
+          }}
+        >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Saúde da comunicação</div>
+              <div style={styles.cardTitle}>SaÃºde da comunicaÃ§Ã£o</div>
               <div style={styles.cardHint}>
-                Qualidade da ligação e regularidade das leituras
+                Qualidade da ligaÃ§Ã£o e regularidade das leituras
               </div>
             </div>
           </div>
@@ -3867,9 +4226,9 @@ async function downloadPdfReport() {
             }}
           >
             <HealthStatCard
-              label="Atraso da última leitura"
+              label="Atraso da Ãºltima leitura"
               value={formatDurationCompact(effectiveLastDelayMs)}
-              hint="Tempo desde a última leitura recebida"
+              hint="Tempo desde a Ãºltima leitura recebida"
               tone={
                 communicationHealth.label === "Offline"
                   ? "bad"
@@ -3884,7 +4243,7 @@ async function downloadPdfReport() {
             <HealthStatCard
               label="Intervalo esperado"
               value={formatDurationCompact(communicationHealth.expected_interval_ms)}
-              hint="Com base na configuração atual do dispositivo"
+              hint="Com base na configuraÃ§Ã£o atual do dispositivo"
               tone="neutral"
             />
 
@@ -3908,19 +4267,26 @@ async function downloadPdfReport() {
                   ? `${communicationHealth.regularity_pct}%`
                   : "-"
               }
-              hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
+              hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} Â· Gaps graves: ${communicationHealth.severe_gap_count} Â· Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
               tone={communicationHealth.tone}
               badge={communicationHealth.label}
             />
           </div>
         </section>
 
-        <section id="reports" style={{ ...styles.card, order: 22 }}>
+        <section
+          id="reports"
+          style={{
+            ...styles.card,
+            order: 22,
+            display: activeDeviceSection === "settings" ? "block" : "none",
+          }}
+        >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Relatório PDF</div>
+              <div style={styles.cardTitle}>RelatÃ³rio PDF</div>
               <div style={styles.cardHint}>
-                Exportação do resumo profissional de leituras do dispositivo
+                ExportaÃ§Ã£o do resumo profissional de leituras do dispositivo
               </div>
             </div>
           </div>
@@ -3934,7 +4300,7 @@ async function downloadPdfReport() {
             }}
           >
             <div style={styles.field}>
-              <label style={styles.label}>Período do relatório</label>
+              <label style={styles.label}>PerÃ­odo do relatÃ³rio</label>
               <select
                 value={reportPeriod}
                 onChange={(e) => setReportPeriod(e.target.value)}
@@ -3963,6 +4329,7 @@ async function downloadPdfReport() {
         <section
           style={{
             ...styles.chartGrid,
+            display: activeDeviceSection === "charts" ? "grid" : "none",
             gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
           }}
         >
@@ -3970,7 +4337,7 @@ async function downloadPdfReport() {
             title="Temperatura"
             data={chartReadings}
             dataKey="temperature"
-            unit=" °C"
+            unit=" Â°C"
             minThreshold={tempLow}
             maxThreshold={tempHigh}
             isMobile={isMobile}
@@ -3990,12 +4357,17 @@ async function downloadPdfReport() {
             isOffline={effectiveStatus === "OFFLINE"}
           />
         </section>
-        <section style={styles.card}>
+        <section
+          style={{
+            ...styles.card,
+            display: activeDeviceSection === "charts" ? "block" : "none",
+          }}
+        >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Período de visualização</div>
+              <div style={styles.cardTitle}>PerÃ­odo de visualizaÃ§Ã£o</div>
               <div style={styles.cardHint}>
-                Ajusta o intervalo temporal apresentado nos gráficos
+                Ajusta o intervalo temporal apresentado nos grÃ¡ficos
               </div>
             </div>
           </div>
@@ -4018,12 +4390,19 @@ async function downloadPdfReport() {
 
 
 
-<section id="alerts" style={{ ...styles.card, order: 21 }}>
+<section
+  id="alerts"
+  style={{
+    ...styles.card,
+    order: 21,
+    display: activeDeviceSection === "alerts" ? "block" : "none",
+  }}
+>
   <div style={styles.cardHeader}>
     <div>
-      <div style={styles.cardTitle}>Histórico de alertas</div>
+      <div style={styles.cardTitle}>HistÃ³rico de alertas</div>
       <div style={styles.cardHint}>
-        Eventos registados no período selecionado ({period.toUpperCase()})
+        Eventos registados no perÃ­odo selecionado ({period.toUpperCase()})
       </div>
     </div>
 
@@ -4060,17 +4439,24 @@ async function downloadPdfReport() {
   )}
 </section>
 
-        <section id="settings" style={{ ...styles.card, order: 23 }}>
+        <section
+          id="settings"
+          style={{
+            ...styles.card,
+            order: 23,
+            display: activeDeviceSection === "settings" ? "block" : "none",
+          }}
+        >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Configurações operacionais</div>
+              <div style={styles.cardTitle}>ConfiguraÃ§Ãµes operacionais</div>
               <div style={styles.cardHint}>
                 Limites operacionais por dispositivo
               </div>
             </div>
 
             <div style={styles.readOnlyBadge}>
-              {canEditSelectedDevice ? "Configuração editável" : "Só leitura"}
+              {canEditSelectedDevice ? "ConfiguraÃ§Ã£o editÃ¡vel" : "SÃ³ leitura"}
             </div>
           </div>
 
@@ -4083,7 +4469,7 @@ async function downloadPdfReport() {
             }}
           >
             <div style={styles.field}>
-              <label style={styles.label}>Temperatura mínima (°C)</label>
+              <label style={styles.label}>Temperatura mÃ­nima (Â°C)</label>
               <input
                 type="number"
                 step="0.1"
@@ -4100,7 +4486,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.label}>Temperatura máxima (°C)</label>
+              <label style={styles.label}>Temperatura mÃ¡xima (Â°C)</label>
               <input
                 type="number"
                 step="0.1"
@@ -4117,7 +4503,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.label}>Humidade mínima (%)</label>
+              <label style={styles.label}>Humidade mÃ­nima (%)</label>
               <input
                 type="number"
                 step="1"
@@ -4134,7 +4520,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.label}>Humidade máxima (%)</label>
+              <label style={styles.label}>Humidade mÃ¡xima (%)</label>
               <input
                 type="number"
                 step="1"
@@ -4158,7 +4544,7 @@ async function downloadPdfReport() {
                 onClick={saveClientConfig}
                 disabled={savingClient || !selectedDeviceId}
               >
-                {savingClient ? "A guardar..." : "Guardar configurações"}
+                {savingClient ? "A guardar..." : "Guardar configuraÃ§Ãµes"}
               </button>
 
               {clientMessage ? (
@@ -4176,11 +4562,37 @@ async function downloadPdfReport() {
           ) : null}
         </section>
 
+        {activeDeviceSection === "information" ? (
+          <section style={styles.card}>
+            <div style={styles.cardHeader}>
+              <div>
+                <div style={styles.cardTitle}>Information</div>
+                <div style={styles.cardHint}>Identificação e contexto do dispositivo.</div>
+              </div>
+            </div>
+            <div
+              style={{
+                ...styles.heroMetaRow,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              }}
+            >
+              <InfoItem label="Modelo" value={STS_PRODUCT.product} />
+              <InfoItem label="ID do dispositivo" value={selectedDeviceId || "-"} />
+              <InfoItem label="Localização" value={deviceLocation} />
+              <InfoItem label="Firmware" value={deviceOverview?.diagnostics?.firmware || device?.firmware_version || "-"} />
+              <InfoItem label="Config version" value={device?.config_version ?? "-"} />
+              <InfoItem label="Última atualização" value={formatDateTime(device?.updated_at || device?.last_seen)} />
+            </div>
+          </section>
+        ) : null}
+
         {!loading && initialLoaded && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
-            Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
+            Ainda nÃ£o existem leituras histÃ³ricas disponÃ­veis para os Ãºltimos 7 dias.
           </div>
         ) : null}
+          </div>
+        </div>
       </div>
     </main>
   );
@@ -4266,9 +4678,9 @@ const styles = {
   page: {
     minHeight: "100vh",
     background:
-      "linear-gradient(180deg, #eef5f8 0%, #f7fafc 42%, #edf3f7 100%)",
+      "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.14) 0%, transparent 34%), linear-gradient(180deg, #071018 0%, #0a111b 44%, #070b12 100%)",
     padding: "20px 16px 44px",
-    color: "#17202c",
+    color: "#e5edf7",
     overflowX: "hidden",
     scrollBehavior: "smooth",
   },
@@ -4373,10 +4785,10 @@ const styles = {
     gap: "20px",
     flexWrap: "wrap",
     padding: "14px 18px",
-    background: "linear-gradient(135deg, #102033 0%, #163047 55%, #0f766e 100%)",
-    border: "1px solid rgba(255, 255, 255, 0.16)",
+    background: "rgba(11, 18, 32, 0.86)",
+    border: "1px solid rgba(148, 163, 184, 0.16)",
     borderRadius: "20px",
-    boxShadow: "0 18px 46px rgba(15, 32, 51, 0.18)",
+    boxShadow: "0 18px 46px rgba(0, 0, 0, 0.28)",
     backdropFilter: "blur(16px)",
   },
 
@@ -4408,6 +4820,34 @@ const styles = {
     fontWeight: 900,
     letterSpacing: 0,
     color: "#ffffff",
+  },
+
+  deviceHeaderMain: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    minWidth: 0,
+    flex: "1 1 420px",
+    justifyContent: "space-between",
+  },
+
+  deviceHeaderKicker: {
+    color: "#5eead4",
+    fontSize: "11px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "6px",
+  },
+
+  deviceHeaderMeta: {
+    marginTop: "8px",
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+    color: "#94a3b8",
+    fontSize: "13px",
+    fontWeight: 700,
   },
 
   subtitle: {
@@ -4504,7 +4944,215 @@ const styles = {
     fontSize: "13px",
     minHeight: "38px",
     boxShadow: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
     transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease",
+  },
+
+  headerSignal: {
+    minHeight: "38px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+    border: "1px solid rgba(94, 234, 212, 0.20)",
+    background: "rgba(20, 184, 166, 0.10)",
+    color: "#99f6e4",
+    borderRadius: "10px",
+    padding: "8px 12px",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
+  appLayout: {
+    display: "grid",
+    gap: "16px",
+    alignItems: "start",
+  },
+
+  deviceWorkspace: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+
+  appSidebar: {
+    position: "sticky",
+    top: "16px",
+    maxHeight: "calc(100vh - 32px)",
+    overflowY: "auto",
+    background: "rgba(9, 15, 26, 0.92)",
+    border: "1px solid rgba(148, 163, 184, 0.16)",
+    borderRadius: "22px",
+    padding: "16px",
+    boxShadow: "0 24px 54px rgba(0, 0, 0, 0.28)",
+    backdropFilter: "blur(16px)",
+  },
+
+  sidebarBrandBlock: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    paddingBottom: "14px",
+    borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
+    marginBottom: "14px",
+  },
+
+  sidebarLogo: {
+    width: "78px",
+    height: "36px",
+    objectFit: "contain",
+  },
+
+  sidebarProductName: {
+    color: "#f8fafc",
+    fontSize: "14px",
+    fontWeight: 900,
+  },
+
+  sidebarProductMeta: {
+    marginTop: "3px",
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  sidebarSectionTitle: {
+    margin: "14px 0 8px",
+    color: "#64748b",
+    fontSize: "10px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+  },
+
+  deviceTree: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  treeCompany: {
+    border: "1px solid rgba(148, 163, 184, 0.12)",
+    background: "rgba(15, 23, 42, 0.44)",
+    borderRadius: "16px",
+    padding: "10px",
+  },
+
+  treeCompanyHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#e2e8f0",
+    fontSize: "13px",
+    fontWeight: 900,
+  },
+
+  treeBuilding: {
+    marginTop: "10px",
+    paddingLeft: "8px",
+  },
+
+  treeBuildingHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  treeRoom: {
+    marginTop: "8px",
+    paddingLeft: "16px",
+  },
+
+  treeRoomHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    color: "#64748b",
+    fontSize: "11px",
+    fontWeight: 800,
+  },
+
+  treeDeviceList: {
+    marginTop: "7px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+
+  treeDeviceButton: {
+    width: "100%",
+    border: "1px solid transparent",
+    background: "transparent",
+    color: "#cbd5e1",
+    borderRadius: "10px",
+    padding: "8px 9px",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  treeDeviceButtonActive: {
+    background: "rgba(20, 184, 166, 0.12)",
+    border: "1px solid rgba(94, 234, 212, 0.22)",
+    color: "#f8fafc",
+  },
+
+  treeDeviceDot: {
+    width: "8px",
+    height: "8px",
+    borderRadius: "999px",
+    flexShrink: 0,
+  },
+
+  treeDeviceName: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  sidebarEmpty: {
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  deviceNav: {
+    marginTop: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+
+  deviceNavItem: {
+    width: "100%",
+    border: "1px solid transparent",
+    background: "transparent",
+    color: "#94a3b8",
+    borderRadius: "12px",
+    padding: "10px 11px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: "13px",
+    fontWeight: 850,
+  },
+
+  deviceNavItemActive: {
+    background: "rgba(148, 163, 184, 0.12)",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    color: "#f8fafc",
   },
 
   operationStrip: {
@@ -4514,19 +5162,19 @@ const styles = {
 
   operationTile: {
     minWidth: 0,
-    background: "#ffffff",
-    border: "1px solid rgba(148, 163, 184, 0.26)",
+    background: "rgba(15, 23, 42, 0.72)",
+    border: "1px solid rgba(148, 163, 184, 0.16)",
     borderRadius: "14px",
     padding: "14px 16px",
     display: "flex",
     flexDirection: "column",
     gap: "6px",
-    boxShadow: "0 12px 28px rgba(15, 23, 42, 0.06)",
+    boxShadow: "0 18px 38px rgba(0, 0, 0, 0.20)",
   },
 
   operationTilePrimary: {
-    background: "linear-gradient(135deg, #f8fafc 0%, #ecfeff 100%)",
-    borderColor: "rgba(15, 118, 110, 0.24)",
+    background: "linear-gradient(135deg, rgba(20, 184, 166, 0.16), rgba(15, 23, 42, 0.84))",
+    borderColor: "rgba(94, 234, 212, 0.22)",
   },
 
   operationLabel: {
@@ -4541,7 +5189,7 @@ const styles = {
     fontSize: "24px",
     lineHeight: 1,
     fontWeight: 950,
-    color: "#102033",
+    color: "#f8fafc",
     overflowWrap: "anywhere",
   },
 
@@ -4639,12 +5287,12 @@ const styles = {
   },
 
   card: {
-    background: "rgba(255, 255, 255, 0.90)",
-    border: "1px solid rgba(148, 163, 184, 0.26)",
+    background: "rgba(15, 23, 42, 0.74)",
+    border: "1px solid rgba(148, 163, 184, 0.15)",
     borderRadius: "16px",
     padding: "18px",
     overflow: "visible",
-    boxShadow: "0 14px 34px rgba(15, 23, 42, 0.07)",
+    boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
     backdropFilter: "blur(16px)",
     transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease",
   },
@@ -4662,7 +5310,7 @@ const styles = {
     fontSize: "18px",
     fontWeight: 800,
     letterSpacing: 0,
-    color: "#102033",
+    color: "#f8fafc",
   },
 
   cardHint: {
@@ -4672,17 +5320,17 @@ const styles = {
   },
 
   errorBanner: {
-    background: "#fff1f2",
-    border: "1px solid #fecdd3",
-    color: "#be123c",
+    background: "rgba(239, 68, 68, 0.12)",
+    border: "1px solid rgba(248, 113, 113, 0.24)",
+    color: "#fecaca",
     borderRadius: "12px",
     padding: "14px 16px",
     fontWeight: 700,
   },
 
   emptyState: {
-    background: "#f8fafc",
-    border: "1px dashed #cbd5e1",
+    background: "rgba(15, 23, 42, 0.56)",
+    border: "1px dashed rgba(148, 163, 184, 0.24)",
     borderRadius: "12px",
     padding: "18px",
     color: "#64748b",
@@ -4697,8 +5345,8 @@ const styles = {
     justifyContent: "center",
     color: "#64748b",
     fontWeight: 700,
-    background: "#f8fafc",
-    border: "1px dashed #cbd5e1",
+    background: "rgba(15, 23, 42, 0.56)",
+    border: "1px dashed rgba(148, 163, 184, 0.24)",
     borderRadius: "12px",
   },
 
@@ -4886,11 +5534,11 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1.8fr) minmax(340px, 1fr)",
     gap: "18px",
-    border: "1px solid rgba(15, 118, 110, 0.24)",
+    border: "1px solid rgba(94, 234, 212, 0.18)",
     borderRadius: "18px",
     padding: "22px",
     overflow: "hidden",
-    boxShadow: "0 18px 46px rgba(15, 23, 42, 0.10)",
+    boxShadow: "0 22px 54px rgba(0, 0, 0, 0.26)",
   },
 
   heroLeft: {
@@ -4901,7 +5549,7 @@ const styles = {
   },
 
   heroRight: {
-    borderLeft: "1px solid rgba(148, 163, 184, 0.28)",
+    borderLeft: "1px solid rgba(148, 163, 184, 0.16)",
     paddingLeft: "18px",
     display: "flex",
     flexDirection: "column",
@@ -4931,7 +5579,7 @@ const styles = {
     fontSize: "28px",
     fontWeight: 900,
     letterSpacing: 0,
-    color: "#102033",
+    color: "#f8fafc",
     wordBreak: "break-word",
   },
 
@@ -4947,9 +5595,9 @@ const styles = {
   },
 
   deviceMetaBadge: {
-    background: "rgba(255, 255, 255, 0.70)",
-    border: "1px solid rgba(148, 163, 184, 0.36)",
-    color: "#334155",
+    background: "rgba(15, 23, 42, 0.70)",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    color: "#cbd5e1",
     borderRadius: "999px",
     padding: "6px 10px",
     fontSize: "12px",
@@ -4984,12 +5632,12 @@ const styles = {
   },
 
   metricCard: {
-    background: "rgba(255, 255, 255, 0.78)",
-    border: "1px solid rgba(148, 163, 184, 0.26)",
+    background: "rgba(8, 13, 23, 0.54)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
     borderRadius: "14px",
     padding: "18px",
     minWidth: 0,
-    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+    boxShadow: "none",
     transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease",
   },
 
@@ -5022,7 +5670,7 @@ const styles = {
     lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
-    color: "#102033",
+    color: "#f8fafc",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
@@ -5042,8 +5690,8 @@ const styles = {
   },
 
   infoItem: {
-    background: "rgba(248, 250, 252, 0.80)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "rgba(8, 13, 23, 0.50)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
     borderRadius: "12px",
     padding: "14px",
     display: "flex",
@@ -5061,7 +5709,7 @@ const styles = {
   infoValue: {
     fontSize: "15px",
     fontWeight: 700,
-    color: "#102033",
+    color: "#f8fafc",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
@@ -5069,7 +5717,7 @@ const styles = {
   sideTitle: {
     fontSize: "16px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
   },
 
   sideSummary: {
@@ -5079,8 +5727,8 @@ const styles = {
   },
 
   summaryBlock: {
-    background: "rgba(255, 255, 255, 0.70)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "rgba(8, 13, 23, 0.50)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
     borderRadius: "12px",
     padding: "14px",
     display: "flex",
@@ -5100,7 +5748,7 @@ const styles = {
   summaryValue: {
     fontSize: "15px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
     wordBreak: "break-word",
   },
 
@@ -5293,13 +5941,13 @@ const styles = {
   },
 
   chartCard: {
-    background: "#ffffff",
-    border: "1px solid rgba(148, 163, 184, 0.26)",
+    background: "rgba(15, 23, 42, 0.74)",
+    border: "1px solid rgba(148, 163, 184, 0.15)",
     borderRadius: "16px",
     padding: "18px",
     overflow: "hidden",
     minWidth: 0,
-    boxShadow: "0 14px 34px rgba(15, 23, 42, 0.07)",
+    boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
   },
 
   chartHeader: {
@@ -5309,7 +5957,7 @@ const styles = {
   chartTitle: {
     fontSize: "18px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
   },
 
   chartSubtitle: {
@@ -5365,8 +6013,8 @@ const styles = {
 
   periodButton: {
     border: "1px solid rgba(148, 163, 184, 0.34)",
-    background: "#ffffff",
-    color: "#475569",
+    background: "rgba(15, 23, 42, 0.64)",
+    color: "#cbd5e1",
     borderRadius: "10px",
     padding: "10px 14px",
     cursor: "pointer",
@@ -5407,8 +6055,8 @@ collapseButton: {
 },
 
   alertRow: {
-    background: "#ffffff",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "rgba(8, 13, 23, 0.54)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
     borderRadius: "12px",
     padding: "14px",
   },
@@ -5425,7 +6073,7 @@ collapseButton: {
   alertRowTitle: {
     fontSize: "15px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
   },
 
   alertBadge: {
@@ -5477,8 +6125,8 @@ collapseButton: {
     minWidth: 0,
     maxWidth: "100%",
     border: "1px solid rgba(148, 163, 184, 0.42)",
-    background: "#ffffff",
-    color: "#102033",
+    background: "rgba(8, 13, 23, 0.62)",
+    color: "#f8fafc",
     borderRadius: "10px",
     padding: "7px 10px",
     fontSize: "13px",
@@ -5531,8 +6179,8 @@ reportActionWrap: {
 
   readOnlyBadge: {
     border: "1px solid rgba(148, 163, 184, 0.34)",
-    background: "#f8fafc",
-    color: "#475569",
+    background: "rgba(148, 163, 184, 0.10)",
+    color: "#cbd5e1",
     borderRadius: "999px",
     padding: "7px 10px",
     fontSize: "12px",
@@ -5618,11 +6266,11 @@ reportActionWrap: {
   },
 
   tooltip: {
-    background: "#ffffff",
+    background: "#0f172a",
     border: "1px solid rgba(148, 163, 184, 0.34)",
     borderRadius: "12px",
     padding: "10px 12px",
-    color: "#102033",
+    color: "#f8fafc",
     boxShadow: "0 16px 32px rgba(15, 23, 42, 0.14)",
   },
 
@@ -5634,7 +6282,7 @@ reportActionWrap: {
 
   tooltipValue: {
     fontSize: "12px",
-    color: "#102033",
+    color: "#f8fafc",
   },
 
   tooltipMeta: {
