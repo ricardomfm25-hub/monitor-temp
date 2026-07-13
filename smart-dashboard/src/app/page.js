@@ -4090,65 +4090,73 @@ async function downloadPdfReport() {
               </button>
 
               {clientMenuOpen ? (
-                <div style={styles.clientMenu}>
-                  {clientHierarchy.flatMap((company) =>
-                    company.buildings.flatMap((building) =>
-                      building.rooms.map((room) => (
-                        <div key={`${company.name}-${building.name}-${room.name}`} style={styles.clientMenuRoom}>
-                          <div style={styles.clientMenuRoomTitle}>
-                            <span style={styles.clientMenuEmoji}>
-                              {getLocationEmoji(room.devices[0])}
-                            </span>
-                            <span>{room.name}</span>
-                          </div>
-                          <div style={styles.clientMenuDevices}>
-                            {room.devices.map((item) => {
-                              const info = getStatusInfo(
-                                getEffectiveStatus(
-                                  item,
-                                  parseNumber(item?.config?.send_interval_s)
-                                )
-                              );
-                              const active = item.device_id === selectedDeviceId;
+                <>
+                  <button
+                    type="button"
+                    aria-label="Fechar menu de cliente"
+                    onClick={() => setClientMenuOpen(false)}
+                    style={styles.clientMenuBackdrop}
+                  />
+                  <div style={styles.clientMenu}>
+                    {clientHierarchy.flatMap((company) =>
+                      company.buildings.flatMap((building) =>
+                        building.rooms.map((room) => (
+                          <div key={`${company.name}-${building.name}-${room.name}`} style={styles.clientMenuRoom}>
+                            <div style={styles.clientMenuRoomTitle}>
+                              <span style={styles.clientMenuEmoji}>
+                                {getLocationEmoji(room.devices[0])}
+                              </span>
+                              <span>{room.name}</span>
+                            </div>
+                            <div style={styles.clientMenuDevices}>
+                              {room.devices.map((item) => {
+                                const info = getStatusInfo(
+                                  getEffectiveStatus(
+                                    item,
+                                    parseNumber(item?.config?.send_interval_s)
+                                  )
+                                );
+                                const active = item.device_id === selectedDeviceId;
 
-                              return (
-                                <button
-                                  key={item.device_id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedDeviceId(item.device_id);
-                                    setActiveDeviceSection("overview");
-                                    setClientMessage("");
-                                    setAdminMessage("");
-                                    setPageError("");
-                                    setRefreshing(true);
-                                    setClientMenuOpen(false);
-                                  }}
-                                  style={{
-                                    ...styles.clientMenuDeviceButton,
-                                    ...(active ? styles.clientMenuDeviceButtonActive : {}),
-                                  }}
-                                >
-                                  <span style={styles.clientMenuEmoji}>{getDeviceEmoji(item)}</span>
-                                  <span
-                                    style={{
-                                      ...styles.treeDeviceDot,
-                                      background: info.dot,
-                                      boxShadow: `0 0 12px ${info.dot}`,
+                                return (
+                                  <button
+                                    key={item.device_id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedDeviceId(item.device_id);
+                                      setActiveDeviceSection("overview");
+                                      setClientMessage("");
+                                      setAdminMessage("");
+                                      setPageError("");
+                                      setRefreshing(true);
+                                      setClientMenuOpen(false);
                                     }}
-                                  />
-                                  <span style={styles.clientMenuDeviceName}>
-                                    {item?.name || item?.device_id}
-                                  </span>
-                                </button>
-                              );
-                            })}
+                                    style={{
+                                      ...styles.clientMenuDeviceButton,
+                                      ...(active ? styles.clientMenuDeviceButtonActive : {}),
+                                    }}
+                                  >
+                                    <span style={styles.clientMenuEmoji}>{getDeviceEmoji(item)}</span>
+                                    <span
+                                      style={{
+                                        ...styles.treeDeviceDot,
+                                        background: info.dot,
+                                        boxShadow: `0 0 12px ${info.dot}`,
+                                      }}
+                                    />
+                                    <span style={styles.clientMenuDeviceName}>
+                                      {item?.name || item?.device_id}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))
-                    )
-                  )}
-                </div>
+                        ))
+                      )
+                    )}
+                  </div>
+                </>
               ) : null}
             </div>
 
@@ -4157,10 +4165,6 @@ async function downloadPdfReport() {
               <span>{communicationHealth.label}</span>
             </div>
 
-            {refreshing ? (
-              <div style={styles.refreshingText}>{t("updating")}</div>
-            ) : null}
-
             <button
               onClick={async () => {
                 await loadData({ syncForms: true });
@@ -4168,7 +4172,7 @@ async function downloadPdfReport() {
               style={styles.refreshButton}
             >
               <RotateCw size={16} />
-              {t("refresh")}
+              {refreshing ? t("updating") : t("refresh")}
             </button>
 
             {isSuperAdmin ? (
@@ -5225,16 +5229,31 @@ const styles = {
 
   clientMenuWrap: {
     position: "relative",
+    zIndex: 6000,
+  },
+
+  clientMenuBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 5990,
+    border: 0,
+    background: "transparent",
+    padding: 0,
+    margin: 0,
+    minHeight: 0,
+    width: "100vw",
+    height: "100vh",
+    cursor: "default",
   },
 
   clientMenu: {
-    position: "absolute",
-    top: "calc(100% + 10px)",
-    right: 0,
+    position: "fixed",
+    top: "72px",
+    right: "24px",
     width: "min(440px, calc(100vw - 32px))",
     maxHeight: "70vh",
     overflowY: "auto",
-    zIndex: 80,
+    zIndex: 6000,
     background: "rgba(9, 15, 26, 0.98)",
     border: "1px solid rgba(148, 163, 184, 0.18)",
     borderRadius: "16px",
