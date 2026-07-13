@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   MapPin,
   MoreHorizontal,
+  RotateCw,
   Settings,
   Thermometer,
   Wrench,
@@ -2463,6 +2464,8 @@ function DeviceSidebar({
   const systemItems = DEVICE_NAV_SECTIONS.filter((item) => item.group === "System");
   const overviewItem = DEVICE_NAV_SECTIONS.find((item) => item.key === "overview");
   const OverviewIcon = overviewItem.icon;
+  const [organizationOpen, setOrganizationOpen] = useState(false);
+  const [locationsOpen, setLocationsOpen] = useState(false);
 
   return (
     <aside
@@ -2475,28 +2478,38 @@ function DeviceSidebar({
     >
       <div style={styles.sidebarBrandBlock}>
         {!collapsed ? (
-          <>
-            <Image
-              src={STS_LOGO_SRC}
-              alt="STS"
-              width={104}
-              height={46}
-              priority
-              style={styles.sidebarLogo}
-            />
-            <div>
-              <div style={styles.sidebarProductName}>{STS_PRODUCT.product}</div>
-              <div style={styles.sidebarProductMeta}>Device OS</div>
-            </div>
-          </>
+          <div>
+            <div style={styles.sidebarProductName}>Navigation</div>
+            <div style={styles.sidebarProductMeta}>Device workspace</div>
+          </div>
         ) : null}
         <button type="button" onClick={onToggle} style={styles.sidebarToggle}>
           {collapsed ? "☰" : "‹"}
         </button>
       </div>
 
-      {!collapsed ? <div style={styles.sidebarSectionTitle}>Organização</div> : null}
-      <div style={{ ...styles.deviceTree, display: collapsed ? "none" : "flex" }}>
+      {!collapsed ? (
+        <button
+          type="button"
+          onClick={() => setOrganizationOpen((prev) => !prev)}
+          style={styles.sidebarDisclosure}
+        >
+          <span>Organização</span>
+          <ChevronDown
+            size={14}
+            style={{
+              transform: organizationOpen ? "rotate(0deg)" : "rotate(-90deg)",
+              transition: "transform 160ms ease",
+            }}
+          />
+        </button>
+      ) : null}
+      <div
+        style={{
+          ...styles.deviceTree,
+          display: collapsed || !organizationOpen ? "none" : "flex",
+        }}
+      >
         {hierarchy.length ? (
           hierarchy.map((company) => (
             <div key={company.name} style={styles.treeCompany}>
@@ -2565,6 +2578,48 @@ function DeviceSidebar({
           ))
         ) : (
           <div style={styles.sidebarEmpty}>Nenhum dispositivo encontrado.</div>
+        )}
+      </div>
+
+      {!collapsed ? (
+        <button
+          type="button"
+          onClick={() => setLocationsOpen((prev) => !prev)}
+          style={styles.sidebarDisclosure}
+        >
+          <span>Localizações</span>
+          <ChevronDown
+            size={14}
+            style={{
+              transform: locationsOpen ? "rotate(0deg)" : "rotate(-90deg)",
+              transition: "transform 160ms ease",
+            }}
+          />
+        </button>
+      ) : null}
+      <div
+        style={{
+          ...styles.sidebarLocationSummary,
+          display: collapsed || !locationsOpen ? "none" : "grid",
+        }}
+      >
+        {hierarchy.flatMap((company) =>
+          company.buildings.flatMap((building) =>
+            building.rooms.map((room) => (
+              <button
+                key={`${company.name}-${building.name}-${room.name}-location`}
+                type="button"
+                style={styles.sidebarLocationButton}
+                onClick={() => {
+                  const firstDevice = room.devices[0]?.device_id;
+                  if (firstDevice) onSelectDevice(firstDevice);
+                }}
+              >
+                <MapPin size={13} />
+                <span>{room.name}</span>
+              </button>
+            ))
+          )
         )}
       </div>
 
@@ -3253,6 +3308,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [pageError, setPageError] = useState("");
   const [activeDeviceSection, setActiveDeviceSection] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [language, setLanguage] = useState("en");
 
   const [isMobile, setIsMobile] = useState(false);
 
@@ -4019,7 +4075,7 @@ async function downloadPdfReport() {
               }}
               style={styles.refreshButton}
             >
-              <Activity size={15} />
+              <RotateCw size={16} />
               Atualizar
             </button>
 
@@ -4542,6 +4598,24 @@ async function downloadPdfReport() {
 
             <div style={styles.readOnlyBadge}>
               {canEditSelectedDevice ? "Configuração editável" : "Só leitura"}
+            </div>
+          </div>
+
+          <div style={styles.settingsSection}>
+            <div>
+              <div style={styles.settingsSectionTitle}>Interface</div>
+              <div style={styles.cardHint}>Preferências de visualização da dashboard</div>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Língua</label>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                style={styles.configInput}
+              >
+                <option value="en">English</option>
+                <option value="pt">Português</option>
+              </select>
             </div>
           </div>
 
@@ -5085,13 +5159,13 @@ const styles = {
     top: "16px",
     maxHeight: "calc(100vh - 32px)",
     overflowY: "auto",
-    background: "rgba(9, 15, 26, 0.92)",
+    background: "linear-gradient(180deg, rgba(10, 18, 30, 0.96), rgba(7, 12, 20, 0.94))",
     border: "1px solid rgba(148, 163, 184, 0.16)",
     borderRadius: "22px",
     padding: "16px",
-    boxShadow: "0 24px 54px rgba(0, 0, 0, 0.28)",
+    boxShadow: "0 24px 54px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255,255,255,0.04)",
     backdropFilter: "blur(16px)",
-    transition: "width 180ms ease, padding 180ms ease, border-radius 180ms ease",
+    transition: "padding 200ms ease, border-radius 200ms ease, box-shadow 200ms ease, background 200ms ease",
   },
 
   appSidebarCollapsed: {
@@ -5151,6 +5225,45 @@ const styles = {
     fontWeight: 900,
     textTransform: "uppercase",
     letterSpacing: "0.12em",
+  },
+
+  sidebarDisclosure: {
+    width: "100%",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "rgba(148, 163, 184, 0.06)",
+    color: "#cbd5e1",
+    borderRadius: "12px",
+    padding: "10px 11px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    marginTop: "10px",
+  },
+
+  sidebarLocationSummary: {
+    gap: "7px",
+    marginTop: "8px",
+  },
+
+  sidebarLocationButton: {
+    width: "100%",
+    border: "1px solid rgba(148, 163, 184, 0.12)",
+    background: "rgba(8, 13, 23, 0.46)",
+    color: "#94a3b8",
+    borderRadius: "10px",
+    padding: "8px 9px",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: "12px",
+    fontWeight: 800,
   },
 
   deviceTree: {
@@ -6372,6 +6485,25 @@ collapseButton: {
     alignItems: "end",
     width: "100%",
     minWidth: 0,
+  },
+
+  settingsSection: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "14px",
+    alignItems: "end",
+    padding: "14px",
+    marginBottom: "16px",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "rgba(8, 13, 23, 0.42)",
+    borderRadius: "14px",
+  },
+
+  settingsSectionTitle: {
+    color: "#f8fafc",
+    fontSize: "15px",
+    fontWeight: 900,
+    marginBottom: "4px",
   },
 
   field: {
