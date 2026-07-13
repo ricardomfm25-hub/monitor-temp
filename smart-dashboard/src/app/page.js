@@ -27,6 +27,7 @@ import {
   Line,
   XAxis,
   YAxis,
+  CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
@@ -212,6 +213,9 @@ const PERIODS = [
   { key: "24h", label: "24H", hours: 24, bucketMs: 60 * 60 * 1000, tickMs: 4 * 60 * 60 * 1000 },
   { key: "7d", label: "7D", hours: 24 * 7, bucketMs: 24 * 60 * 60 * 1000, tickMs: 24 * 60 * 60 * 1000 },
 ];
+
+const ALERT_RECENT_HOURS = 24;
+const ALERT_HISTORY_HOURS = 24 * 30;
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -2130,7 +2134,7 @@ function getDeviceEmoji(device) {
     device?.icon_emoji ||
     device?.config?.emoji ||
     device?.config?.device_emoji ||
-    "??"
+    "🌡️"
   );
 }
 
@@ -2140,7 +2144,7 @@ function getLocationEmoji(device) {
     device?.room_emoji ||
     device?.config?.location_emoji ||
     device?.config?.room_emoji ||
-    "??"
+    "📍"
   );
 }
 
@@ -2469,7 +2473,7 @@ function DeviceSelector({
         <div>
           <div style={styles.cardTitle}>Dispositivos monitorizados</div>
           <div style={styles.cardHint}>
-            Seleção do equipamento em monitorização
+            Sele??o do equipamento em monitoriza??o
           </div>
         </div>
 
@@ -2961,7 +2965,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Predição suspensa até voltar online.
+          Predi??o suspensa at? voltar online.
         </div>
       ) : null}
     </section>
@@ -2975,7 +2979,7 @@ function OperationalInsightCard({ items, theme = "dark" }) {
         <div>
           <div style={styles.cardTitle}>Leitura operacional</div>
           <div style={styles.cardHint}>
-            Leitura simples para decidir rapidamente o que precisa de atenção
+            Leitura simples para decidir rapidamente o que precisa de aten??o
           </div>
         </div>
       </div>
@@ -3135,7 +3139,7 @@ function DataChart({
           ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
-              Dispositivo offline · histórico preservado até à última leitura válida
+              Dispositivo offline ? hist?rico preservado at? ? ?ltima leitura v?lida
             </div>
           ) : null}
         </div>
@@ -3150,6 +3154,12 @@ function DataChart({
               data={data}
               margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
             >
+              <CartesianGrid
+                stroke="rgba(148, 163, 184, 0.14)"
+                vertical={false}
+                strokeDasharray="2 10"
+              />
+
               <XAxis
                 type="number"
                 dataKey="timestamp"
@@ -3579,7 +3589,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
           nextSelectedDeviceId
             ? fetchJsonOrThrow(
-                `/api/sts/device/${nextSelectedDeviceId}/alerts?hours=${getPeriodConfig(period).hours}`
+                `/api/sts/device/${nextSelectedDeviceId}/alerts?hours=${ALERT_HISTORY_HOURS}`
               ).catch((error) => {
                 console.warn("alerts:", error);
                 return [];
@@ -3665,14 +3675,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           deviceData?.config ?? {},
           [...normalizeAlertRows(alertsRows), ...derivedAlerts]
         );
-        const alertWindow = getPeriodWindow(period);
         const alertsData = mergeAlertEvents(alertsRows, [
           ...derivedAlerts,
           ...currentAlerts,
-        ]).filter((item) => {
-          const timestamp = getAlertTimestamp(item);
-          return timestamp >= alertWindow.start && timestamp <= alertWindow.end;
-        });
+        ]);
 
         if (!mountedRef.current) return;
 
@@ -3729,7 +3735,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         }
       }
     },
-    [selectedDeviceId, supabase, router, initialLoaded, period]
+    [selectedDeviceId, supabase, router, initialLoaded]
   );
 
   useEffect(() => {
@@ -3741,6 +3747,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
     return () => clearInterval(interval);
   }, [loadData]);
+
+  useEffect(() => {
+    setAlertsCollapsed(false);
+  }, [selectedDeviceId]);
 
   useEffect(() => {
     if (!selectedDeviceId) return;
@@ -3821,10 +3831,18 @@ const communicationHealth = useMemo(
       rawReadings: liveReadings,
       sendIntervalS,
       deviceLastSeen: device?.last_seen,
-      periodKey: period,
+      periodKey: "24h",
     }),
-  [liveReadings, sendIntervalS, device?.last_seen, period]
+  [liveReadings, sendIntervalS, device?.last_seen]
 );
+
+  const recentAlerts = useMemo(() => {
+    const cutoff = Date.now() - ALERT_RECENT_HOURS * 60 * 60 * 1000;
+    return alerts.filter((item) => getAlertTimestamp(item) >= cutoff);
+  }, [alerts]);
+
+  const visibleAlerts = alertsCollapsed ? alerts : recentAlerts;
+  const hasOlderAlerts = alerts.length > recentAlerts.length;
 
   const isDeviceOffline = effectiveStatus === "OFFLINE";
 
@@ -4788,11 +4806,13 @@ async function downloadPdfReport() {
     <div>
       <div style={styles.cardTitle}>{t("alertHistory")}</div>
       <div style={styles.cardHint}>
-        Eventos registados no período selecionado ({period.toUpperCase()})
+        {alertsCollapsed
+          ? `Histórico completo disponível (${alerts.length})`
+          : `Alertas das últimas ${ALERT_RECENT_HOURS}h primeiro`}
       </div>
     </div>
 
-    {alerts.length > 3 ? (
+    {hasOlderAlerts ? (
       <button
         type="button"
         onClick={() => setAlertsCollapsed((prev) => !prev)}
@@ -4807,18 +4827,22 @@ async function downloadPdfReport() {
     <div style={styles.emptyState}>
       {t("noAlerts")}
     </div>
+  ) : !visibleAlerts.length ? (
+    <div style={styles.emptyState}>
+      Sem alertas nas últimas {ALERT_RECENT_HOURS}h.
+    </div>
   ) : (
     <div style={styles.alertList}>
-      {(alertsCollapsed ? alerts : alerts.slice(0, 3)).map((item, index) => (
+      {visibleAlerts.map((item, index) => (
         <AlertRow
           key={item.id || `${item.sent_at || item.created_at}-${index}`}
           item={item}
         />
       ))}
 
-      {!alertsCollapsed && alerts.length > 3 ? (
+      {!alertsCollapsed && hasOlderAlerts ? (
         <div style={styles.alertListHint}>
-          A mostrar os 3 alertas mais recentes de {alerts.length}.
+          Existem mais {alerts.length - recentAlerts.length} alertas no histórico.
         </div>
       ) : null}
     </div>
@@ -4851,104 +4875,117 @@ async function downloadPdfReport() {
               <div style={styles.settingsSectionTitle}>{t("interface")}</div>
               <div style={styles.cardHint}>{t("interfaceHint")}</div>
             </div>
-            <div style={styles.field}>
-              <label style={styles.label}>{t("language")}</label>
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                style={styles.configInput}
-              >
-                <option value="en">English</option>
-                <option value="pt">Português</option>
-              </select>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>{t("theme")}</label>
-              <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                style={styles.configInput}
-              >
-                <option value="dark">{t("darkTheme")}</option>
-                <option value="light">{t("lightTheme")}</option>
-              </select>
+            <div
+              style={{
+                ...styles.formGrid,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              }}
+            >
+              <div style={styles.field}>
+                <label style={styles.label}>{t("language")}</label>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  style={styles.configInput}
+                >
+                  <option value="en">English</option>
+                  <option value="pt">Português</option>
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>{t("theme")}</label>
+                <select
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                  style={styles.configInput}
+                >
+                  <option value="dark">{t("darkTheme")}</option>
+                  <option value="light">{t("lightTheme")}</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div
-            style={{
-              ...styles.formGrid,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "repeat(4, minmax(0, 1fr))",
-            }}
-          >
-            <div style={styles.field}>
-              <label style={styles.label}>{t("tempMin")}</label>
-              <input
-                type="number"
-                step="0.1"
-                value={clientForm.temp_low_c}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    temp_low_c: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
+          <div style={styles.settingsSection}>
+            <div>
+              <div style={styles.settingsSectionTitle}>{t("limits")}</div>
+              <div style={styles.cardHint}>{t("settingsHint")}</div>
             </div>
+            <div
+              style={{
+                ...styles.formGrid,
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(4, minmax(0, 1fr))",
+              }}
+            >
+              <div style={styles.field}>
+                <label style={styles.label}>{t("tempMin")}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={clientForm.temp_low_c}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      temp_low_c: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>{t("tempMax")}</label>
-              <input
-                type="number"
-                step="0.1"
-                value={clientForm.temp_high_c}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    temp_high_c: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
-            </div>
+              <div style={styles.field}>
+                <label style={styles.label}>{t("tempMax")}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={clientForm.temp_high_c}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      temp_high_c: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>{t("humMin")}</label>
-              <input
-                type="number"
-                step="1"
-                value={clientForm.hum_low}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    hum_low: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
-            </div>
+              <div style={styles.field}>
+                <label style={styles.label}>{t("humMin")}</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={clientForm.hum_low}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      hum_low: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
 
-            <div style={styles.field}>
-              <label style={styles.label}>{t("humMax")}</label>
-              <input
-                type="number"
-                step="1"
-                value={clientForm.hum_high}
-                onChange={(e) =>
-                  setClientForm((prev) => ({
-                    ...prev,
-                    hum_high: e.target.value,
-                  }))
-                }
-                style={styles.configInput}
-                disabled={!canEditSelectedDevice}
-              />
+              <div style={styles.field}>
+                <label style={styles.label}>{t("humMax")}</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={clientForm.hum_high}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      hum_high: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
             </div>
           </div>
 
@@ -5003,7 +5040,7 @@ async function downloadPdfReport() {
 
         {!loading && initialLoaded && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
-            Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
+            Ainda n?o existem leituras hist?ricas dispon?veis para os ?ltimos 7 dias.
           </div>
         ) : null}
           </div>
@@ -6938,10 +6975,10 @@ collapseButton: {
   },
 
   settingsSection: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    display: "flex",
+    flexDirection: "column",
     gap: "14px",
-    alignItems: "end",
+    alignItems: "stretch",
     padding: "14px",
     marginBottom: "16px",
     border: "1px solid var(--sts-border)",
