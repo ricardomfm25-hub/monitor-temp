@@ -37,6 +37,7 @@ import {
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
+const LANGUAGE_STORAGE_KEY = "sts_dashboard_language";
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
@@ -112,11 +113,11 @@ const I18N = {
     lastUpdate: "Last update",
     chooseOperation: "Select operation",
     chooseTitle: "Choose location and device",
-    chooseText: "The dashboard opens only after choosing the right area. This keeps the experience focused on the equipment you want to monitor.",
+    chooseText: "Choose the area to start monitoring.",
     noDevices: "No devices found.",
   },
   pt: {
-    overview: "Overview",
+    overview: "Visão geral",
     readings: "Leituras",
     charts: "Gráficos",
     alerts: "Alertas",
@@ -181,7 +182,7 @@ const I18N = {
     lastUpdate: "Última atualização",
     chooseOperation: "Selecionar operação",
     chooseTitle: "Escolhe o local e o dispositivo",
-    chooseText: "A dashboard abre apenas depois de escolheres a divisão certa. Assim evitas ruído e entras diretamente no equipamento que queres monitorizar.",
+    chooseText: "Escolhe a área para começar a monitorizar.",
     noDevices: "Nenhum dispositivo encontrado.",
   },
 };
@@ -2116,6 +2117,27 @@ function getLocationParts(device) {
   };
 }
 
+function getDeviceEmoji(device) {
+  return (
+    device?.emoji ||
+    device?.device_emoji ||
+    device?.icon_emoji ||
+    device?.config?.emoji ||
+    device?.config?.device_emoji ||
+    "❄️"
+  );
+}
+
+function getLocationEmoji(device) {
+  return (
+    device?.location_emoji ||
+    device?.room_emoji ||
+    device?.config?.location_emoji ||
+    device?.config?.room_emoji ||
+    "📍"
+  );
+}
+
 function buildDeviceHierarchy(devices, profile) {
   const companies = new Map();
 
@@ -2581,14 +2603,9 @@ const DEVICE_NAV_SECTIONS = [
 ];
 
 function DeviceSidebar({
-  devices,
-  profile,
-  selectedDeviceId,
-  onSelectDevice,
   activeSection,
   onSectionChange,
   collapsed,
-  onToggle,
   onHoverStart,
   onHoverEnd,
   t,
@@ -2609,18 +2626,6 @@ function DeviceSidebar({
         ...(collapsed ? styles.appSidebarCollapsed : {}),
       }}
     >
-      <div style={styles.sidebarBrandBlock}>
-        {!collapsed ? (
-          <div>
-            <div style={styles.sidebarProductName}>{t("navigation")}</div>
-            <div style={styles.sidebarProductMeta}>{t("workspace")}</div>
-          </div>
-        ) : null}
-        <button type="button" onClick={onToggle} style={styles.sidebarToggle}>
-          {collapsed ? "☰" : "‹"}
-        </button>
-      </div>
-
       <nav style={styles.deviceNav}>
         <button
           type="button"
@@ -2701,56 +2706,51 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
         />
         <div style={styles.entryKicker}>{t("chooseOperation")}</div>
         <h1 style={styles.entryTitle}>{t("chooseTitle")}</h1>
-        <p style={styles.entryText}>
-          {t("chooseText")}
-        </p>
 
         <div style={styles.entryTree}>
-          {hierarchy.map((company) => (
-            <div key={company.name} style={styles.entryCompany}>
-              <div style={styles.entryCompanyTitle}>{company.name}</div>
+          {hierarchy.flatMap((company) =>
+            company.buildings.flatMap((building) =>
+              building.rooms.map((room) => (
+                <div key={`${company.name}-${building.name}-${room.name}`} style={styles.entryCompany}>
+                  <div style={styles.entryCompanyTitle}>
+                    <span style={styles.clientMenuEmoji}>{getLocationEmoji(room.devices[0])}</span>
+                    <span>{room.name}</span>
+                  </div>
+                  <div style={styles.entryDevices}>
+                    {room.devices.map((item) => {
+                      const info = getStatusInfo(
+                        getEffectiveStatus(
+                          item,
+                          parseNumber(item?.config?.send_interval_s)
+                        )
+                      );
 
-              {company.buildings.map((building) => (
-                <div key={`${company.name}-${building.name}`} style={styles.entryBuilding}>
-                  <div style={styles.entryBuildingTitle}>{building.name}</div>
-
-                  {building.rooms.map((room) => (
-                    <div key={`${building.name}-${room.name}`} style={styles.entryRoom}>
-                      <div style={styles.entryRoomTitle}>{room.name}</div>
-                      <div style={styles.entryDevices}>
-                        {room.devices.map((item) => {
-                          const info = getStatusInfo(
-                            getEffectiveStatus(
-                              item,
-                              parseNumber(item?.config?.send_interval_s)
-                            )
-                          );
-
-                          return (
-                            <button
-                              key={item.device_id}
-                              type="button"
-                              onClick={() => onSelectDevice(item.device_id)}
-                              style={styles.entryDeviceButton}
-                            >
-                              <span
-                                style={{
-                                  ...styles.treeDeviceDot,
-                                  background: info.dot,
-                                }}
-                              />
-                              <span>{item?.name || item?.device_id}</span>
-                              <small>{info.label}</small>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                      return (
+                        <button
+                          key={item.device_id}
+                          type="button"
+                          onClick={() => onSelectDevice(item.device_id)}
+                          style={styles.entryDeviceButton}
+                        >
+                          <span style={styles.clientMenuEmoji}>{getDeviceEmoji(item)}</span>
+                          <span
+                            style={{
+                              ...styles.treeDeviceDot,
+                              background: info.dot,
+                              boxShadow: `0 0 12px ${info.dot}`,
+                            }}
+                          />
+                          <span style={styles.clientMenuDeviceName}>
+                            {item?.name || item?.device_id}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              ))}
-            </div>
-          ))}
+              ))
+            )
+          )}
         </div>
       </div>
     </section>
@@ -3315,6 +3315,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     (key) => I18N[language]?.[key] || I18N.en[key] || key,
     [language]
   );
+  const profileLanguageStorageKey = profile?.id
+    ? `${LANGUAGE_STORAGE_KEY}:${profile.id}`
+    : null;
 
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
@@ -3343,6 +3346,31 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (storedLanguage === "en" || storedLanguage === "pt") {
+      setLanguage(storedLanguage);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!profileLanguageStorageKey) return;
+    const storedLanguage = window.localStorage.getItem(profileLanguageStorageKey);
+    if (storedLanguage === "en" || storedLanguage === "pt") {
+      setLanguage(storedLanguage);
+    }
+  }, [profileLanguageStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    if (profileLanguageStorageKey) {
+      window.localStorage.setItem(profileLanguageStorageKey, language);
+    }
+  }, [language, profileLanguageStorageKey]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -4063,63 +4091,63 @@ async function downloadPdfReport() {
 
               {clientMenuOpen ? (
                 <div style={styles.clientMenu}>
-                  {clientHierarchy.map((company) => (
-                    <div key={company.name} style={styles.clientMenuCompany}>
-                      <div style={styles.clientMenuCompanyTitle}>{company.name}</div>
-                      {company.buildings.map((building) => (
-                        <div key={`${company.name}-${building.name}`} style={styles.clientMenuBuilding}>
-                          <div style={styles.clientMenuBuildingTitle}>{building.name}</div>
-                          {building.rooms.map((room) => (
-                            <div key={`${building.name}-${room.name}`} style={styles.clientMenuRoom}>
-                              <div style={styles.clientMenuRoomTitle}>
-                                <MapPin size={13} />
-                                <span>{room.name}</span>
-                              </div>
-                              <div style={styles.clientMenuDevices}>
-                                {room.devices.map((item) => {
-                                  const info = getStatusInfo(
-                                    getEffectiveStatus(
-                                      item,
-                                      parseNumber(item?.config?.send_interval_s)
-                                    )
-                                  );
-                                  const active = item.device_id === selectedDeviceId;
+                  {clientHierarchy.flatMap((company) =>
+                    company.buildings.flatMap((building) =>
+                      building.rooms.map((room) => (
+                        <div key={`${company.name}-${building.name}-${room.name}`} style={styles.clientMenuRoom}>
+                          <div style={styles.clientMenuRoomTitle}>
+                            <span style={styles.clientMenuEmoji}>
+                              {getLocationEmoji(room.devices[0])}
+                            </span>
+                            <span>{room.name}</span>
+                          </div>
+                          <div style={styles.clientMenuDevices}>
+                            {room.devices.map((item) => {
+                              const info = getStatusInfo(
+                                getEffectiveStatus(
+                                  item,
+                                  parseNumber(item?.config?.send_interval_s)
+                                )
+                              );
+                              const active = item.device_id === selectedDeviceId;
 
-                                  return (
-                                    <button
-                                      key={item.device_id}
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedDeviceId(item.device_id);
-                                        setActiveDeviceSection("overview");
-                                        setClientMessage("");
-                                        setAdminMessage("");
-                                        setPageError("");
-                                        setRefreshing(true);
-                                        setClientMenuOpen(false);
-                                      }}
-                                      style={{
-                                        ...styles.clientMenuDeviceButton,
-                                        ...(active ? styles.clientMenuDeviceButtonActive : {}),
-                                      }}
-                                    >
-                                      <span
-                                        style={{
-                                          ...styles.treeDeviceDot,
-                                          background: info.dot,
-                                        }}
-                                      />
-                                      <span>{item?.name || item?.device_id}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ))}
+                              return (
+                                <button
+                                  key={item.device_id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedDeviceId(item.device_id);
+                                    setActiveDeviceSection("overview");
+                                    setClientMessage("");
+                                    setAdminMessage("");
+                                    setPageError("");
+                                    setRefreshing(true);
+                                    setClientMenuOpen(false);
+                                  }}
+                                  style={{
+                                    ...styles.clientMenuDeviceButton,
+                                    ...(active ? styles.clientMenuDeviceButtonActive : {}),
+                                  }}
+                                >
+                                  <span style={styles.clientMenuEmoji}>{getDeviceEmoji(item)}</span>
+                                  <span
+                                    style={{
+                                      ...styles.treeDeviceDot,
+                                      background: info.dot,
+                                      boxShadow: `0 0 12px ${info.dot}`,
+                                    }}
+                                  />
+                                  <span style={styles.clientMenuDeviceName}>
+                                    {item?.name || item?.device_id}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  ))}
+                      ))
+                    )
+                  )}
                 </div>
               ) : null}
             </div>
@@ -4189,32 +4217,20 @@ async function downloadPdfReport() {
             gridTemplateColumns: isMobile
               ? "1fr"
               : sidebarOpen
-              ? "320px minmax(0, 1fr)"
-              : "76px minmax(0, 1fr)",
+              ? "236px minmax(0, 1fr)"
+              : "72px minmax(0, 1fr)",
           }}
         >
           <DeviceSidebar
-            devices={devices}
-            profile={profile}
-            selectedDeviceId={selectedDeviceId}
             activeSection={activeDeviceSection}
             onSectionChange={setActiveDeviceSection}
             t={t}
             collapsed={!sidebarOpen}
-            onToggle={() => setSidebarOpen((prev) => !prev)}
             onHoverStart={() => {
               if (!isMobile) setSidebarOpen(true);
             }}
             onHoverEnd={() => {
               if (!isMobile) setSidebarOpen(false);
-            }}
-            onSelectDevice={(deviceId) => {
-              setSelectedDeviceId(deviceId);
-              setActiveDeviceSection("overview");
-              setClientMessage("");
-              setAdminMessage("");
-              setPageError("");
-              setRefreshing(true);
             }}
           />
 
@@ -5215,14 +5231,14 @@ const styles = {
     position: "absolute",
     top: "calc(100% + 10px)",
     right: 0,
-    width: "min(520px, calc(100vw - 32px))",
+    width: "min(440px, calc(100vw - 32px))",
     maxHeight: "70vh",
     overflowY: "auto",
     zIndex: 80,
     background: "rgba(9, 15, 26, 0.98)",
     border: "1px solid rgba(148, 163, 184, 0.18)",
-    borderRadius: "18px",
-    padding: "14px",
+    borderRadius: "16px",
+    padding: "12px",
     boxShadow: "0 28px 70px rgba(0,0,0,0.42)",
     backdropFilter: "blur(18px)",
   },
@@ -5262,16 +5278,29 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "7px",
-    color: "#64748b",
+    color: "#94a3b8",
     fontSize: "11px",
     fontWeight: 900,
     textTransform: "uppercase",
-    letterSpacing: "0.08em",
+    letterSpacing: "0.06em",
+  },
+
+  clientMenuEmoji: {
+    width: "24px",
+    height: "24px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "9px",
+    background: "rgba(148, 163, 184, 0.10)",
+    fontSize: "15px",
+    lineHeight: 1,
+    flexShrink: 0,
   },
 
   clientMenuDevices: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(156px, 1fr))",
     gap: "8px",
   },
 
@@ -5279,8 +5308,8 @@ const styles = {
     border: "1px solid rgba(148, 163, 184, 0.14)",
     background: "rgba(15, 23, 42, 0.62)",
     color: "#cbd5e1",
-    borderRadius: "12px",
-    padding: "10px",
+    borderRadius: "11px",
+    padding: "9px 10px",
     display: "flex",
     alignItems: "center",
     gap: "9px",
@@ -5288,12 +5317,20 @@ const styles = {
     fontSize: "12px",
     fontWeight: 850,
     textAlign: "left",
+    minWidth: 0,
   },
 
   clientMenuDeviceButtonActive: {
     background: "rgba(20, 184, 166, 0.14)",
     border: "1px solid rgba(94, 234, 212, 0.24)",
     color: "#f8fafc",
+  },
+
+  clientMenuDeviceName: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 
   appLayout: {
@@ -5316,8 +5353,8 @@ const styles = {
     overflowY: "auto",
     background: "linear-gradient(180deg, rgba(10, 18, 30, 0.96), rgba(7, 12, 20, 0.94))",
     border: "1px solid rgba(148, 163, 184, 0.16)",
-    borderRadius: "22px",
-    padding: "16px",
+    borderRadius: "18px",
+    padding: "12px",
     boxShadow: "0 24px 54px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255,255,255,0.04)",
     backdropFilter: "blur(16px)",
     transition: "padding 200ms ease, border-radius 200ms ease, box-shadow 200ms ease, background 200ms ease",
@@ -5521,7 +5558,7 @@ const styles = {
   },
 
   deviceNav: {
-    marginTop: "14px",
+    marginTop: 0,
     display: "flex",
     flexDirection: "column",
     gap: "6px",
@@ -5532,8 +5569,8 @@ const styles = {
     border: "1px solid transparent",
     background: "transparent",
     color: "#94a3b8",
-    borderRadius: "12px",
-    padding: "10px 11px",
+    borderRadius: "11px",
+    padding: "10px",
     display: "flex",
     alignItems: "center",
     gap: "10px",
@@ -5545,7 +5582,7 @@ const styles = {
 
   deviceNavItemCollapsed: {
     justifyContent: "center",
-    padding: "11px",
+    padding: "10px",
   },
 
   deviceNavItemActive: {
@@ -5564,11 +5601,11 @@ const styles = {
 
   entryPanel: {
     width: "100%",
-    maxWidth: "980px",
+    maxWidth: "780px",
     background: "rgba(9, 15, 26, 0.86)",
     border: "1px solid rgba(148, 163, 184, 0.16)",
-    borderRadius: "26px",
-    padding: "28px",
+    borderRadius: "22px",
+    padding: "26px",
     boxShadow: "0 30px 70px rgba(0, 0, 0, 0.32)",
     backdropFilter: "blur(18px)",
   },
@@ -5592,7 +5629,7 @@ const styles = {
   entryTitle: {
     margin: 0,
     color: "#f8fafc",
-    fontSize: "34px",
+    fontSize: "30px",
     lineHeight: 1.05,
     fontWeight: 950,
   },
@@ -5608,21 +5645,25 @@ const styles = {
 
   entryTree: {
     display: "grid",
-    gap: "16px",
+    gap: "12px",
+    marginTop: "22px",
   },
 
   entryCompany: {
     border: "1px solid rgba(148, 163, 184, 0.14)",
     background: "rgba(15, 23, 42, 0.52)",
-    borderRadius: "18px",
-    padding: "16px",
+    borderRadius: "16px",
+    padding: "12px",
   },
 
   entryCompanyTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
     color: "#f8fafc",
-    fontSize: "16px",
+    fontSize: "13px",
     fontWeight: 900,
-    marginBottom: "12px",
+    marginBottom: "10px",
   },
 
   entryBuilding: {
@@ -5653,16 +5694,16 @@ const styles = {
 
   entryDevices: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "10px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(168px, 1fr))",
+    gap: "8px",
   },
 
   entryDeviceButton: {
     border: "1px solid rgba(148, 163, 184, 0.16)",
     background: "rgba(8, 13, 23, 0.62)",
     color: "#e2e8f0",
-    borderRadius: "14px",
-    padding: "12px",
+    borderRadius: "12px",
+    padding: "10px",
     display: "flex",
     alignItems: "center",
     gap: "10px",
@@ -5670,6 +5711,7 @@ const styles = {
     fontWeight: 850,
     textAlign: "left",
     justifyContent: "flex-start",
+    minWidth: 0,
   },
 
   operationStrip: {
