@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
@@ -2131,7 +2131,7 @@ function getDeviceEmoji(device) {
     device?.icon_emoji ||
     device?.config?.emoji ||
     device?.config?.device_emoji ||
-    "❄️"
+    "??"
   );
 }
 
@@ -2141,7 +2141,7 @@ function getLocationEmoji(device) {
     device?.room_emoji ||
     device?.config?.location_emoji ||
     device?.config?.room_emoji ||
-    "📍"
+    "??"
   );
 }
 
@@ -2526,7 +2526,7 @@ function DeviceSelector({
                 transform: open ? "rotate(180deg)" : "rotate(0deg)",
               }}
             >
-              ▼
+              ?
             </div>
           </div>
         </button>
@@ -2816,8 +2816,8 @@ function AlertRow({ item }) {
   );
 }
 
-function UnifiedPredictionCard({ prediction, isOffline }) {
-  const toneMap = {
+function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
+  const darkToneMap = {
     unknown: {
       border: "rgba(148, 163, 184, 0.30)",
       bg: "linear-gradient(135deg, rgba(15, 23, 42, 0.86) 0%, rgba(8, 13, 23, 0.92) 100%)",
@@ -2851,7 +2851,42 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
       badgeColor: "#fca5a5",
     },
   };
+  const lightToneMap = {
+    unknown: {
+      border: "rgba(15, 23, 42, 0.16)",
+      bg: "linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.92) 100%)",
+      value: "#102033",
+      badgeBg: "rgba(100, 116, 139, 0.10)",
+      badgeBorder: "rgba(15, 23, 42, 0.12)",
+      badgeColor: "#475569",
+    },
+    low: {
+      border: "rgba(22, 163, 74, 0.24)",
+      bg: "linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(236, 253, 245, 0.88) 100%)",
+      value: "#166534",
+      badgeBg: "rgba(34, 197, 94, 0.12)",
+      badgeBorder: "rgba(34, 197, 94, 0.20)",
+      badgeColor: "#15803d",
+    },
+    medium: {
+      border: "rgba(217, 119, 6, 0.26)",
+      bg: "linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 251, 235, 0.90) 100%)",
+      value: "#92400e",
+      badgeBg: "rgba(245, 158, 11, 0.13)",
+      badgeBorder: "rgba(245, 158, 11, 0.22)",
+      badgeColor: "#b45309",
+    },
+    high: {
+      border: "rgba(220, 38, 38, 0.26)",
+      bg: "linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 241, 242, 0.90) 100%)",
+      value: "#be123c",
+      badgeBg: "rgba(239, 68, 68, 0.12)",
+      badgeBorder: "rgba(239, 68, 68, 0.22)",
+      badgeColor: "#be123c",
+    },
+  };
 
+  const toneMap = theme === "light" ? lightToneMap : darkToneMap;
   const selected = toneMap[prediction?.level] || toneMap.unknown;
   const hasSpecificSource =
     prediction?.source && String(prediction.source).toLowerCase() !== "none";
@@ -2934,7 +2969,7 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
   );
 }
 
-function OperationalInsightCard({ items }) {
+function OperationalInsightCard({ items, theme = "dark" }) {
   return (
     <section style={styles.card}>
       <div style={styles.cardHeader}>
@@ -2950,16 +2985,34 @@ function OperationalInsightCard({ items }) {
         {items.map((item, index) => {
           const toneStyles =
             item.tone === "bad"
-              ? {
-                  border: "rgba(239, 68, 68, 0.30)",
-                  bg: "rgba(127, 29, 29, 0.22)",
-                  title: "#fca5a5",
-                }
+              ? theme === "light"
+                ? {
+                    border: "rgba(220, 38, 38, 0.22)",
+                    bg: "rgba(255, 241, 242, 0.88)",
+                    title: "#be123c",
+                  }
+                : {
+                    border: "rgba(239, 68, 68, 0.30)",
+                    bg: "rgba(127, 29, 29, 0.22)",
+                    title: "#fca5a5",
+                  }
               : item.tone === "warn"
+              ? theme === "light"
+                ? {
+                    border: "rgba(217, 119, 6, 0.22)",
+                    bg: "rgba(255, 251, 235, 0.88)",
+                    title: "#92400e",
+                  }
+                : {
+                    border: "rgba(245, 158, 11, 0.34)",
+                    bg: "rgba(120, 53, 15, 0.22)",
+                    title: "#fbbf24",
+                  }
+              : theme === "light"
               ? {
-                  border: "rgba(245, 158, 11, 0.34)",
-                  bg: "rgba(120, 53, 15, 0.22)",
-                  title: "#fbbf24",
+                  border: "rgba(22, 163, 74, 0.20)",
+                  bg: "rgba(236, 253, 245, 0.86)",
+                  title: "#166534",
                 }
               : {
                   border: "rgba(34, 197, 94, 0.24)",
@@ -4528,6 +4581,7 @@ async function downloadPdfReport() {
           <UnifiedPredictionCard
             prediction={predictiveStatus}
             isOffline={effectiveStatus === "OFFLINE"}
+            theme={theme}
           />
         ) : null}
 
@@ -5042,6 +5096,18 @@ const styles = {
 
   page: {
     minHeight: "100vh",
+    "--sts-surface": "rgba(15, 23, 42, 0.74)",
+    "--sts-surface-soft": "rgba(8, 13, 23, 0.50)",
+    "--sts-surface-strong": "rgba(9, 15, 26, 0.98)",
+    "--sts-border": "rgba(148, 163, 184, 0.15)",
+    "--sts-border-strong": "rgba(148, 163, 184, 0.28)",
+    "--sts-text": "#f8fafc",
+    "--sts-muted": "#64748b",
+    "--sts-muted-strong": "#94a3b8",
+    "--sts-input-bg": "rgba(8, 13, 23, 0.62)",
+    "--sts-shadow": "0 18px 42px rgba(0, 0, 0, 0.22)",
+    "--sts-menu-bg": "rgba(9, 15, 26, 0.98)",
+    "--sts-sidebar-bg": "linear-gradient(180deg, rgba(10, 18, 30, 0.96), rgba(7, 12, 20, 0.94))",
     background:
       "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.14) 0%, transparent 34%), linear-gradient(180deg, #071018 0%, #0a111b 44%, #070b12 100%)",
     padding: "20px 16px 44px",
@@ -5051,6 +5117,18 @@ const styles = {
   },
 
   pageLight: {
+    "--sts-surface": "rgba(255, 255, 255, 0.82)",
+    "--sts-surface-soft": "rgba(248, 250, 252, 0.86)",
+    "--sts-surface-strong": "rgba(255, 255, 255, 0.96)",
+    "--sts-border": "rgba(15, 23, 42, 0.12)",
+    "--sts-border-strong": "rgba(15, 23, 42, 0.18)",
+    "--sts-text": "#102033",
+    "--sts-muted": "#64748b",
+    "--sts-muted-strong": "#475569",
+    "--sts-input-bg": "rgba(255, 255, 255, 0.95)",
+    "--sts-shadow": "0 18px 42px rgba(15, 23, 42, 0.10)",
+    "--sts-menu-bg": "rgba(255, 255, 255, 0.96)",
+    "--sts-sidebar-bg": "linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 245, 249, 0.90))",
     background:
       "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.16) 0%, transparent 32%), linear-gradient(180deg, #eef7f6 0%, #f7fafc 46%, #e8eef5 100%)",
     color: "#102033",
@@ -5139,7 +5217,7 @@ const styles = {
 
   sidebarLink: {
     textDecoration: "none",
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     background: "#0f172a",
     border: "1px solid #1f2b3d",
     borderRadius: "14px",
@@ -5157,16 +5235,16 @@ const styles = {
     flexWrap: "wrap",
     padding: "14px 18px",
     background: "rgba(11, 18, 32, 0.86)",
-    border: "1px solid rgba(148, 163, 184, 0.16)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "20px",
     boxShadow: "0 18px 46px rgba(0, 0, 0, 0.28)",
     backdropFilter: "blur(16px)",
   },
 
   topBarLight: {
-    background: "rgba(11, 18, 32, 0.88)",
-    border: "1px solid rgba(15, 23, 42, 0.12)",
-    boxShadow: "0 18px 46px rgba(15, 23, 42, 0.12)",
+    background: "var(--sts-surface-strong)",
+    border: "1px solid var(--sts-border)",
+    boxShadow: "var(--sts-shadow)",
   },
 
   topLogoMark: {
@@ -5194,8 +5272,8 @@ const styles = {
   },
 
   entryTopBarLight: {
-    background: "rgba(11, 18, 32, 0.88)",
-    boxShadow: "0 18px 42px rgba(15, 23, 42, 0.10)",
+    background: "var(--sts-surface-strong)",
+    boxShadow: "var(--sts-shadow)",
   },
 
   entryHeaderMain: {
@@ -5239,7 +5317,7 @@ const styles = {
     lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
-    color: "#ffffff",
+    color: "var(--sts-text)",
   },
 
   deviceHeaderMain: {
@@ -5406,8 +5484,8 @@ const styles = {
     maxHeight: "70vh",
     overflowY: "auto",
     zIndex: 6000,
-    background: "rgba(9, 15, 26, 0.98)",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "var(--sts-menu-bg)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "16px",
     padding: "12px",
     boxShadow: "0 28px 70px rgba(0,0,0,0.42)",
@@ -5420,7 +5498,7 @@ const styles = {
   },
 
   clientMenuCompanyTitle: {
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     fontSize: "13px",
     fontWeight: 900,
     textTransform: "uppercase",
@@ -5449,7 +5527,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: "7px",
-    color: "#94a3b8",
+    color: "var(--sts-muted-strong)",
     fontSize: "11px",
     fontWeight: 900,
     textTransform: "uppercase",
@@ -5476,9 +5554,9 @@ const styles = {
   },
 
   clientMenuDeviceButton: {
-    border: "1px solid rgba(148, 163, 184, 0.14)",
-    background: "rgba(15, 23, 42, 0.62)",
-    color: "#cbd5e1",
+    border: "1px solid var(--sts-border)",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-text)",
     borderRadius: "11px",
     padding: "9px 10px",
     display: "flex",
@@ -5522,8 +5600,8 @@ const styles = {
     top: "16px",
     maxHeight: "calc(100vh - 32px)",
     overflowY: "auto",
-    background: "linear-gradient(180deg, rgba(10, 18, 30, 0.96), rgba(7, 12, 20, 0.94))",
-    border: "1px solid rgba(148, 163, 184, 0.16)",
+    background: "var(--sts-sidebar-bg)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "18px",
     padding: "12px",
     boxShadow: "0 24px 54px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255,255,255,0.04)",
@@ -5550,7 +5628,7 @@ const styles = {
   sidebarToggle: {
     width: "34px",
     height: "34px",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    border: "1px solid var(--sts-border)",
     background: "rgba(148, 163, 184, 0.08)",
     color: "#e2e8f0",
     borderRadius: "10px",
@@ -5592,9 +5670,9 @@ const styles = {
 
   sidebarDisclosure: {
     width: "100%",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    border: "1px solid var(--sts-border)",
     background: "rgba(148, 163, 184, 0.06)",
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     borderRadius: "12px",
     padding: "10px 11px",
     display: "flex",
@@ -5690,7 +5768,7 @@ const styles = {
     width: "100%",
     border: "1px solid transparent",
     background: "transparent",
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     borderRadius: "10px",
     padding: "8px 9px",
     display: "flex",
@@ -5758,7 +5836,7 @@ const styles = {
 
   deviceNavItemActive: {
     background: "rgba(148, 163, 184, 0.12)",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    border: "1px solid var(--sts-border)",
     color: "#f8fafc",
   },
 
@@ -5773,8 +5851,8 @@ const styles = {
   entryPanel: {
     width: "100%",
     maxWidth: "760px",
-    background: "rgba(9, 15, 26, 0.70)",
-    border: "1px solid rgba(148, 163, 184, 0.16)",
+    background: "var(--sts-surface)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "20px",
     padding: "14px",
     boxShadow: "0 28px 64px rgba(0, 0, 0, 0.26)",
@@ -5821,7 +5899,7 @@ const styles = {
   },
 
   entryCompany: {
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    border: "1px solid var(--sts-border)",
     background: "rgba(15, 23, 42, 0.52)",
     borderRadius: "16px",
     padding: "12px",
@@ -5844,7 +5922,7 @@ const styles = {
   },
 
   entryBuildingTitle: {
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     fontSize: "13px",
     fontWeight: 900,
     marginBottom: "10px",
@@ -5870,7 +5948,7 @@ const styles = {
   },
 
   entryDeviceButton: {
-    border: "1px solid rgba(148, 163, 184, 0.16)",
+    border: "1px solid var(--sts-border)",
     background: "rgba(8, 13, 23, 0.62)",
     color: "#e2e8f0",
     borderRadius: "12px",
@@ -5893,7 +5971,7 @@ const styles = {
   operationTile: {
     minWidth: 0,
     background: "rgba(15, 23, 42, 0.72)",
-    border: "1px solid rgba(148, 163, 184, 0.16)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "14px",
     padding: "14px 16px",
     display: "flex",
@@ -5945,11 +6023,11 @@ const styles = {
   },
 
   smartInsightCard: {
-    background: "linear-gradient(135deg, rgba(20, 184, 166, 0.12), rgba(8, 13, 23, 0.88))",
-    border: "1px solid rgba(94, 234, 212, 0.18)",
+    background: "var(--sts-surface)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "16px",
     padding: "18px 20px",
-    boxShadow: "0 14px 34px rgba(0, 0, 0, 0.20)",
+    boxShadow: "var(--sts-shadow)",
     overflow: "hidden",
   },
 
@@ -5990,14 +6068,14 @@ const styles = {
   smartInsightTitle: {
     fontSize: "18px",
     fontWeight: 900,
-    color: "#102033",
+    color: "var(--sts-text)",
     letterSpacing: 0,
     marginBottom: "6px",
   },
 
   smartInsightDetail: {
     fontSize: "13px",
-    color: "#94a3b8",
+    color: "var(--sts-muted-strong)",
     lineHeight: 1.5,
     fontWeight: 700,
   },
@@ -6017,12 +6095,12 @@ const styles = {
   },
 
   card: {
-    background: "rgba(15, 23, 42, 0.74)",
-    border: "1px solid rgba(148, 163, 184, 0.15)",
+    background: "var(--sts-surface)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "16px",
     padding: "18px",
     overflow: "visible",
-    boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
+    boxShadow: "var(--sts-shadow)",
     backdropFilter: "blur(16px)",
     transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease",
   },
@@ -6040,13 +6118,13 @@ const styles = {
     fontSize: "18px",
     fontWeight: 800,
     letterSpacing: 0,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
   },
 
   cardHint: {
     marginTop: "4px",
     fontSize: "13px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
   },
 
   errorBanner: {
@@ -6059,11 +6137,11 @@ const styles = {
   },
 
   emptyState: {
-    background: "rgba(15, 23, 42, 0.56)",
-    border: "1px dashed rgba(148, 163, 184, 0.24)",
+    background: "var(--sts-surface-soft)",
+    border: "1px dashed var(--sts-border-strong)",
     borderRadius: "12px",
     padding: "18px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     textAlign: "center",
     fontWeight: 700,
   },
@@ -6091,9 +6169,9 @@ const styles = {
   },
 
   selectorSummaryPill: {
-    border: "1px solid rgba(148, 163, 184, 0.30)",
-    background: "rgba(8, 13, 23, 0.54)",
-    color: "#94a3b8",
+    border: "1px solid var(--sts-border-strong)",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-muted-strong)",
     borderRadius: "999px",
     padding: "6px 10px",
     fontSize: "11px",
@@ -6103,8 +6181,8 @@ const styles = {
   selectorMainButton: {
     width: "100%",
     border: "1px solid rgba(15, 118, 110, 0.24)",
-    background: "linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(8, 13, 23, 0.94) 100%)",
-    color: "#f8fafc",
+    background: "var(--sts-surface-strong)",
+    color: "var(--sts-text)",
     borderRadius: "14px",
     padding: "16px",
     display: "flex",
@@ -6175,7 +6253,7 @@ const styles = {
     left: 0,
     right: 0,
     zIndex: 50,
-    background: "rgba(9, 15, 26, 0.98)",
+    background: "var(--sts-menu-bg)",
     border: "1px solid rgba(148, 163, 184, 0.32)",
     borderRadius: "14px",
     padding: "10px",
@@ -6185,8 +6263,8 @@ const styles = {
 
   selectorOption: {
     width: "100%",
-    background: "rgba(15, 23, 42, 0.62)",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "12px",
     padding: "12px",
     color: "#e2e8f0",
@@ -6326,8 +6404,8 @@ const styles = {
 
   deviceMetaBadge: {
     background: "rgba(15, 23, 42, 0.70)",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
-    color: "#cbd5e1",
+    border: "1px solid var(--sts-border)",
+    color: "var(--sts-text)",
     borderRadius: "999px",
     padding: "6px 10px",
     fontSize: "12px",
@@ -6369,8 +6447,8 @@ const styles = {
   },
 
   metricCard: {
-    background: "rgba(8, 13, 23, 0.54)",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "14px",
     padding: "18px",
     minWidth: 0,
@@ -6408,7 +6486,7 @@ const styles = {
 
   metricLabel: {
     fontSize: "13px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontWeight: 700,
   },
 
@@ -6426,14 +6504,14 @@ const styles = {
     lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
 
   metricSubvalue: {
     marginTop: "10px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontSize: "12px",
     fontWeight: 700,
     lineHeight: 1.4,
@@ -6446,8 +6524,8 @@ const styles = {
   },
 
   infoItem: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "12px",
     padding: "14px",
     display: "flex",
@@ -6458,7 +6536,7 @@ const styles = {
 
   infoLabel: {
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontWeight: 700,
     display: "inline-flex",
     alignItems: "center",
@@ -6468,7 +6546,7 @@ const styles = {
   infoValue: {
     fontSize: "15px",
     fontWeight: 700,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
@@ -6476,7 +6554,7 @@ const styles = {
   sideTitle: {
     fontSize: "16px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
   },
 
   sideSummary: {
@@ -6486,8 +6564,8 @@ const styles = {
   },
 
   summaryBlock: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "12px",
     padding: "14px",
     display: "flex",
@@ -6499,7 +6577,7 @@ const styles = {
   },
 
   summaryLabel: {
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontSize: "13px",
     fontWeight: 700,
   },
@@ -6507,7 +6585,7 @@ const styles = {
   summaryValue: {
     fontSize: "15px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     wordBreak: "break-word",
   },
 
@@ -6518,10 +6596,10 @@ const styles = {
   },
 
   insightCard: {
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "14px",
     padding: "16px",
-    background: "rgba(8, 13, 23, 0.50)",
+    background: "var(--sts-surface-soft)",
   },
 
   insightTitle: {
@@ -6532,7 +6610,7 @@ const styles = {
 
   insightDetail: {
     fontSize: "13px",
-    color: "#94a3b8",
+    color: "var(--sts-muted-strong)",
     lineHeight: 1.5,
     fontWeight: 600,
   },
@@ -6547,14 +6625,14 @@ const styles = {
 
   predictionMainDetail: {
     fontSize: "15px",
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     fontWeight: 700,
     marginBottom: "8px",
   },
 
   predictionSourceLabel: {
     fontSize: "13px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontWeight: 700,
   },
 
@@ -6566,11 +6644,11 @@ const styles = {
   },
 
   predictionAdviceItem: {
-    border: "1px solid rgba(148, 163, 184, 0.28)",
-    background: "rgba(8, 13, 23, 0.44)",
+    border: "1px solid var(--sts-border-strong)",
+    background: "var(--sts-surface-soft)",
     borderRadius: "10px",
     padding: "10px 12px",
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     fontSize: "13px",
     lineHeight: 1.45,
   },
@@ -6578,7 +6656,7 @@ const styles = {
   predictionAdviceLabel: {
     display: "block",
     marginBottom: "4px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontSize: "10px",
     fontWeight: 900,
     textTransform: "uppercase",
@@ -6588,14 +6666,14 @@ const styles = {
   predictionOfflineNoteGlobal: {
     marginTop: "14px",
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
   },
 
   smartSurfaceCard: {
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "16px",
     padding: "18px 20px",
-    boxShadow: "0 14px 34px rgba(15, 23, 42, 0.07)",
+    boxShadow: "var(--sts-shadow)",
     overflow: "hidden",
   },
 
@@ -6618,7 +6696,7 @@ const styles = {
   },
 
   smartSurfaceHint: {
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontSize: "13px",
     lineHeight: 1.45,
     fontWeight: 700,
@@ -6632,11 +6710,11 @@ const styles = {
   },
 
   healthSummaryBanner: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "12px",
     padding: "14px 16px",
-    color: "#94a3b8",
+    color: "var(--sts-muted-strong)",
     fontSize: "13px",
     fontWeight: 700,
     marginBottom: "14px",
@@ -6648,8 +6726,8 @@ const styles = {
   },
 
   healthCard: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "14px",
     padding: "16px",
     minWidth: 0,
@@ -6665,7 +6743,7 @@ const styles = {
 
   healthLabel: {
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
@@ -6689,7 +6767,7 @@ const styles = {
 
   healthHint: {
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     lineHeight: 1.4,
   },
 
@@ -6700,13 +6778,13 @@ const styles = {
   },
 
   chartCard: {
-    background: "rgba(15, 23, 42, 0.74)",
-    border: "1px solid rgba(148, 163, 184, 0.15)",
+    background: "var(--sts-surface)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "16px",
     padding: "18px",
     overflow: "hidden",
     minWidth: 0,
-    boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
+    boxShadow: "var(--sts-shadow)",
   },
 
   chartHeader: {
@@ -6716,19 +6794,19 @@ const styles = {
   chartTitle: {
     fontSize: "18px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
   },
 
   chartSubtitle: {
     marginTop: "6px",
     fontSize: "13px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
   },
 
   chartHint: {
     marginTop: "6px",
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
   },
 
   chartOfflineHint: {
@@ -6771,9 +6849,9 @@ const styles = {
   },
 
   periodButton: {
-    border: "1px solid rgba(148, 163, 184, 0.34)",
-    background: "rgba(15, 23, 42, 0.64)",
-    color: "#cbd5e1",
+    border: "1px solid var(--sts-border-strong)",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-text)",
     borderRadius: "10px",
     padding: "10px 14px",
     cursor: "pointer",
@@ -6803,9 +6881,9 @@ const styles = {
   },
 
 collapseButton: {
-  border: "1px solid rgba(148, 163, 184, 0.34)",
-  background: "rgba(8, 13, 23, 0.54)",
-  color: "#cbd5e1",
+  border: "1px solid var(--sts-border-strong)",
+  background: "var(--sts-surface-soft)",
+  color: "var(--sts-text)",
   borderRadius: "10px",
   padding: "8px 12px",
   cursor: "pointer",
@@ -6814,8 +6892,8 @@ collapseButton: {
 },
 
   alertRow: {
-    background: "rgba(8, 13, 23, 0.54)",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border)",
     borderRadius: "12px",
     padding: "14px",
   },
@@ -6832,7 +6910,7 @@ collapseButton: {
   alertRowTitle: {
     fontSize: "15px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
   },
 
   alertBadge: {
@@ -6850,7 +6928,7 @@ collapseButton: {
     gap: "12px",
     flexWrap: "wrap",
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontWeight: 700,
   },
 
@@ -6869,13 +6947,13 @@ collapseButton: {
     alignItems: "end",
     padding: "14px",
     marginBottom: "16px",
-    border: "1px solid rgba(148, 163, 184, 0.14)",
-    background: "rgba(8, 13, 23, 0.42)",
+    border: "1px solid var(--sts-border)",
+    background: "var(--sts-surface-soft)",
     borderRadius: "14px",
   },
 
   settingsSectionTitle: {
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     fontSize: "15px",
     fontWeight: 900,
     marginBottom: "4px",
@@ -6891,7 +6969,7 @@ collapseButton: {
 
   label: {
     fontSize: "11px",
-    color: "#7f90a6",
+    color: "var(--sts-muted)",
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
@@ -6902,9 +6980,9 @@ collapseButton: {
     width: "100%",
     minWidth: 0,
     maxWidth: "100%",
-    border: "1px solid rgba(148, 163, 184, 0.42)",
-    background: "rgba(8, 13, 23, 0.62)",
-    color: "#f8fafc",
+    border: "1px solid var(--sts-border-strong)",
+    background: "var(--sts-input-bg)",
+    color: "var(--sts-text)",
     borderRadius: "10px",
     padding: "7px 10px",
     fontSize: "13px",
@@ -6958,7 +7036,7 @@ reportActionWrap: {
   readOnlyBadge: {
     border: "1px solid rgba(148, 163, 184, 0.34)",
     background: "rgba(148, 163, 184, 0.10)",
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     borderRadius: "999px",
     padding: "7px 10px",
     fontSize: "12px",
@@ -7006,8 +7084,8 @@ reportActionWrap: {
   },
 
   smallStat: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "12px",
     padding: "16px",
     minWidth: 0,
@@ -7015,7 +7093,7 @@ reportActionWrap: {
 
   smallStatLabel: {
     fontSize: "12px",
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontWeight: 700,
     marginBottom: "8px",
   },
@@ -7023,14 +7101,14 @@ reportActionWrap: {
   smallStatValue: {
     fontSize: "15px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
 
   subsection: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "14px",
     padding: "18px",
     overflow: "hidden",
@@ -7039,7 +7117,7 @@ reportActionWrap: {
   subsectionTitle: {
     fontSize: "16px",
     fontWeight: 800,
-    color: "#f8fafc",
+    color: "var(--sts-text)",
     marginBottom: "16px",
   },
 
@@ -7073,15 +7151,15 @@ reportActionWrap: {
   },
 
   rawConfigWrap: {
-    background: "rgba(8, 13, 23, 0.50)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "var(--sts-surface-soft)",
+    border: "1px solid var(--sts-border-strong)",
     borderRadius: "14px",
     padding: "16px",
     overflow: "hidden",
   },
 
   rawConfigTitle: {
-    color: "#64748b",
+    color: "var(--sts-muted)",
     fontSize: "13px",
     fontWeight: 700,
     marginBottom: "10px",
@@ -7089,7 +7167,7 @@ reportActionWrap: {
 
   rawConfig: {
     margin: 0,
-    color: "#cbd5e1",
+    color: "var(--sts-text)",
     fontSize: "13px",
     lineHeight: 1.55,
     whiteSpace: "pre-wrap",
