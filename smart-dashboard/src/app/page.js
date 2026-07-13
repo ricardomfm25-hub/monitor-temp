@@ -38,6 +38,7 @@ const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
 const AUTO_REFRESH_MS = 15000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const LANGUAGE_STORAGE_KEY = "sts_dashboard_language";
+const THEME_STORAGE_KEY = "sts_dashboard_theme";
 const STS_PRODUCT = {
   family: "STS",
   product: "STS Cold",
@@ -77,6 +78,9 @@ const I18N = {
     interface: "Interface",
     interfaceHint: "Dashboard display preferences",
     language: "Language",
+    theme: "Theme",
+    darkTheme: "Dark",
+    lightTheme: "Light",
     tempMin: "Minimum temperature (°C)",
     tempMax: "Maximum temperature (°C)",
     humMin: "Minimum humidity (%)",
@@ -146,6 +150,9 @@ const I18N = {
     interface: "Interface",
     interfaceHint: "Preferências de visualização da dashboard",
     language: "Língua",
+    theme: "Tema",
+    darkTheme: "Escuro",
+    lightTheme: "Claro",
     tempMin: "Temperatura mínima (°C)",
     tempMax: "Temperatura máxima (°C)",
     humMin: "Humidade mínima (%)",
@@ -2363,31 +2370,31 @@ function getHealthToneStyles(tone) {
   if (tone === "good") {
     return {
       valueColor: "#22c55e",
-      badgeBg: "#dcfce7",
-      badgeBorder: "transparent",
+      badgeBg: "rgba(34, 197, 94, 0.14)",
+      badgeBorder: "rgba(74, 222, 128, 0.24)",
     };
   }
 
   if (tone === "warn") {
     return {
       valueColor: "#f59e0b",
-      badgeBg: "#fef3c7",
-      badgeBorder: "transparent",
+      badgeBg: "rgba(245, 158, 11, 0.15)",
+      badgeBorder: "rgba(251, 191, 36, 0.25)",
     };
   }
 
   if (tone === "bad") {
     return {
       valueColor: "#ef4444",
-      badgeBg: "#fee2e2",
-      badgeBorder: "transparent",
+      badgeBg: "rgba(239, 68, 68, 0.14)",
+      badgeBorder: "rgba(248, 113, 113, 0.25)",
     };
   }
 
   return {
-    valueColor: "#475569",
-    badgeBg: "#f1f5f9",
-    badgeBorder: "transparent",
+    valueColor: "#94a3b8",
+    badgeBg: "rgba(148, 163, 184, 0.12)",
+    badgeBorder: "rgba(148, 163, 184, 0.20)",
   };
 }
 
@@ -2813,35 +2820,35 @@ function UnifiedPredictionCard({ prediction, isOffline }) {
   const toneMap = {
     unknown: {
       border: "rgba(148, 163, 184, 0.30)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
-      value: "#102033",
-      badgeBg: "#f1f5f9",
-      badgeBorder: "transparent",
-      badgeColor: "#64748b",
+      bg: "linear-gradient(135deg, rgba(15, 23, 42, 0.86) 0%, rgba(8, 13, 23, 0.92) 100%)",
+      value: "#e2e8f0",
+      badgeBg: "rgba(148, 163, 184, 0.12)",
+      badgeBorder: "rgba(148, 163, 184, 0.20)",
+      badgeColor: "#cbd5e1",
     },
     low: {
       border: "rgba(34, 197, 94, 0.30)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)",
-      value: "#166534",
-      badgeBg: "#dcfce7",
-      badgeBorder: "transparent",
-      badgeColor: "#22c55e",
+      bg: "linear-gradient(135deg, rgba(20, 83, 45, 0.28) 0%, rgba(8, 13, 23, 0.92) 100%)",
+      value: "#86efac",
+      badgeBg: "rgba(34, 197, 94, 0.14)",
+      badgeBorder: "rgba(74, 222, 128, 0.24)",
+      badgeColor: "#86efac",
     },
     medium: {
       border: "rgba(245, 158, 11, 0.34)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #fffbeb 100%)",
-      value: "#92400e",
-      badgeBg: "#fef3c7",
-      badgeBorder: "transparent",
-      badgeColor: "#f59e0b",
+      bg: "linear-gradient(135deg, rgba(120, 53, 15, 0.32) 0%, rgba(8, 13, 23, 0.92) 100%)",
+      value: "#fbbf24",
+      badgeBg: "rgba(245, 158, 11, 0.15)",
+      badgeBorder: "rgba(251, 191, 36, 0.25)",
+      badgeColor: "#fbbf24",
     },
     high: {
       border: "rgba(239, 68, 68, 0.34)",
-      bg: "linear-gradient(135deg, #ffffff 0%, #fff1f2 100%)",
-      value: "#be123c",
-      badgeBg: "#fee2e2",
-      badgeBorder: "transparent",
-      badgeColor: "#ef4444",
+      bg: "linear-gradient(135deg, rgba(127, 29, 29, 0.34) 0%, rgba(8, 13, 23, 0.92) 100%)",
+      value: "#f87171",
+      badgeBg: "rgba(239, 68, 68, 0.14)",
+      badgeBorder: "rgba(248, 113, 113, 0.25)",
+      badgeColor: "#fca5a5",
     },
   };
 
@@ -2945,19 +2952,19 @@ function OperationalInsightCard({ items }) {
             item.tone === "bad"
               ? {
                   border: "rgba(239, 68, 68, 0.30)",
-                  bg: "#fff1f2",
-                  title: "#be123c",
+                  bg: "rgba(127, 29, 29, 0.22)",
+                  title: "#fca5a5",
                 }
               : item.tone === "warn"
               ? {
                   border: "rgba(245, 158, 11, 0.34)",
-                  bg: "#fffbeb",
-                  title: "#b45309",
+                  bg: "rgba(120, 53, 15, 0.22)",
+                  title: "#fbbf24",
                 }
               : {
                   border: "rgba(34, 197, 94, 0.24)",
-                  bg: "#f0fdf4",
-                  title: "#15803d",
+                  bg: "rgba(20, 83, 45, 0.20)",
+                  title: "#86efac",
                 };
 
           return (
@@ -3296,6 +3303,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [activeDeviceSection, setActiveDeviceSection] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [language, setLanguage] = useState("en");
+  const [theme, setTheme] = useState("dark");
   const [clientMenuOpen, setClientMenuOpen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
@@ -3307,9 +3315,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const profileLanguageStorageKey = profile?.id
     ? `${LANGUAGE_STORAGE_KEY}:${profile.id}`
     : null;
+  const profileThemeStorageKey = profile?.id
+    ? `${THEME_STORAGE_KEY}:${profile.id}`
+    : null;
 
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
+  const skipNextProfileLanguageSaveRef = useRef(false);
+  const skipNextProfileThemeSaveRef = useRef(false);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const isClientAdmin = profile?.role === "client_admin";
@@ -3346,20 +3359,56 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (storedTheme === "dark" || storedTheme === "light") {
+      setTheme(storedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     if (!profileLanguageStorageKey) return;
     const storedLanguage = window.localStorage.getItem(profileLanguageStorageKey);
     if (storedLanguage === "en" || storedLanguage === "pt") {
+      skipNextProfileLanguageSaveRef.current = true;
       setLanguage(storedLanguage);
     }
   }, [profileLanguageStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!profileThemeStorageKey) return;
+    const storedTheme = window.localStorage.getItem(profileThemeStorageKey);
+    if (storedTheme === "dark" || storedTheme === "light") {
+      skipNextProfileThemeSaveRef.current = true;
+      setTheme(storedTheme);
+    }
+  }, [profileThemeStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     if (profileLanguageStorageKey) {
-      window.localStorage.setItem(profileLanguageStorageKey, language);
+      if (skipNextProfileLanguageSaveRef.current) {
+        skipNextProfileLanguageSaveRef.current = false;
+      } else {
+        window.localStorage.setItem(profileLanguageStorageKey, language);
+      }
     }
   }, [language, profileLanguageStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    window.document.documentElement.dataset.stsTheme = theme;
+    if (profileThemeStorageKey) {
+      if (skipNextProfileThemeSaveRef.current) {
+        skipNextProfileThemeSaveRef.current = false;
+      } else {
+        window.localStorage.setItem(profileThemeStorageKey, theme);
+      }
+    }
+  }, [theme, profileThemeStorageKey]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -4027,16 +4076,35 @@ async function downloadPdfReport() {
     () => buildDeviceHierarchy(devices, profile),
     [devices, profile]
   );
+  const themeOverrides =
+    theme === "light"
+      ? {
+          page: styles.pageLight,
+          topBar: styles.topBarLight,
+          entryTopBar: styles.entryTopBarLight,
+        }
+      : {
+          page: null,
+          topBar: null,
+          entryTopBar: null,
+        };
 
   if (loading && !initialLoaded) {
     return <BootScreen />;
   }
 
   return (
-    <main style={styles.page}>
+    <main style={{ ...styles.page, ...(themeOverrides.page || {}) }}>
       <div style={styles.container}>
         {isSelectionMode ? (
-          <div style={{ ...styles.topBar, ...styles.entryTopBar }}>
+          <div
+            style={{
+              ...styles.topBar,
+              ...(themeOverrides.topBar || {}),
+              ...styles.entryTopBar,
+              ...(themeOverrides.entryTopBar || {}),
+            }}
+          >
             <div style={styles.topLogoMark}>
               <Image
                 src={STS_LOGO_SRC}
@@ -4077,7 +4145,7 @@ async function downloadPdfReport() {
             </div>
           </div>
         ) : (
-        <div style={styles.topBar}>
+        <div style={{ ...styles.topBar, ...(themeOverrides.topBar || {}) }}>
           <div style={styles.topLogoMark}>
             <Image
               src={STS_LOGO_SRC}
@@ -4743,6 +4811,17 @@ async function downloadPdfReport() {
                 <option value="pt">Português</option>
               </select>
             </div>
+            <div style={styles.field}>
+              <label style={styles.label}>{t("theme")}</label>
+              <select
+                value={theme}
+                onChange={(e) => setTheme(e.target.value)}
+                style={styles.configInput}
+              >
+                <option value="dark">{t("darkTheme")}</option>
+                <option value="light">{t("lightTheme")}</option>
+              </select>
+            </div>
           </div>
 
           <div
@@ -4971,6 +5050,12 @@ const styles = {
     scrollBehavior: "smooth",
   },
 
+  pageLight: {
+    background:
+      "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.16) 0%, transparent 32%), linear-gradient(180deg, #eef7f6 0%, #f7fafc 46%, #e8eef5 100%)",
+    color: "#102033",
+  },
+
   container: {
     width: "100%",
     maxWidth: "1480px",
@@ -5078,6 +5163,12 @@ const styles = {
     backdropFilter: "blur(16px)",
   },
 
+  topBarLight: {
+    background: "rgba(11, 18, 32, 0.88)",
+    border: "1px solid rgba(15, 23, 42, 0.12)",
+    boxShadow: "0 18px 46px rgba(15, 23, 42, 0.12)",
+  },
+
   topLogoMark: {
     width: "112px",
     height: "52px",
@@ -5100,6 +5191,11 @@ const styles = {
     borderRadius: "18px",
     background: "rgba(8, 13, 23, 0.72)",
     boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
+  },
+
+  entryTopBarLight: {
+    background: "rgba(11, 18, 32, 0.88)",
+    boxShadow: "0 18px 42px rgba(15, 23, 42, 0.10)",
   },
 
   entryHeaderMain: {
@@ -5849,11 +5945,11 @@ const styles = {
   },
 
   smartInsightCard: {
-    background: "linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%)",
-    border: "1px solid rgba(13, 148, 136, 0.24)",
+    background: "linear-gradient(135deg, rgba(20, 184, 166, 0.12), rgba(8, 13, 23, 0.88))",
+    border: "1px solid rgba(94, 234, 212, 0.18)",
     borderRadius: "16px",
     padding: "18px 20px",
-    boxShadow: "0 14px 34px rgba(15, 23, 42, 0.07)",
+    boxShadow: "0 14px 34px rgba(0, 0, 0, 0.20)",
     overflow: "hidden",
   },
 
@@ -5869,15 +5965,15 @@ const styles = {
   smartInsightKicker: {
     fontSize: "11px",
     fontWeight: 900,
-    color: "#0f766e",
+    color: "#5eead4",
     textTransform: "uppercase",
     letterSpacing: "0.12em",
   },
 
   smartInsightTag: {
-    border: "1px solid rgba(13, 148, 136, 0.28)",
-    background: "#ccfbf1",
-    color: "#115e59",
+    border: "1px solid rgba(94, 234, 212, 0.24)",
+    background: "rgba(20, 184, 166, 0.14)",
+    color: "#99f6e4",
     borderRadius: "999px",
     padding: "5px 9px",
     fontSize: "10px",
@@ -5901,7 +5997,7 @@ const styles = {
 
   smartInsightDetail: {
     fontSize: "13px",
-    color: "#475569",
+    color: "#94a3b8",
     lineHeight: 1.5,
     fontWeight: 700,
   },
@@ -5996,8 +6092,8 @@ const styles = {
 
   selectorSummaryPill: {
     border: "1px solid rgba(148, 163, 184, 0.30)",
-    background: "#f8fafc",
-    color: "#475569",
+    background: "rgba(8, 13, 23, 0.54)",
+    color: "#94a3b8",
     borderRadius: "999px",
     padding: "6px 10px",
     fontSize: "11px",
@@ -6007,8 +6103,8 @@ const styles = {
   selectorMainButton: {
     width: "100%",
     border: "1px solid rgba(15, 118, 110, 0.24)",
-    background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
-    color: "#102033",
+    background: "linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(8, 13, 23, 0.94) 100%)",
+    color: "#f8fafc",
     borderRadius: "14px",
     padding: "16px",
     display: "flex",
@@ -6040,7 +6136,7 @@ const styles = {
   selectorMainName: {
     fontSize: "18px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
     wordBreak: "break-word",
   },
 
@@ -6069,7 +6165,7 @@ const styles = {
 
   selectorChevron: {
     fontSize: "14px",
-    color: "#475569",
+    color: "#94a3b8",
     transition: "transform 0.18s ease",
   },
 
@@ -6079,21 +6175,21 @@ const styles = {
     left: 0,
     right: 0,
     zIndex: 50,
-    background: "#ffffff",
+    background: "rgba(9, 15, 26, 0.98)",
     border: "1px solid rgba(148, 163, 184, 0.32)",
     borderRadius: "14px",
     padding: "10px",
-    boxShadow: "0 24px 54px rgba(15,23,42,0.18)",
+    boxShadow: "0 24px 54px rgba(0,0,0,0.32)",
     overflowY: "auto",
   },
 
   selectorOption: {
     width: "100%",
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
+    background: "rgba(15, 23, 42, 0.62)",
+    border: "1px solid rgba(148, 163, 184, 0.14)",
     borderRadius: "12px",
     padding: "12px",
-    color: "#102033",
+    color: "#e2e8f0",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
@@ -6106,7 +6202,7 @@ const styles = {
   selectorOptionActive: {
     border: "1px solid #0f766e",
     boxShadow: "0 0 0 3px rgba(15,118,110,0.12)",
-    background: "#ecfdf5",
+    background: "rgba(20, 184, 166, 0.14)",
   },
 
   selectorOptionLeft: {
@@ -6425,7 +6521,7 @@ const styles = {
     border: "1px solid rgba(148, 163, 184, 0.28)",
     borderRadius: "14px",
     padding: "16px",
-    background: "#ffffff",
+    background: "rgba(8, 13, 23, 0.50)",
   },
 
   insightTitle: {
@@ -6436,7 +6532,7 @@ const styles = {
 
   insightDetail: {
     fontSize: "13px",
-    color: "#475569",
+    color: "#94a3b8",
     lineHeight: 1.5,
     fontWeight: 600,
   },
@@ -6451,7 +6547,7 @@ const styles = {
 
   predictionMainDetail: {
     fontSize: "15px",
-    color: "#334155",
+    color: "#cbd5e1",
     fontWeight: 700,
     marginBottom: "8px",
   },
@@ -6471,10 +6567,10 @@ const styles = {
 
   predictionAdviceItem: {
     border: "1px solid rgba(148, 163, 184, 0.28)",
-    background: "rgba(255, 255, 255, 0.64)",
+    background: "rgba(8, 13, 23, 0.44)",
     borderRadius: "10px",
     padding: "10px 12px",
-    color: "#334155",
+    color: "#cbd5e1",
     fontSize: "13px",
     lineHeight: 1.45,
   },
@@ -6536,11 +6632,11 @@ const styles = {
   },
 
   healthSummaryBanner: {
-    background: "#f8fafc",
+    background: "rgba(8, 13, 23, 0.50)",
     border: "1px solid rgba(148, 163, 184, 0.28)",
     borderRadius: "12px",
     padding: "14px 16px",
-    color: "#475569",
+    color: "#94a3b8",
     fontSize: "13px",
     fontWeight: 700,
     marginBottom: "14px",
@@ -6552,7 +6648,7 @@ const styles = {
   },
 
   healthCard: {
-    background: "#ffffff",
+    background: "rgba(8, 13, 23, 0.50)",
     border: "1px solid rgba(148, 163, 184, 0.28)",
     borderRadius: "14px",
     padding: "16px",
@@ -6708,8 +6804,8 @@ const styles = {
 
 collapseButton: {
   border: "1px solid rgba(148, 163, 184, 0.34)",
-  background: "#ffffff",
-  color: "#475569",
+  background: "rgba(8, 13, 23, 0.54)",
+  color: "#cbd5e1",
   borderRadius: "10px",
   padding: "8px 12px",
   cursor: "pointer",
@@ -6910,7 +7006,7 @@ reportActionWrap: {
   },
 
   smallStat: {
-    background: "#ffffff",
+    background: "rgba(8, 13, 23, 0.50)",
     border: "1px solid rgba(148, 163, 184, 0.28)",
     borderRadius: "12px",
     padding: "16px",
@@ -6927,13 +7023,13 @@ reportActionWrap: {
   smallStatValue: {
     fontSize: "15px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
 
   subsection: {
-    background: "#f8fafc",
+    background: "rgba(8, 13, 23, 0.50)",
     border: "1px solid rgba(148, 163, 184, 0.28)",
     borderRadius: "14px",
     padding: "18px",
@@ -6943,7 +7039,7 @@ reportActionWrap: {
   subsectionTitle: {
     fontSize: "16px",
     fontWeight: 800,
-    color: "#102033",
+    color: "#f8fafc",
     marginBottom: "16px",
   },
 
@@ -6977,7 +7073,7 @@ reportActionWrap: {
   },
 
   rawConfigWrap: {
-    background: "#f8fafc",
+    background: "rgba(8, 13, 23, 0.50)",
     border: "1px solid rgba(148, 163, 184, 0.28)",
     borderRadius: "14px",
     padding: "16px",
@@ -6993,7 +7089,7 @@ reportActionWrap: {
 
   rawConfig: {
     margin: 0,
-    color: "#334155",
+    color: "#cbd5e1",
     fontSize: "13px",
     lineHeight: 1.55,
     whiteSpace: "pre-wrap",
