@@ -3640,30 +3640,58 @@ async function downloadPdfReport() {
         </div>
 
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
-        <div id="devices">
-<DeviceSelector
-          devices={devices}
-          selectedDeviceId={selectedDeviceId}
-          onSelect={(deviceId) => {
-            setSelectedDeviceId(deviceId);
-            setClientMessage("");
-            setAdminMessage("");
-            setPageError("");
-            setRefreshing(true);
+        <section
+          style={{
+            ...styles.operationStrip,
+            gridTemplateColumns: isMobile
+              ? "1fr"
+              : "1.2fr repeat(3, minmax(0, 1fr))",
           }}
-          isMobile={isMobile}
-        />
-            </div>
+        >
+          <div style={{ ...styles.operationTile, ...styles.operationTilePrimary }}>
+            <span style={styles.operationLabel}>Estado do sistema</span>
+            <strong style={{ ...styles.operationValue, color: statusInfo.color }}>
+              {statusInfo.label}
+            </strong>
+            <span style={styles.operationHint}>{deviceDisplayName}</span>
+          </div>
+
+          <div style={styles.operationTile}>
+            <span style={styles.operationLabel}>Temperatura</span>
+            <strong style={styles.operationValue}>
+              {isDeviceOffline ? "-" : currentTempValue}
+            </strong>
+            <span style={styles.operationHint}>{currentTempAccentLabel}</span>
+          </div>
+
+          <div style={styles.operationTile}>
+            <span style={styles.operationLabel}>Humidade</span>
+            <strong style={styles.operationValue}>
+              {isDeviceOffline ? "-" : currentHumValue}
+            </strong>
+            <span style={styles.operationHint}>{currentHumAccentLabel}</span>
+          </div>
+
+          <div style={styles.operationTile}>
+            <span style={styles.operationLabel}>Leituras 24h</span>
+            <strong style={styles.operationValue}>{summary24h.totalReadings ?? 0}</strong>
+            <span style={styles.operationHint}>{communicationHealth.label}</span>
+          </div>
+        </section>
 
         <section
-          id="overview"
+          style={{
+            ...styles.commandGrid,
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.65fr) minmax(340px, 0.85fr)",
+          }}
+        >
+          <section
+            id="overview"
           style={{
             ...styles.heroCard,
             background: `linear-gradient(135deg, ${statusInfo.panel} 0%, #ffffff 100%)`,
             borderColor: statusInfo.border,
-            gridTemplateColumns: isMobile
-              ? "1fr"
-              : "minmax(0, 1.8fr) minmax(340px, 1fr)",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.28fr) minmax(260px, 0.72fr)",
           }}
         >
           <div style={styles.heroLeft}>
@@ -3783,23 +3811,39 @@ async function downloadPdfReport() {
               </div>
             </div>
           </div>
+          </section>
+
+          <aside style={styles.commandSide}>
+            <div id="devices">
+              <DeviceSelector
+                devices={devices}
+                selectedDeviceId={selectedDeviceId}
+                onSelect={(deviceId) => {
+                  setSelectedDeviceId(deviceId);
+                  setClientMessage("");
+                  setAdminMessage("");
+                  setPageError("");
+                  setRefreshing(true);
+                }}
+                isMobile={isMobile}
+              />
+            </div>
+
+            <SmartClientInsight
+              communicationHealth={communicationHealth}
+              isOffline={effectiveStatus === "OFFLINE"}
+              statusInfo={statusInfo}
+              summary24h={summary24h}
+            />
+
+            <UnifiedPredictionCard
+              prediction={predictiveStatus}
+              isOffline={effectiveStatus === "OFFLINE"}
+            />
+          </aside>
         </section>
 
-
-
         <OperationalInsightCard items={operationalInsights} />
-
-        <SmartClientInsight
-          communicationHealth={communicationHealth}
-          isOffline={effectiveStatus === "OFFLINE"}
-          statusInfo={statusInfo}
-          summary24h={summary24h}
-        />
-
-        <UnifiedPredictionCard
-          prediction={predictiveStatus}
-          isOffline={effectiveStatus === "OFFLINE"}
-        />
         <section id="maintenance" style={{ ...styles.card, order: 20 }}>
           <div style={styles.cardHeader}>
             <div>
@@ -4231,7 +4275,7 @@ const styles = {
 
   container: {
     width: "100%",
-    maxWidth: "1420px",
+    maxWidth: "1480px",
     margin: "0 auto",
     display: "flex",
     flexDirection: "column",
@@ -4328,11 +4372,11 @@ const styles = {
     justifyContent: "space-between",
     gap: "20px",
     flexWrap: "wrap",
-    padding: "12px 16px",
-    background: "rgba(255, 255, 255, 0.82)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
-    borderRadius: "18px",
-    boxShadow: "0 16px 42px rgba(15, 23, 42, 0.08)",
+    padding: "14px 18px",
+    background: "linear-gradient(135deg, #102033 0%, #163047 55%, #0f766e 100%)",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
+    borderRadius: "20px",
+    boxShadow: "0 18px 46px rgba(15, 32, 51, 0.18)",
     backdropFilter: "blur(16px)",
   },
 
@@ -4363,19 +4407,19 @@ const styles = {
     lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
-    color: "#132031",
+    color: "#ffffff",
   },
 
   subtitle: {
     margin: "5px 0 0 0",
-    color: "#64748b",
+    color: "rgba(226, 232, 240, 0.78)",
     fontSize: "14px",
     lineHeight: 1.35,
   },
 
   tagline: {
     marginTop: "6px",
-    color: "#0f766e",
+    color: "#99f6e4",
     fontSize: "13px",
     fontWeight: 800,
     lineHeight: 1.25,
@@ -4445,22 +4489,81 @@ const styles = {
 
   refreshingText: {
     fontSize: "13px",
-    color: "#0f766e",
+    color: "#99f6e4",
     fontWeight: 700,
   },
 
   refreshButton: {
-    border: "1px solid rgba(15, 23, 42, 0.10)",
-    background: "#ffffff",
-    color: "#17202c",
+    border: "1px solid rgba(255, 255, 255, 0.20)",
+    background: "rgba(255, 255, 255, 0.10)",
+    color: "#ffffff",
     borderRadius: "10px",
     padding: "9px 13px",
     cursor: "pointer",
     fontWeight: 800,
     fontSize: "13px",
     minHeight: "38px",
-    boxShadow: "0 8px 18px rgba(15, 23, 42, 0.06)",
+    boxShadow: "none",
     transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease",
+  },
+
+  operationStrip: {
+    display: "grid",
+    gap: "12px",
+  },
+
+  operationTile: {
+    minWidth: 0,
+    background: "#ffffff",
+    border: "1px solid rgba(148, 163, 184, 0.26)",
+    borderRadius: "14px",
+    padding: "14px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    boxShadow: "0 12px 28px rgba(15, 23, 42, 0.06)",
+  },
+
+  operationTilePrimary: {
+    background: "linear-gradient(135deg, #f8fafc 0%, #ecfeff 100%)",
+    borderColor: "rgba(15, 118, 110, 0.24)",
+  },
+
+  operationLabel: {
+    fontSize: "10px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    color: "#64748b",
+  },
+
+  operationValue: {
+    fontSize: "24px",
+    lineHeight: 1,
+    fontWeight: 950,
+    color: "#102033",
+    overflowWrap: "anywhere",
+  },
+
+  operationHint: {
+    fontSize: "12px",
+    lineHeight: 1.35,
+    color: "#64748b",
+    fontWeight: 700,
+    overflowWrap: "anywhere",
+  },
+
+  commandGrid: {
+    display: "grid",
+    gap: "16px",
+    alignItems: "stretch",
+  },
+
+  commandSide: {
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
   },
 
   smartInsightCard: {
