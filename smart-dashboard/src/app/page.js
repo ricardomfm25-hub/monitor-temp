@@ -8,8 +8,6 @@ import {
   Activity,
   BarChart3,
   Bell,
-  Building2,
-  ChevronDown,
   CircleGauge,
   Clock,
   Droplets,
@@ -17,12 +15,12 @@ import {
   Info,
   LayoutDashboard,
   MapPin,
-  MoreHorizontal,
   RotateCw,
   Settings,
   Thermometer,
   Wrench,
   Wifi,
+  X,
 } from "lucide-react";
 import {
   LineChart,
@@ -46,6 +44,147 @@ const STS_PRODUCT = {
 };
 const STS_TAGLINE = "Monitorizar Hoje. Proteger Amanhã.";
 const STS_LOGO_SRC = "/sts-logo.png";
+
+const I18N = {
+  en: {
+    overview: "Overview",
+    readings: "Readings",
+    charts: "Charts",
+    alerts: "Alerts",
+    diagnostics: "Diagnostics",
+    settings: "Settings",
+    information: "Information",
+    monitoring: "Monitoring",
+    system: "System",
+    navigation: "Navigation",
+    workspace: "Device workspace",
+    client: "Client",
+    refresh: "Refresh",
+    logout: "Exit",
+    updating: "Updating...",
+    currentCondition: "Current condition",
+    currentTemperature: "Temperature",
+    lastTemperature: "Last temperature",
+    currentHumidity: "Humidity",
+    lastHumidity: "Last humidity",
+    realtime: "Live",
+    offline: "Offline",
+    settingsTitle: "Operational settings",
+    settingsHint: "Operational limits per device",
+    editable: "Editable configuration",
+    readOnly: "Read only",
+    interface: "Interface",
+    interfaceHint: "Dashboard display preferences",
+    language: "Language",
+    tempMin: "Minimum temperature (°C)",
+    tempMax: "Maximum temperature (°C)",
+    humMin: "Minimum humidity (%)",
+    humMax: "Maximum humidity (%)",
+    saveSettings: "Save settings",
+    saving: "Saving...",
+    chartsPeriod: "Display period",
+    chartsPeriodHint: "Adjust the time range shown in charts",
+    temperature: "Temperature",
+    humidity: "Humidity",
+    alertHistory: "Alert history",
+    noAlerts: "No alerts registered for this device.",
+    showAll: "View all",
+    minimize: "Minimize",
+    diagnosticsTitle: "Communication health",
+    diagnosticsHint: "Connection quality and reading regularity",
+    reportTitle: "PDF report",
+    reportHint: "Export the professional reading summary for this device",
+    reportPeriod: "Report period",
+    downloadPdf: "Download PDF",
+    readingsTitle: "Readings",
+    readingsHint: "Detailed readings, limits and trend for this device.",
+    indoorTemperature: "Indoor temperature",
+    indoorHumidity: "Indoor humidity",
+    summary24h: "24h summary",
+    minMax: "Min / Max",
+    limits: "Limits",
+    noLimits: "No limits defined",
+    informationHint: "Device identification and context.",
+    model: "Model",
+    deviceId: "Device ID",
+    location: "Location",
+    configVersion: "Config version",
+    lastUpdate: "Last update",
+    chooseOperation: "Select operation",
+    chooseTitle: "Choose location and device",
+    chooseText: "The dashboard opens only after choosing the right area. This keeps the experience focused on the equipment you want to monitor.",
+    noDevices: "No devices found.",
+  },
+  pt: {
+    overview: "Overview",
+    readings: "Leituras",
+    charts: "Gráficos",
+    alerts: "Alertas",
+    diagnostics: "Diagnóstico",
+    settings: "Configurações",
+    information: "Informação",
+    monitoring: "Monitorização",
+    system: "Sistema",
+    navigation: "Navegação",
+    workspace: "Área do dispositivo",
+    client: "Cliente",
+    refresh: "Atualizar",
+    logout: "Sair",
+    updating: "A atualizar...",
+    currentCondition: "Condição atual",
+    currentTemperature: "Temperatura",
+    lastTemperature: "Última temperatura",
+    currentHumidity: "Humidade",
+    lastHumidity: "Última humidade",
+    realtime: "Tempo real",
+    offline: "Offline",
+    settingsTitle: "Configurações operacionais",
+    settingsHint: "Limites operacionais por dispositivo",
+    editable: "Configuração editável",
+    readOnly: "Só leitura",
+    interface: "Interface",
+    interfaceHint: "Preferências de visualização da dashboard",
+    language: "Língua",
+    tempMin: "Temperatura mínima (°C)",
+    tempMax: "Temperatura máxima (°C)",
+    humMin: "Humidade mínima (%)",
+    humMax: "Humidade máxima (%)",
+    saveSettings: "Guardar configurações",
+    saving: "A guardar...",
+    chartsPeriod: "Período de visualização",
+    chartsPeriodHint: "Ajusta o intervalo temporal apresentado nos gráficos",
+    temperature: "Temperatura",
+    humidity: "Humidade",
+    alertHistory: "Histórico de alertas",
+    noAlerts: "Sem alertas registados para este dispositivo.",
+    showAll: "Ver todos",
+    minimize: "Minimizar",
+    diagnosticsTitle: "Saúde da comunicação",
+    diagnosticsHint: "Qualidade da ligação e regularidade das leituras",
+    reportTitle: "Relatório PDF",
+    reportHint: "Exportação do resumo profissional de leituras do dispositivo",
+    reportPeriod: "Período do relatório",
+    downloadPdf: "Descarregar PDF",
+    readingsTitle: "Leituras",
+    readingsHint: "Leituras detalhadas, limites e tendência do dispositivo.",
+    indoorTemperature: "Temperatura interior",
+    indoorHumidity: "Humidade interior",
+    summary24h: "Resumo 24h",
+    minMax: "Min / Max",
+    limits: "Limites",
+    noLimits: "Sem limites definidos",
+    informationHint: "Identificação e contexto do dispositivo.",
+    model: "Modelo",
+    deviceId: "ID do dispositivo",
+    location: "Localização",
+    configVersion: "Versão de configuração",
+    lastUpdate: "Última atualização",
+    chooseOperation: "Selecionar operação",
+    chooseTitle: "Escolhe o local e o dispositivo",
+    chooseText: "A dashboard abre apenas depois de escolheres a divisão certa. Assim evitas ruído e entras diretamente no equipamento que queres monitorizar.",
+    noDevices: "Nenhum dispositivo encontrado.",
+  },
+};
 
 const STS_STATES = {
   ONLINE: "ONLINE",
@@ -2452,20 +2591,14 @@ function DeviceSidebar({
   onToggle,
   onHoverStart,
   onHoverEnd,
+  t,
 }) {
-  const hierarchy = useMemo(
-    () => buildDeviceHierarchy(devices, profile),
-    [devices, profile]
-  );
-
   const monitoringItems = DEVICE_NAV_SECTIONS.filter(
     (item) => item.group === "Monitoring"
   );
   const systemItems = DEVICE_NAV_SECTIONS.filter((item) => item.group === "System");
   const overviewItem = DEVICE_NAV_SECTIONS.find((item) => item.key === "overview");
   const OverviewIcon = overviewItem.icon;
-  const [organizationOpen, setOrganizationOpen] = useState(false);
-  const [locationsOpen, setLocationsOpen] = useState(false);
 
   return (
     <aside
@@ -2479,148 +2612,13 @@ function DeviceSidebar({
       <div style={styles.sidebarBrandBlock}>
         {!collapsed ? (
           <div>
-            <div style={styles.sidebarProductName}>Navigation</div>
-            <div style={styles.sidebarProductMeta}>Device workspace</div>
+            <div style={styles.sidebarProductName}>{t("navigation")}</div>
+            <div style={styles.sidebarProductMeta}>{t("workspace")}</div>
           </div>
         ) : null}
         <button type="button" onClick={onToggle} style={styles.sidebarToggle}>
           {collapsed ? "☰" : "‹"}
         </button>
-      </div>
-
-      {!collapsed ? (
-        <button
-          type="button"
-          onClick={() => setOrganizationOpen((prev) => !prev)}
-          style={styles.sidebarDisclosure}
-        >
-          <span>Organização</span>
-          <ChevronDown
-            size={14}
-            style={{
-              transform: organizationOpen ? "rotate(0deg)" : "rotate(-90deg)",
-              transition: "transform 160ms ease",
-            }}
-          />
-        </button>
-      ) : null}
-      <div
-        style={{
-          ...styles.deviceTree,
-          display: collapsed || !organizationOpen ? "none" : "flex",
-        }}
-      >
-        {hierarchy.length ? (
-          hierarchy.map((company) => (
-            <div key={company.name} style={styles.treeCompany}>
-              <div style={styles.treeCompanyHeader}>
-                <Building2 size={15} />
-                <span>{company.name}</span>
-                <small>{company.count}</small>
-              </div>
-
-              {company.buildings.map((building) => (
-                <div key={`${company.name}-${building.name}`} style={styles.treeBuilding}>
-                  <div style={styles.treeBuildingHeader}>
-                    <ChevronDown size={13} />
-                    <span>{building.name}</span>
-                  </div>
-
-                  {building.rooms.map((room) => (
-                    <div
-                      key={`${company.name}-${building.name}-${room.name}`}
-                      style={styles.treeRoom}
-                    >
-                      <div style={styles.treeRoomHeader}>
-                        <MapPin size={12} />
-                        <span>{room.name}</span>
-                      </div>
-
-                      <div style={styles.treeDeviceList}>
-                        {room.devices.map((item) => {
-                          const info = getStatusInfo(
-                            getEffectiveStatus(
-                              item,
-                              parseNumber(item?.config?.send_interval_s)
-                            )
-                          );
-                          const active = item.device_id === selectedDeviceId;
-
-                          return (
-                            <button
-                              key={item.device_id}
-                              type="button"
-                              onClick={() => onSelectDevice(item.device_id)}
-                              style={{
-                                ...styles.treeDeviceButton,
-                                ...(active ? styles.treeDeviceButtonActive : {}),
-                              }}
-                            >
-                              <span
-                                style={{
-                                  ...styles.treeDeviceDot,
-                                  background: info.dot,
-                                  boxShadow: active ? `0 0 14px ${info.dot}` : "none",
-                                }}
-                              />
-                              <span style={styles.treeDeviceName}>
-                                {item?.name || item?.device_id}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ))
-        ) : (
-          <div style={styles.sidebarEmpty}>Nenhum dispositivo encontrado.</div>
-        )}
-      </div>
-
-      {!collapsed ? (
-        <button
-          type="button"
-          onClick={() => setLocationsOpen((prev) => !prev)}
-          style={styles.sidebarDisclosure}
-        >
-          <span>Localizações</span>
-          <ChevronDown
-            size={14}
-            style={{
-              transform: locationsOpen ? "rotate(0deg)" : "rotate(-90deg)",
-              transition: "transform 160ms ease",
-            }}
-          />
-        </button>
-      ) : null}
-      <div
-        style={{
-          ...styles.sidebarLocationSummary,
-          display: collapsed || !locationsOpen ? "none" : "grid",
-        }}
-      >
-        {hierarchy.flatMap((company) =>
-          company.buildings.flatMap((building) =>
-            building.rooms.map((room) => (
-              <button
-                key={`${company.name}-${building.name}-${room.name}-location`}
-                type="button"
-                style={styles.sidebarLocationButton}
-                onClick={() => {
-                  const firstDevice = room.devices[0]?.device_id;
-                  if (firstDevice) onSelectDevice(firstDevice);
-                }}
-              >
-                <MapPin size={13} />
-                <span>{room.name}</span>
-              </button>
-            ))
-          )
-        )}
       </div>
 
       <nav style={styles.deviceNav}>
@@ -2632,13 +2630,13 @@ function DeviceSidebar({
             ...(collapsed ? styles.deviceNavItemCollapsed : {}),
             ...(activeSection === overviewItem.key ? styles.deviceNavItemActive : {}),
           }}
-          title={overviewItem.label}
+          title={t(overviewItem.key)}
         >
           <OverviewIcon size={16} />
-          {!collapsed ? <span>{overviewItem.label}</span> : null}
+          {!collapsed ? <span>{t(overviewItem.key)}</span> : null}
         </button>
 
-        {!collapsed ? <div style={styles.sidebarSectionTitle}>Monitoring</div> : null}
+        {!collapsed ? <div style={styles.sidebarSectionTitle}>{t("monitoring")}</div> : null}
         {monitoringItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2651,15 +2649,15 @@ function DeviceSidebar({
                 ...(collapsed ? styles.deviceNavItemCollapsed : {}),
                 ...(activeSection === item.key ? styles.deviceNavItemActive : {}),
               }}
-              title={item.label}
+              title={t(item.key)}
             >
               <Icon size={16} />
-              {!collapsed ? <span>{item.label}</span> : null}
+              {!collapsed ? <span>{t(item.key)}</span> : null}
             </button>
           );
         })}
 
-        {!collapsed ? <div style={styles.sidebarSectionTitle}>System</div> : null}
+        {!collapsed ? <div style={styles.sidebarSectionTitle}>{t("system")}</div> : null}
         {systemItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2672,10 +2670,10 @@ function DeviceSidebar({
                 ...(collapsed ? styles.deviceNavItemCollapsed : {}),
                 ...(activeSection === item.key ? styles.deviceNavItemActive : {}),
               }}
-              title={item.label}
+              title={t(item.key)}
             >
               <Icon size={16} />
-              {!collapsed ? <span>{item.label}</span> : null}
+              {!collapsed ? <span>{t(item.key)}</span> : null}
             </button>
           );
         })}
@@ -2684,7 +2682,7 @@ function DeviceSidebar({
   );
 }
 
-function DeviceEntryPicker({ devices, profile, onSelectDevice }) {
+function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
   const hierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
     [devices, profile]
@@ -2701,10 +2699,10 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice }) {
           priority
           style={styles.entryLogo}
         />
-        <div style={styles.entryKicker}>Selecionar operação</div>
-        <h1 style={styles.entryTitle}>Escolhe o local e o dispositivo</h1>
+        <div style={styles.entryKicker}>{t("chooseOperation")}</div>
+        <h1 style={styles.entryTitle}>{t("chooseTitle")}</h1>
         <p style={styles.entryText}>
-          A dashboard abre apenas depois de escolheres a divisão certa. Assim evitas ruído e entras diretamente no equipamento que queres monitorizar.
+          {t("chooseText")}
         </p>
 
         <div style={styles.entryTree}>
@@ -3309,8 +3307,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [activeDeviceSection, setActiveDeviceSection] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [language, setLanguage] = useState("en");
+  const [clientMenuOpen, setClientMenuOpen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
+
+  const t = useCallback(
+    (key) => I18N[language]?.[key] || I18N.en[key] || key,
+    [language]
+  );
 
   const requestInFlightRef = useRef(false);
   const mountedRef = useRef(true);
@@ -4001,6 +4005,10 @@ async function downloadPdfReport() {
 
   const hasDevices = devices.length > 0;
   const hasReadings = readings.length > 0;
+  const clientHierarchy = useMemo(
+    () => buildDeviceHierarchy(devices, profile),
+    [devices, profile]
+  );
 
   if (loading && !initialLoaded) {
     return <BootScreen />;
@@ -4044,21 +4052,77 @@ async function downloadPdfReport() {
           </div>
 
           <div style={styles.topActions}>
-            <button
-              onClick={() => {
-                setSelectedDeviceId(null);
-                setDevice(null);
-                setReadings([]);
-                setAlerts([]);
-                setDeviceOverview(null);
-                setActiveDeviceSection("overview");
-                setSidebarOpen(false);
-              }}
-              style={styles.refreshButton}
-            >
-              <Home size={15} />
-              Local e dispositivo
-            </button>
+            <div style={styles.clientMenuWrap}>
+              <button
+                onClick={() => setClientMenuOpen((prev) => !prev)}
+                style={styles.refreshButton}
+              >
+                <Home size={15} />
+                {t("client")}
+              </button>
+
+              {clientMenuOpen ? (
+                <div style={styles.clientMenu}>
+                  {clientHierarchy.map((company) => (
+                    <div key={company.name} style={styles.clientMenuCompany}>
+                      <div style={styles.clientMenuCompanyTitle}>{company.name}</div>
+                      {company.buildings.map((building) => (
+                        <div key={`${company.name}-${building.name}`} style={styles.clientMenuBuilding}>
+                          <div style={styles.clientMenuBuildingTitle}>{building.name}</div>
+                          {building.rooms.map((room) => (
+                            <div key={`${building.name}-${room.name}`} style={styles.clientMenuRoom}>
+                              <div style={styles.clientMenuRoomTitle}>
+                                <MapPin size={13} />
+                                <span>{room.name}</span>
+                              </div>
+                              <div style={styles.clientMenuDevices}>
+                                {room.devices.map((item) => {
+                                  const info = getStatusInfo(
+                                    getEffectiveStatus(
+                                      item,
+                                      parseNumber(item?.config?.send_interval_s)
+                                    )
+                                  );
+                                  const active = item.device_id === selectedDeviceId;
+
+                                  return (
+                                    <button
+                                      key={item.device_id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedDeviceId(item.device_id);
+                                        setActiveDeviceSection("overview");
+                                        setClientMessage("");
+                                        setAdminMessage("");
+                                        setPageError("");
+                                        setRefreshing(true);
+                                        setClientMenuOpen(false);
+                                      }}
+                                      style={{
+                                        ...styles.clientMenuDeviceButton,
+                                        ...(active ? styles.clientMenuDeviceButtonActive : {}),
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          ...styles.treeDeviceDot,
+                                          background: info.dot,
+                                        }}
+                                      />
+                                      <span>{item?.name || item?.device_id}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
             <div style={styles.headerSignal}>
               <Wifi size={15} />
@@ -4066,7 +4130,7 @@ async function downloadPdfReport() {
             </div>
 
             {refreshing ? (
-              <div style={styles.refreshingText}>A atualizar...</div>
+              <div style={styles.refreshingText}>{t("updating")}</div>
             ) : null}
 
             <button
@@ -4076,7 +4140,7 @@ async function downloadPdfReport() {
               style={styles.refreshButton}
             >
               <RotateCw size={16} />
-              Atualizar
+              {t("refresh")}
             </button>
 
             {isSuperAdmin ? (
@@ -4096,8 +4160,8 @@ async function downloadPdfReport() {
               }}
               style={styles.refreshButton}
             >
-              <MoreHorizontal size={15} />
-              Sair
+              <X size={16} />
+              {t("logout")}
             </button>
           </div>
         </div>
@@ -4106,6 +4170,7 @@ async function downloadPdfReport() {
           <DeviceEntryPicker
             devices={devices}
             profile={profile}
+            t={t}
             onSelectDevice={(deviceId) => {
               setSelectedDeviceId(deviceId);
               setActiveDeviceSection("overview");
@@ -4134,6 +4199,7 @@ async function downloadPdfReport() {
             selectedDeviceId={selectedDeviceId}
             activeSection={activeDeviceSection}
             onSectionChange={setActiveDeviceSection}
+            t={t}
             collapsed={!sidebarOpen}
             onToggle={() => setSidebarOpen((prev) => !prev)}
             onHoverStart={() => {
@@ -4212,8 +4278,8 @@ async function downloadPdfReport() {
           <div style={styles.heroLeft}>
             <div style={styles.heroHeaderTop}>
               <div>
-                <div style={styles.sectionEyebrow}>Overview</div>
-                <div style={styles.deviceName}>Condição atual</div>
+                <div style={styles.sectionEyebrow}>{t("overview")}</div>
+                <div style={styles.deviceName}>{t("currentCondition")}</div>
               </div>
             </div>
 
@@ -4226,17 +4292,17 @@ async function downloadPdfReport() {
               }}
             >
               <MetricBox
-                label={isDeviceOffline ? "Última temperatura" : "Temperatura"}
+                label={isDeviceOffline ? t("lastTemperature") : t("currentTemperature")}
                 value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
-                accentLabel={currentTempAccentLabel}
+                accentLabel={isDeviceOffline ? t("offline") : t("realtime")}
                 icon={Thermometer}
               />
               <MetricBox
-                label={isDeviceOffline ? "Última humidade" : "Humidade"}
+                label={isDeviceOffline ? t("lastHumidity") : t("currentHumidity")}
                 value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
-                accentLabel={currentHumAccentLabel}
+                accentLabel={isDeviceOffline ? t("offline") : t("realtime")}
                 icon={Droplets}
               />
             </div>
@@ -4284,8 +4350,8 @@ async function downloadPdfReport() {
           <section style={styles.card}>
             <div style={styles.cardHeader}>
               <div>
-                <div style={styles.cardTitle}>Readings</div>
-                <div style={styles.cardHint}>Leituras detalhadas, limites e tendência do dispositivo.</div>
+                <div style={styles.cardTitle}>{t("readingsTitle")}</div>
+                <div style={styles.cardHint}>{t("readingsHint")}</div>
               </div>
             </div>
             <div
@@ -4295,34 +4361,34 @@ async function downloadPdfReport() {
               }}
             >
               <MetricBox
-                label="Temperatura interior"
+                label={t("indoorTemperature")}
                 value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
                 accentLabel="Interior"
                 icon={Thermometer}
                 subvalue={
                   tempLow !== null && tempHigh !== null
-                    ? `Limites: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
-                    : "Sem limites definidos"
+                    ? `${t("limits")}: ${formatValue(tempLow, " °C")} - ${formatValue(tempHigh, " °C")}`
+                    : t("noLimits")
                 }
               />
               <MetricBox
-                label="Humidade interior"
+                label={t("indoorHumidity")}
                 value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
                 accentLabel="Interior"
                 icon={Droplets}
                 subvalue={
                   humLow !== null && humHigh !== null
-                    ? `Limites: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
-                    : "Sem limites definidos"
+                    ? `${t("limits")}: ${formatValue(humLow, " %", 0)} - ${formatValue(humHigh, " %", 0)}`
+                    : t("noLimits")
                 }
               />
               <MetricBox
-                label="Resumo 24h"
+                label={t("summary24h")}
                 value={`${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
                 tone="neutral"
-                accentLabel="Min / Max"
+                accentLabel={t("minMax")}
                 icon={Activity}
                 subvalue={`Humidade: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
               />
@@ -4347,9 +4413,9 @@ async function downloadPdfReport() {
         >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Saúde da comunicação</div>
+              <div style={styles.cardTitle}>{t("diagnosticsTitle")}</div>
               <div style={styles.cardHint}>
-                Qualidade da ligação e regularidade das leituras
+                {t("diagnosticsHint")}
               </div>
             </div>
           </div>
@@ -4425,9 +4491,9 @@ async function downloadPdfReport() {
         >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Relatório PDF</div>
+              <div style={styles.cardTitle}>{t("reportTitle")}</div>
               <div style={styles.cardHint}>
-                Exportação do resumo profissional de leituras do dispositivo
+                {t("reportHint")}
               </div>
             </div>
           </div>
@@ -4441,7 +4507,7 @@ async function downloadPdfReport() {
             }}
           >
             <div style={styles.field}>
-              <label style={styles.label}>Período do relatório</label>
+              <label style={styles.label}>{t("reportPeriod")}</label>
               <select
                 value={reportPeriod}
                 onChange={(e) => setReportPeriod(e.target.value)}
@@ -4461,7 +4527,7 @@ async function downloadPdfReport() {
                 onClick={downloadPdfReport}
                 disabled={!selectedDeviceId}
               >
-                Descarregar PDF
+                {t("downloadPdf")}
               </button>
             </div>
           </div>
@@ -4475,7 +4541,7 @@ async function downloadPdfReport() {
           }}
         >
           <DataChart
-            title="Temperatura"
+            title={t("temperature")}
             data={chartReadings}
             dataKey="temperature"
             unit=" °C"
@@ -4487,7 +4553,7 @@ async function downloadPdfReport() {
           />
 
           <DataChart
-            title="Humidade"
+            title={t("humidity")}
             data={chartReadings}
             dataKey="humidity"
             unit=" %"
@@ -4506,9 +4572,9 @@ async function downloadPdfReport() {
         >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Período de visualização</div>
+              <div style={styles.cardTitle}>{t("chartsPeriod")}</div>
               <div style={styles.cardHint}>
-                Ajusta o intervalo temporal apresentado nos gráficos
+                {t("chartsPeriodHint")}
               </div>
             </div>
           </div>
@@ -4541,7 +4607,7 @@ async function downloadPdfReport() {
 >
   <div style={styles.cardHeader}>
     <div>
-      <div style={styles.cardTitle}>Histórico de alertas</div>
+      <div style={styles.cardTitle}>{t("alertHistory")}</div>
       <div style={styles.cardHint}>
         Eventos registados no período selecionado ({period.toUpperCase()})
       </div>
@@ -4553,14 +4619,14 @@ async function downloadPdfReport() {
         onClick={() => setAlertsCollapsed((prev) => !prev)}
         style={styles.collapseButton}
       >
-        {alertsCollapsed ? "Minimizar" : "Ver todos"}
+        {alertsCollapsed ? t("minimize") : t("showAll")}
       </button>
     ) : null}
   </div>
 
   {!alerts.length ? (
     <div style={styles.emptyState}>
-      Sem alertas registados para este dispositivo.
+      {t("noAlerts")}
     </div>
   ) : (
     <div style={styles.alertList}>
@@ -4590,24 +4656,24 @@ async function downloadPdfReport() {
         >
           <div style={styles.cardHeader}>
             <div>
-              <div style={styles.cardTitle}>Configurações operacionais</div>
+              <div style={styles.cardTitle}>{t("settingsTitle")}</div>
               <div style={styles.cardHint}>
-                Limites operacionais por dispositivo
+                {t("settingsHint")}
               </div>
             </div>
 
             <div style={styles.readOnlyBadge}>
-              {canEditSelectedDevice ? "Configuração editável" : "Só leitura"}
+              {canEditSelectedDevice ? t("editable") : t("readOnly")}
             </div>
           </div>
 
           <div style={styles.settingsSection}>
             <div>
-              <div style={styles.settingsSectionTitle}>Interface</div>
-              <div style={styles.cardHint}>Preferências de visualização da dashboard</div>
+              <div style={styles.settingsSectionTitle}>{t("interface")}</div>
+              <div style={styles.cardHint}>{t("interfaceHint")}</div>
             </div>
             <div style={styles.field}>
-              <label style={styles.label}>Língua</label>
+              <label style={styles.label}>{t("language")}</label>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
@@ -4628,7 +4694,7 @@ async function downloadPdfReport() {
             }}
           >
             <div style={styles.field}>
-              <label style={styles.label}>Temperatura mínima (°C)</label>
+              <label style={styles.label}>{t("tempMin")}</label>
               <input
                 type="number"
                 step="0.1"
@@ -4645,7 +4711,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.label}>Temperatura máxima (°C)</label>
+              <label style={styles.label}>{t("tempMax")}</label>
               <input
                 type="number"
                 step="0.1"
@@ -4662,7 +4728,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.label}>Humidade mínima (%)</label>
+              <label style={styles.label}>{t("humMin")}</label>
               <input
                 type="number"
                 step="1"
@@ -4679,7 +4745,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={styles.field}>
-              <label style={styles.label}>Humidade máxima (%)</label>
+              <label style={styles.label}>{t("humMax")}</label>
               <input
                 type="number"
                 step="1"
@@ -4703,7 +4769,7 @@ async function downloadPdfReport() {
                 onClick={saveClientConfig}
                 disabled={savingClient || !selectedDeviceId}
               >
-                {savingClient ? "A guardar..." : "Guardar configurações"}
+                {savingClient ? t("saving") : t("saveSettings")}
               </button>
 
               {clientMessage ? (
@@ -4725,8 +4791,8 @@ async function downloadPdfReport() {
           <section style={styles.card}>
             <div style={styles.cardHeader}>
               <div>
-                <div style={styles.cardTitle}>Information</div>
-                <div style={styles.cardHint}>Identificação e contexto do dispositivo.</div>
+                <div style={styles.cardTitle}>{t("information")}</div>
+                <div style={styles.cardHint}>{t("informationHint")}</div>
               </div>
             </div>
             <div
@@ -4735,12 +4801,12 @@ async function downloadPdfReport() {
                 gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
               }}
             >
-              <InfoItem label="Modelo" value={STS_PRODUCT.product} icon={Thermometer} />
-              <InfoItem label="ID do dispositivo" value={selectedDeviceId || "-"} icon={Info} />
-              <InfoItem label="Localização" value={deviceLocation} icon={MapPin} />
+              <InfoItem label={t("model")} value={STS_PRODUCT.product} icon={Thermometer} />
+              <InfoItem label={t("deviceId")} value={selectedDeviceId || "-"} icon={Info} />
+              <InfoItem label={t("location")} value={deviceLocation} icon={MapPin} />
               <InfoItem label="Firmware" value={deviceOverview?.diagnostics?.firmware || device?.firmware_version || "-"} icon={Wrench} />
-              <InfoItem label="Config version" value={device?.config_version ?? "-"} icon={Settings} />
-              <InfoItem label="Última atualização" value={formatDateTime(device?.updated_at || device?.last_seen)} icon={Clock} />
+              <InfoItem label={t("configVersion")} value={device?.config_version ?? "-"} icon={Settings} />
+              <InfoItem label={t("lastUpdate")} value={formatDateTime(device?.updated_at || device?.last_seen)} icon={Clock} />
             </div>
           </section>
         ) : null}
@@ -5139,6 +5205,95 @@ const styles = {
     padding: "8px 12px",
     fontSize: "13px",
     fontWeight: 800,
+  },
+
+  clientMenuWrap: {
+    position: "relative",
+  },
+
+  clientMenu: {
+    position: "absolute",
+    top: "calc(100% + 10px)",
+    right: 0,
+    width: "min(520px, calc(100vw - 32px))",
+    maxHeight: "70vh",
+    overflowY: "auto",
+    zIndex: 80,
+    background: "rgba(9, 15, 26, 0.98)",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    borderRadius: "18px",
+    padding: "14px",
+    boxShadow: "0 28px 70px rgba(0,0,0,0.42)",
+    backdropFilter: "blur(18px)",
+  },
+
+  clientMenuCompany: {
+    display: "grid",
+    gap: "10px",
+  },
+
+  clientMenuCompanyTitle: {
+    color: "#f8fafc",
+    fontSize: "13px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  },
+
+  clientMenuBuilding: {
+    borderTop: "1px solid rgba(148, 163, 184, 0.10)",
+    paddingTop: "10px",
+  },
+
+  clientMenuBuildingTitle: {
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontWeight: 900,
+    marginBottom: "8px",
+  },
+
+  clientMenuRoom: {
+    display: "grid",
+    gap: "8px",
+    marginBottom: "10px",
+  },
+
+  clientMenuRoomTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    color: "#64748b",
+    fontSize: "11px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  },
+
+  clientMenuDevices: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "8px",
+  },
+
+  clientMenuDeviceButton: {
+    border: "1px solid rgba(148, 163, 184, 0.14)",
+    background: "rgba(15, 23, 42, 0.62)",
+    color: "#cbd5e1",
+    borderRadius: "12px",
+    padding: "10px",
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 850,
+    textAlign: "left",
+  },
+
+  clientMenuDeviceButtonActive: {
+    background: "rgba(20, 184, 166, 0.14)",
+    border: "1px solid rgba(94, 234, 212, 0.24)",
+    color: "#f8fafc",
   },
 
   appLayout: {
