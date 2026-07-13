@@ -2618,6 +2618,7 @@ function DeviceSidebar({
   collapsed,
   onHoverStart,
   onHoverEnd,
+  isMobile,
   t,
 }) {
   const monitoringItems = DEVICE_NAV_SECTIONS.filter(
@@ -2633,16 +2634,18 @@ function DeviceSidebar({
       onMouseLeave={onHoverEnd}
       style={{
         ...styles.appSidebar,
+        ...(isMobile ? styles.appSidebarMobile : {}),
         ...(collapsed ? styles.appSidebarCollapsed : {}),
       }}
     >
-      <nav style={styles.deviceNav}>
+      <nav style={{ ...styles.deviceNav, ...(isMobile ? styles.deviceNavMobile : {}) }}>
         <button
           type="button"
           onClick={() => onSectionChange(overviewItem.key)}
           style={{
             ...styles.deviceNavItem,
             ...(collapsed ? styles.deviceNavItemCollapsed : {}),
+            ...(isMobile ? styles.deviceNavItemMobile : {}),
             ...(activeSection === overviewItem.key ? styles.deviceNavItemActive : {}),
           }}
           title={t(overviewItem.key)}
@@ -2662,6 +2665,7 @@ function DeviceSidebar({
               style={{
                 ...styles.deviceNavItem,
                 ...(collapsed ? styles.deviceNavItemCollapsed : {}),
+                ...(isMobile ? styles.deviceNavItemMobile : {}),
                 ...(activeSection === item.key ? styles.deviceNavItemActive : {}),
               }}
               title={t(item.key)}
@@ -2683,6 +2687,7 @@ function DeviceSidebar({
               style={{
                 ...styles.deviceNavItem,
                 ...(collapsed ? styles.deviceNavItemCollapsed : {}),
+                ...(isMobile ? styles.deviceNavItemMobile : {}),
                 ...(activeSection === item.key ? styles.deviceNavItemActive : {}),
               }}
               title={t(item.key)}
@@ -4171,6 +4176,7 @@ async function downloadPdfReport() {
               ...(themeOverrides.topBar || {}),
               ...styles.entryTopBar,
               ...(themeOverrides.entryTopBar || {}),
+              ...(isMobile ? styles.topBarMobile : {}),
             }}
           >
             <div style={styles.topLogoMark}>
@@ -4189,11 +4195,14 @@ async function downloadPdfReport() {
               <h1 style={styles.entryHeaderTitle}>{t("chooseTitle")}</h1>
             </div>
 
-            <div style={styles.topActions}>
+            <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
               {isSuperAdmin ? (
                 <button
                   onClick={() => router.push("/admin")}
-                  style={styles.refreshButton}
+                  style={{
+                    ...styles.refreshButton,
+                    ...(isMobile ? styles.refreshButtonMobile : {}),
+                  }}
                 >
                   <Wrench size={15} />
                   Admin
@@ -4205,7 +4214,10 @@ async function downloadPdfReport() {
                   await supabase.auth.signOut();
                   router.replace("/login");
                 }}
-                style={styles.refreshButton}
+                style={{
+                  ...styles.refreshButton,
+                  ...(isMobile ? styles.refreshButtonMobile : {}),
+                }}
               >
                 <X size={16} />
                 {t("logout")}
@@ -4213,7 +4225,13 @@ async function downloadPdfReport() {
             </div>
           </div>
         ) : (
-        <div style={{ ...styles.topBar, ...(themeOverrides.topBar || {}) }}>
+        <div
+          style={{
+            ...styles.topBar,
+            ...(themeOverrides.topBar || {}),
+            ...(isMobile ? styles.topBarMobile : {}),
+          }}
+        >
           <div style={styles.topLogoMark}>
             <Image
               src={STS_LOGO_SRC}
@@ -4225,7 +4243,7 @@ async function downloadPdfReport() {
             />
           </div>
 
-          <div style={styles.deviceHeaderMain}>
+          <div style={{ ...styles.deviceHeaderMain, ...(isMobile ? styles.deviceHeaderMainMobile : {}) }}>
             <div>
               <div style={styles.deviceHeaderKicker}>{STS_PRODUCT.product}</div>
               <h1 style={styles.title}>{deviceDisplayName}</h1>
@@ -4259,11 +4277,19 @@ async function downloadPdfReport() {
             </div>
           </div>
 
-          <div style={styles.topActions}>
-            <div style={styles.clientMenuWrap}>
+          <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
+            <div
+              style={{
+                ...styles.clientMenuWrap,
+                ...(isMobile ? styles.clientMenuWrapMobile : {}),
+              }}
+            >
               <button
                 onClick={() => setClientMenuOpen((prev) => !prev)}
-                style={styles.refreshButton}
+                style={{
+                  ...styles.refreshButton,
+                  ...(isMobile ? styles.refreshButtonMobile : {}),
+                }}
               >
                 <Home size={15} />
                 {t("client")}
@@ -4277,7 +4303,12 @@ async function downloadPdfReport() {
                     onClick={() => setClientMenuOpen(false)}
                     style={styles.clientMenuBackdrop}
                   />
-                  <div style={styles.clientMenu}>
+                  <div
+                    style={{
+                      ...styles.clientMenu,
+                      ...(isMobile ? styles.clientMenuMobile : {}),
+                    }}
+                  >
                     {clientHierarchy.flatMap((company) =>
                       company.buildings.flatMap((building) =>
                         building.rooms.map((room) => (
@@ -4344,7 +4375,10 @@ async function downloadPdfReport() {
               onClick={async () => {
                 await loadData({ syncForms: true });
               }}
-              style={styles.refreshButton}
+              style={{
+                ...styles.refreshButton,
+                ...(isMobile ? styles.refreshButtonMobile : {}),
+              }}
             >
               <RotateCw size={16} />
               {refreshing ? t("updating") : t("refresh")}
@@ -4353,7 +4387,10 @@ async function downloadPdfReport() {
             {isSuperAdmin ? (
               <button
                 onClick={() => router.push("/admin")}
-                style={styles.refreshButton}
+                style={{
+                  ...styles.refreshButton,
+                  ...(isMobile ? styles.refreshButtonMobile : {}),
+                }}
               >
                 <Wrench size={15} />
                 Admin
@@ -4365,7 +4402,10 @@ async function downloadPdfReport() {
                 await supabase.auth.signOut();
                 router.replace("/login");
               }}
-              style={styles.refreshButton}
+              style={{
+                ...styles.refreshButton,
+                ...(isMobile ? styles.refreshButtonMobile : {}),
+              }}
             >
               <X size={16} />
               {t("logout")}
@@ -4405,6 +4445,7 @@ async function downloadPdfReport() {
             activeSection={activeDeviceSection}
             onSectionChange={setActiveDeviceSection}
             t={t}
+            isMobile={isMobile}
             collapsed={!sidebarOpen}
             onHoverStart={() => {
               if (!isMobile) setSidebarOpen(true);
@@ -5262,6 +5303,8 @@ const styles = {
   },
 
   topBar: {
+    position: "relative",
+    zIndex: 9000,
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -5273,12 +5316,20 @@ const styles = {
     borderRadius: "20px",
     boxShadow: "0 18px 46px rgba(0, 0, 0, 0.28)",
     backdropFilter: "blur(16px)",
+    isolation: "isolate",
   },
 
   topBarLight: {
     background: "var(--sts-surface-strong)",
     border: "1px solid var(--sts-border)",
     boxShadow: "var(--sts-shadow)",
+  },
+
+  topBarMobile: {
+    alignItems: "stretch",
+    gap: "12px",
+    padding: "12px",
+    borderRadius: "16px",
   },
 
   topLogoMark: {
@@ -5363,6 +5414,13 @@ const styles = {
     justifyContent: "space-between",
   },
 
+  deviceHeaderMainMobile: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: "10px",
+    flexBasis: "100%",
+  },
+
   headerStatusGroup: {
     display: "inline-flex",
     alignItems: "center",
@@ -5413,6 +5471,11 @@ const styles = {
     alignItems: "center",
     justifyContent: "flex-end",
     flex: "0 1 auto",
+  },
+
+  topActionsMobile: {
+    width: "100%",
+    justifyContent: "stretch",
   },
 
 
@@ -5491,15 +5554,28 @@ const styles = {
     transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease",
   },
 
+  refreshButtonMobile: {
+    flex: "1 1 0",
+    justifyContent: "center",
+    minWidth: "0",
+    width: "100%",
+    padding: "10px 9px",
+  },
+
   clientMenuWrap: {
     position: "relative",
-    zIndex: 6000,
+    zIndex: 9100,
+  },
+
+  clientMenuWrapMobile: {
+    flex: "1 1 0",
+    minWidth: 0,
   },
 
   clientMenuBackdrop: {
     position: "fixed",
     inset: 0,
-    zIndex: 5990,
+    zIndex: 9050,
     border: 0,
     background: "transparent",
     padding: 0,
@@ -5517,13 +5593,23 @@ const styles = {
     width: "min(440px, calc(100vw - 32px))",
     maxHeight: "70vh",
     overflowY: "auto",
-    zIndex: 6000,
+    zIndex: 9200,
     background: "var(--sts-menu-bg)",
     border: "1px solid var(--sts-border)",
     borderRadius: "16px",
     padding: "12px",
     boxShadow: "0 28px 70px rgba(0,0,0,0.42)",
     backdropFilter: "blur(18px)",
+  },
+
+  clientMenuMobile: {
+    top: "88px",
+    left: "12px",
+    right: "12px",
+    width: "auto",
+    maxHeight: "calc(100vh - 116px)",
+    borderRadius: "14px",
+    padding: "10px",
   },
 
   clientMenuCompany: {
@@ -5647,6 +5733,16 @@ const styles = {
     padding: "12px",
     borderRadius: "18px",
     overflowX: "hidden",
+  },
+
+  appSidebarMobile: {
+    position: "relative",
+    top: 0,
+    maxHeight: "none",
+    overflowX: "auto",
+    overflowY: "hidden",
+    padding: "8px",
+    borderRadius: "15px",
   },
 
   sidebarBrandBlock: {
@@ -5847,6 +5943,12 @@ const styles = {
     gap: "6px",
   },
 
+  deviceNavMobile: {
+    flexDirection: "row",
+    gap: "8px",
+    minWidth: "max-content",
+  },
+
   deviceNavItem: {
     width: "100%",
     border: "1px solid transparent",
@@ -5866,6 +5968,14 @@ const styles = {
   deviceNavItemCollapsed: {
     justifyContent: "center",
     padding: "10px",
+  },
+
+  deviceNavItemMobile: {
+    width: "44px",
+    height: "42px",
+    flex: "0 0 44px",
+    padding: 0,
+    justifyContent: "center",
   },
 
   deviceNavItemActive: {
