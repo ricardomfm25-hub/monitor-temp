@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import {
   Activity,
-  ArrowLeft,
   BarChart3,
   Bell,
   Building2,
   ChevronDown,
   CircleGauge,
+  Clock,
+  Droplets,
+  Home,
   Info,
   LayoutDashboard,
   MapPin,
@@ -2066,7 +2068,7 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   );
 }
 
-function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
+function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel, icon: Icon }) {
   const toneMap = {
     neutral: {
       border: "rgba(148, 163, 184, 0.16)",
@@ -2109,7 +2111,14 @@ function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
       }}
     >
       <div style={styles.metricTopRow}>
-        <div style={styles.metricLabel}>{label}</div>
+        <div style={styles.metricLabelWrap}>
+          {Icon ? (
+            <span style={styles.metricIcon}>
+              <Icon size={16} />
+            </span>
+          ) : null}
+          <div style={styles.metricLabel}>{label}</div>
+        </div>
         {accentLabel ? (
           <span
             style={{
@@ -2137,10 +2146,13 @@ function MetricBox({ label, value, tone = "neutral", subvalue, accentLabel }) {
   );
 }
 
-function InfoItem({ label, value, valueColor }) {
+function InfoItem({ label, value, valueColor, icon: Icon }) {
   return (
     <div style={styles.infoItem}>
-      <span style={styles.infoLabel}>{label}</span>
+      <span style={styles.infoLabel}>
+        {Icon ? <Icon size={14} /> : null}
+        {label}
+      </span>
       <span style={{ ...styles.infoValue, color: valueColor || styles.infoValue.color }}>
         {value}
       </span>
@@ -2437,6 +2449,8 @@ function DeviceSidebar({
   onSectionChange,
   collapsed,
   onToggle,
+  onHoverStart,
+  onHoverEnd,
 }) {
   const hierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
@@ -2452,6 +2466,8 @@ function DeviceSidebar({
 
   return (
     <aside
+      onMouseEnter={onHoverStart}
+      onMouseLeave={onHoverEnd}
       style={{
         ...styles.appSidebar,
         ...(collapsed ? styles.appSidebarCollapsed : {}),
@@ -3236,7 +3252,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
   const [pageError, setPageError] = useState("");
   const [activeDeviceSection, setActiveDeviceSection] = useState("overview");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
 
@@ -3938,6 +3954,17 @@ async function downloadPdfReport() {
     <main style={styles.page}>
       <div style={styles.container}>
         <div style={styles.topBar}>
+          <div style={styles.topLogoMark}>
+            <Image
+              src={STS_LOGO_SRC}
+              alt="STS"
+              width={104}
+              height={46}
+              priority
+              style={styles.topLogoImage}
+            />
+          </div>
+
           <div style={styles.deviceHeaderMain}>
             <div>
               <div style={styles.deviceHeaderKicker}>{STS_PRODUCT.product}</div>
@@ -3962,11 +3989,19 @@ async function downloadPdfReport() {
 
           <div style={styles.topActions}>
             <button
-              onClick={() => setActiveDeviceSection("overview")}
+              onClick={() => {
+                setSelectedDeviceId(null);
+                setDevice(null);
+                setReadings([]);
+                setAlerts([]);
+                setDeviceOverview(null);
+                setActiveDeviceSection("overview");
+                setSidebarOpen(false);
+              }}
               style={styles.refreshButton}
             >
-              <ArrowLeft size={15} />
-              Divisão
+              <Home size={15} />
+              Local e dispositivo
             </button>
 
             <div style={styles.headerSignal}>
@@ -4045,6 +4080,12 @@ async function downloadPdfReport() {
             onSectionChange={setActiveDeviceSection}
             collapsed={!sidebarOpen}
             onToggle={() => setSidebarOpen((prev) => !prev)}
+            onHoverStart={() => {
+              if (!isMobile) setSidebarOpen(true);
+            }}
+            onHoverEnd={() => {
+              if (!isMobile) setSidebarOpen(false);
+            }}
             onSelectDevice={(deviceId) => {
               setSelectedDeviceId(deviceId);
               setActiveDeviceSection("overview");
@@ -4153,6 +4194,7 @@ async function downloadPdfReport() {
                 value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
                 accentLabel={currentTempAccentLabel}
+                icon={Thermometer}
                 subvalue={
                   isDeviceOffline
                     ? `Último registo: ${formatValue(device?.last_temperature, " °C")}`
@@ -4166,6 +4208,7 @@ async function downloadPdfReport() {
                 value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
                 accentLabel={currentHumAccentLabel}
+                icon={Droplets}
                 subvalue={
                   isDeviceOffline
                     ? `Último registo: ${formatValue(device?.last_humidity, " %")}`
@@ -4187,11 +4230,13 @@ async function downloadPdfReport() {
               <InfoItem
                 label="Última atualização do dispositivo"
                 value={`${formatDateTime(device?.last_seen)} (${formatRelativeTime(device?.last_seen)})`}
+                icon={Clock}
               />
               <InfoItem
                 label="Estado operacional"
                 value={statusInfo.label}
                 valueColor={statusInfo.color}
+                icon={CircleGauge}
               />
             </div>
           </div>
@@ -4264,6 +4309,7 @@ async function downloadPdfReport() {
                 value={isDeviceOffline ? "-" : currentTempValue}
                 tone={currentTempTone}
                 accentLabel="Interior"
+                icon={Thermometer}
                 subvalue={
                   tempLow !== null && tempHigh !== null
                     ? `Limites: ${formatValue(tempLow, " °C")} a ${formatValue(tempHigh, " °C")}`
@@ -4275,6 +4321,7 @@ async function downloadPdfReport() {
                 value={isDeviceOffline ? "-" : currentHumValue}
                 tone={currentHumTone}
                 accentLabel="Interior"
+                icon={Droplets}
                 subvalue={
                   humLow !== null && humHigh !== null
                     ? `Limites: ${formatValue(humLow, " %", 0)} a ${formatValue(humHigh, " %", 0)}`
@@ -4286,6 +4333,7 @@ async function downloadPdfReport() {
                 value={`${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
                 tone="neutral"
                 accentLabel="Min / Max"
+                icon={Activity}
                 subvalue={`Humidade: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
               />
             </div>
@@ -4679,12 +4727,12 @@ async function downloadPdfReport() {
                 gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
               }}
             >
-              <InfoItem label="Modelo" value={STS_PRODUCT.product} />
-              <InfoItem label="ID do dispositivo" value={selectedDeviceId || "-"} />
-              <InfoItem label="Localização" value={deviceLocation} />
-              <InfoItem label="Firmware" value={deviceOverview?.diagnostics?.firmware || device?.firmware_version || "-"} />
-              <InfoItem label="Config version" value={device?.config_version ?? "-"} />
-              <InfoItem label="Última atualização" value={formatDateTime(device?.updated_at || device?.last_seen)} />
+              <InfoItem label="Modelo" value={STS_PRODUCT.product} icon={Thermometer} />
+              <InfoItem label="ID do dispositivo" value={selectedDeviceId || "-"} icon={Info} />
+              <InfoItem label="Localização" value={deviceLocation} icon={MapPin} />
+              <InfoItem label="Firmware" value={deviceOverview?.diagnostics?.firmware || device?.firmware_version || "-"} icon={Wrench} />
+              <InfoItem label="Config version" value={device?.config_version ?? "-"} icon={Settings} />
+              <InfoItem label="Última atualização" value={formatDateTime(device?.updated_at || device?.last_seen)} icon={Clock} />
             </div>
           </section>
         ) : null}
@@ -4896,6 +4944,23 @@ const styles = {
     backdropFilter: "blur(16px)",
   },
 
+  topLogoMark: {
+    width: "112px",
+    height: "52px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRight: "1px solid rgba(148, 163, 184, 0.14)",
+    paddingRight: "14px",
+    flexShrink: 0,
+  },
+
+  topLogoImage: {
+    width: "96px",
+    height: "42px",
+    objectFit: "contain",
+  },
+
   brandLockup: {
     display: "flex",
     alignItems: "center",
@@ -5098,6 +5163,7 @@ const styles = {
   appSidebarCollapsed: {
     padding: "12px",
     borderRadius: "18px",
+    overflowX: "hidden",
   },
 
   sidebarBrandBlock: {
@@ -5899,6 +5965,25 @@ const styles = {
     flexWrap: "wrap",
   },
 
+  metricLabelWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+    minWidth: 0,
+  },
+
+  metricIcon: {
+    width: "30px",
+    height: "30px",
+    borderRadius: "10px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(94, 234, 212, 0.10)",
+    color: "#5eead4",
+    flexShrink: 0,
+  },
+
   metricLabel: {
     fontSize: "13px",
     color: "#64748b",
@@ -5953,6 +6038,9 @@ const styles = {
     fontSize: "12px",
     color: "#64748b",
     fontWeight: 700,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
   },
 
   infoValue: {
