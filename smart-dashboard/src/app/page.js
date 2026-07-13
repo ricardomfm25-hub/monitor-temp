@@ -2696,17 +2696,6 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
   return (
     <section style={styles.entryGate}>
       <div style={styles.entryPanel}>
-        <Image
-          src={STS_LOGO_SRC}
-          alt="STS"
-          width={126}
-          height={54}
-          priority
-          style={styles.entryLogo}
-        />
-        <div style={styles.entryKicker}>{t("chooseOperation")}</div>
-        <h1 style={styles.entryTitle}>{t("chooseTitle")}</h1>
-
         <div style={styles.entryTree}>
           {hierarchy.flatMap((company) =>
             company.buildings.flatMap((building) =>
@@ -4032,6 +4021,7 @@ async function downloadPdfReport() {
 }
 
   const hasDevices = devices.length > 0;
+  const isSelectionMode = !selectedDeviceId && hasDevices;
   const hasReadings = readings.length > 0;
   const clientHierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
@@ -4045,6 +4035,48 @@ async function downloadPdfReport() {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
+        {isSelectionMode ? (
+          <div style={{ ...styles.topBar, ...styles.entryTopBar }}>
+            <div style={styles.topLogoMark}>
+              <Image
+                src={STS_LOGO_SRC}
+                alt="STS"
+                width={104}
+                height={46}
+                priority
+                style={styles.topLogoImage}
+              />
+            </div>
+
+            <div style={styles.entryHeaderMain}>
+              <div style={styles.deviceHeaderKicker}>{STS_PRODUCT.product}</div>
+              <h1 style={styles.entryHeaderTitle}>{t("chooseTitle")}</h1>
+            </div>
+
+            <div style={styles.topActions}>
+              {isSuperAdmin ? (
+                <button
+                  onClick={() => router.push("/admin")}
+                  style={styles.refreshButton}
+                >
+                  <Wrench size={15} />
+                  Admin
+                </button>
+              ) : null}
+
+              <button
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  router.replace("/login");
+                }}
+                style={styles.refreshButton}
+              >
+                <X size={16} />
+                {t("logout")}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div style={styles.topBar}>
           <div style={styles.topLogoMark}>
             <Image
@@ -4067,15 +4099,27 @@ async function downloadPdfReport() {
                 <span>{formatDateTime(device?.last_seen)} ({formatRelativeTime(device?.last_seen)})</span>
               </div>
             </div>
-            <div
-              style={{
-                ...styles.statusPillLarge,
-                color: statusInfo.color,
-                background: statusInfo.soft,
-                borderColor: statusInfo.border,
-              }}
-            >
-              {statusInfo.label}
+            <div style={styles.headerStatusGroup}>
+              <div
+                style={{
+                  ...styles.statusPillLarge,
+                  color: statusInfo.color,
+                  background: statusInfo.soft,
+                  borderColor: statusInfo.border,
+                }}
+              >
+                {statusInfo.label}
+              </div>
+              <div
+                title={communicationHealth.summary}
+                style={{
+                  ...styles.statusPillLarge,
+                  ...styles.communicationStatusPill,
+                }}
+              >
+                <Wifi size={15} />
+                <span>{communicationHealth.label}</span>
+              </div>
             </div>
           </div>
 
@@ -4160,11 +4204,6 @@ async function downloadPdfReport() {
               ) : null}
             </div>
 
-            <div style={styles.headerSignal}>
-              <Wifi size={15} />
-              <span>{communicationHealth.label}</span>
-            </div>
-
             <button
               onClick={async () => {
                 await loadData({ syncForms: true });
@@ -4197,6 +4236,7 @@ async function downloadPdfReport() {
             </button>
           </div>
         </div>
+        )}
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
         {!selectedDeviceId && hasDevices ? (
           <DeviceEntryPicker
@@ -5055,6 +5095,27 @@ const styles = {
     objectFit: "contain",
   },
 
+  entryTopBar: {
+    padding: "12px 16px",
+    borderRadius: "18px",
+    background: "rgba(8, 13, 23, 0.72)",
+    boxShadow: "0 18px 42px rgba(0, 0, 0, 0.22)",
+  },
+
+  entryHeaderMain: {
+    minWidth: 0,
+    flex: "1 1 auto",
+  },
+
+  entryHeaderTitle: {
+    margin: 0,
+    color: "#f8fafc",
+    fontSize: "20px",
+    lineHeight: 1.1,
+    fontWeight: 900,
+    letterSpacing: 0,
+  },
+
   brandLockup: {
     display: "flex",
     alignItems: "center",
@@ -5092,6 +5153,15 @@ const styles = {
     minWidth: 0,
     flex: "1 1 420px",
     justifyContent: "space-between",
+  },
+
+  headerStatusGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "8px",
+    flexWrap: "wrap",
+    flexShrink: 0,
   },
 
   deviceHeaderKicker: {
@@ -5211,20 +5281,6 @@ const styles = {
     alignItems: "center",
     gap: "7px",
     transition: "background 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease",
-  },
-
-  headerSignal: {
-    minHeight: "38px",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "7px",
-    border: "1px solid rgba(94, 234, 212, 0.20)",
-    background: "rgba(20, 184, 166, 0.10)",
-    color: "#99f6e4",
-    borderRadius: "10px",
-    padding: "8px 12px",
-    fontSize: "13px",
-    fontWeight: 800,
   },
 
   clientMenuWrap: {
@@ -5611,21 +5667,21 @@ const styles = {
   },
 
   entryGate: {
-    minHeight: "calc(100vh - 130px)",
+    minHeight: "calc(100vh - 112px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "18px 0",
+    padding: "14px 0 24px",
   },
 
   entryPanel: {
     width: "100%",
-    maxWidth: "780px",
-    background: "rgba(9, 15, 26, 0.86)",
+    maxWidth: "760px",
+    background: "rgba(9, 15, 26, 0.70)",
     border: "1px solid rgba(148, 163, 184, 0.16)",
-    borderRadius: "22px",
-    padding: "26px",
-    boxShadow: "0 30px 70px rgba(0, 0, 0, 0.32)",
+    borderRadius: "20px",
+    padding: "14px",
+    boxShadow: "0 28px 64px rgba(0, 0, 0, 0.26)",
     backdropFilter: "blur(18px)",
   },
 
@@ -5664,8 +5720,8 @@ const styles = {
 
   entryTree: {
     display: "grid",
-    gap: "12px",
-    marginTop: "22px",
+    gap: "10px",
+    marginTop: 0,
   },
 
   entryCompany: {
@@ -6201,6 +6257,13 @@ const styles = {
     fontSize: "13px",
     fontWeight: 800,
     whiteSpace: "nowrap",
+  },
+
+  communicationStatusPill: {
+    gap: "7px",
+    color: "#99f6e4",
+    background: "rgba(20, 184, 166, 0.10)",
+    borderColor: "rgba(94, 234, 212, 0.22)",
   },
 
   metricsRow: {
