@@ -612,6 +612,10 @@ function getIncomingReadingCreatedAt(sampleAgeS, sampleEpoch) {
 }
 
 function isOfflineCapturedReading(incoming, cfg) {
+  if (incoming.queued_backfill !== undefined && incoming.queued_backfill !== null) {
+    if (toBoolean(incoming.queued_backfill)) return true;
+  }
+
   if (incoming.captured_offline !== undefined && incoming.captured_offline !== null) {
     return toBoolean(incoming.captured_offline);
   }
@@ -2944,6 +2948,7 @@ app.post("/api/temperature", async (req, res) => {
       sample_epoch,
       delivery_attempts,
       captured_offline,
+      queued_backfill,
       capture_network_known,
     } = req.body;
 
@@ -3013,18 +3018,35 @@ app.post("/api/temperature", async (req, res) => {
         captured_offline === undefined || captured_offline === null
           ? null
           : toBoolean(captured_offline),
+      queued_backfill:
+        queued_backfill === undefined || queued_backfill === null
+          ? null
+          : toBoolean(queued_backfill),
       capture_network_known:
         capture_network_known === undefined || capture_network_known === null
           ? null
           : toBoolean(capture_network_known),
     };
+    const { queued_backfill: _queuedBackfill, ...persistedReadingMeta } =
+      incomingReadingMeta;
     const enrichedReadingPayload = {
       ...readingPayload,
-      ...incomingReadingMeta,
+      ...persistedReadingMeta,
       offline_captured: isOfflineCapturedReading(incomingReadingMeta, cfg),
     };
+    const incomingCreatedTs = new Date(readingCreatedAt).getTime();
+    const existingLastSeenTs = existingDeviceRow?.last_seen
+      ? new Date(existingDeviceRow.last_seen).getTime()
+      : NaN;
+    const isQueuedOlderThanCurrent =
+      Boolean(existingDeviceRow) &&
+      (incomingReadingMeta.delivery_attempts || 0) > 0 &&
+      Number.isFinite(incomingCreatedTs) &&
+      Number.isFinite(existingLastSeenTs) &&
+      incomingCreatedTs + 1000 < existingLastSeenTs;
     const isHistoricalBackfill =
-      enrichedReadingPayload.offline_captured && Boolean(existingDeviceRow);
+      Boolean(existingDeviceRow) &&
+      (enrichedReadingPayload.offline_captured || isQueuedOlderThanCurrent);
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
