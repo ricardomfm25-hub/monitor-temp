@@ -97,6 +97,7 @@ const I18N = {
     minimize: "Minimize",
     diagnosticsTitle: "Communication health",
     diagnosticsHint: "Connection quality and reading regularity",
+    diagnosticsPeriod: "Diagnostics period",
     reportTitle: "PDF report",
     reportHint: "Export the professional reading summary for this device",
     reportPeriod: "Report period",
@@ -3337,6 +3338,7 @@ export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [period, setPeriod] = useState("24h");
+  const [diagnosticsPeriod, setDiagnosticsPeriod] = useState("24h");
 const [reportPeriod, setReportPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -3849,9 +3851,9 @@ const communicationHealth = useMemo(
       rawReadings: liveReadings,
       sendIntervalS,
       deviceLastSeen: device?.last_seen,
-      periodKey: "24h",
+      periodKey: diagnosticsPeriod,
     }),
-  [liveReadings, sendIntervalS, device?.last_seen]
+  [liveReadings, sendIntervalS, device?.last_seen, diagnosticsPeriod]
 );
 
   const recentAlerts = useMemo(() => {
@@ -4623,6 +4625,24 @@ async function downloadPdfReport() {
               <div style={styles.cardHint}>
                 {t("diagnosticsHint")}
               </div>
+            </div>
+          </div>
+
+          <div style={styles.diagnosticsPeriodBlock}>
+            <div style={styles.label}>{t("chartsPeriod")}</div>
+            <div style={styles.periodRow}>
+              {PERIODS.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setDiagnosticsPeriod(item.key)}
+                  style={{
+                    ...styles.periodButton,
+                    ...(diagnosticsPeriod === item.key ? styles.periodButtonActive : {}),
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -6909,6 +6929,13 @@ const styles = {
     fontSize: "13px",
     fontWeight: 700,
     marginBottom: "14px",
+  },
+
+  diagnosticsPeriodBlock: {
+    marginTop: "16px",
+    marginBottom: "14px",
+    display: "grid",
+    gap: "10px",
   },
 
   healthGrid: {
