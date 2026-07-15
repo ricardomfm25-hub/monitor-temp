@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import {
-  Activity,
   BarChart3,
   Bell,
   CircleGauge,
@@ -2604,7 +2603,6 @@ function DeviceSelector({
 
 const DEVICE_NAV_SECTIONS = [
   { key: "overview", label: "Overview", group: "main", icon: LayoutDashboard },
-  { key: "readings", label: "Readings", group: "Monitoring", icon: Thermometer },
   { key: "charts", label: "Charts", group: "Monitoring", icon: BarChart3 },
   { key: "alerts", label: "Alerts", group: "Monitoring", icon: Bell },
   { key: "diagnostics", label: "Diagnostics", group: "System", icon: CircleGauge },
@@ -2634,8 +2632,8 @@ function DeviceSidebar({
       onMouseLeave={onHoverEnd}
       style={{
         ...styles.appSidebar,
-        ...(isMobile ? styles.appSidebarMobile : {}),
         ...(collapsed ? styles.appSidebarCollapsed : {}),
+        ...(isMobile ? styles.appSidebarMobile : {}),
       }}
     >
       <nav style={{ ...styles.deviceNav, ...(isMobile ? styles.deviceNavMobile : {}) }}>
@@ -2654,7 +2652,6 @@ function DeviceSidebar({
           {!collapsed ? <span>{t(overviewItem.key)}</span> : null}
         </button>
 
-        {!collapsed ? <div style={styles.sidebarSectionTitle}>{t("monitoring")}</div> : null}
         {monitoringItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2676,7 +2673,6 @@ function DeviceSidebar({
           );
         })}
 
-        {!collapsed ? <div style={styles.sidebarSectionTitle}>{t("system")}</div> : null}
         {systemItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -3758,6 +3754,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   }, [selectedDeviceId]);
 
   useEffect(() => {
+    if (!DEVICE_NAV_SECTIONS.some((item) => item.key === activeDeviceSection)) {
+      setActiveDeviceSection("overview");
+    }
+  }, [activeDeviceSection]);
+
+  useEffect(() => {
     if (!selectedDeviceId) return;
 
     const channel = supabase
@@ -4455,7 +4457,13 @@ async function downloadPdfReport() {
             }}
           />
 
-          <div style={styles.deviceWorkspace}>
+          <div
+            key={activeDeviceSection}
+            style={{
+              ...styles.deviceWorkspace,
+              ...styles.sectionTransition,
+            }}
+          >
         <section
           style={{
             ...styles.operationStrip,
@@ -4534,6 +4542,11 @@ async function downloadPdfReport() {
                 tone={currentTempTone}
                 accentLabel={isDeviceOffline ? t("offline") : t("realtime")}
                 icon={Thermometer}
+                subvalue={
+                  tempLow !== null && tempHigh !== null
+                    ? `${t("limits")}: ${formatValue(tempLow, " °C")} - ${formatValue(tempHigh, " °C")}`
+                    : t("noLimits")
+                }
               />
               <MetricBox
                 label={isDeviceOffline ? t("lastHumidity") : t("currentHumidity")}
@@ -4541,21 +4554,17 @@ async function downloadPdfReport() {
                 tone={currentHumTone}
                 accentLabel={isDeviceOffline ? t("offline") : t("realtime")}
                 icon={Droplets}
+                subvalue={
+                  humLow !== null && humHigh !== null
+                    ? `${t("limits")}: ${formatValue(humLow, " %", 0)} - ${formatValue(humHigh, " %", 0)}`
+                    : t("noLimits")
+                }
               />
             </div>
           </div>
 
-          <div
-            style={{
-              ...styles.heroRight,
-              display: "none",
-              borderLeft: isMobile ? "none" : styles.heroRight.borderLeft,
-              borderTop: isMobile ? "1px solid rgba(148, 163, 184, 0.28)" : "none",
-              paddingLeft: isMobile ? "0" : styles.heroRight.paddingLeft,
-              paddingTop: isMobile ? "16px" : "0",
-            }}
-          >
-            <div style={styles.sideTitle}>Resumo executivo 24h</div>
+            <div style={styles.overviewSummaryPanel}>
+            <div style={styles.sideTitle}>{t("summary24h")}</div>
 
             <div style={styles.sideSummary}>
               <div style={styles.summaryBlock}>
@@ -4581,65 +4590,13 @@ async function downloadPdfReport() {
           </div>
           </section>
 
-        </section>
-
-        {activeDeviceSection === "readings" ? (
-          <section style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div>
-                <div style={styles.cardTitle}>{t("readingsTitle")}</div>
-                <div style={styles.cardHint}>{t("readingsHint")}</div>
-              </div>
-            </div>
-            <div
-              style={{
-                ...styles.metricsRow,
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
-              }}
-            >
-              <MetricBox
-                label={t("indoorTemperature")}
-                value={isDeviceOffline ? "-" : currentTempValue}
-                tone={currentTempTone}
-                accentLabel="Interior"
-                icon={Thermometer}
-                subvalue={
-                  tempLow !== null && tempHigh !== null
-                    ? `${t("limits")}: ${formatValue(tempLow, " °C")} - ${formatValue(tempHigh, " °C")}`
-                    : t("noLimits")
-                }
-              />
-              <MetricBox
-                label={t("indoorHumidity")}
-                value={isDeviceOffline ? "-" : currentHumValue}
-                tone={currentHumTone}
-                accentLabel="Interior"
-                icon={Droplets}
-                subvalue={
-                  humLow !== null && humHigh !== null
-                    ? `${t("limits")}: ${formatValue(humLow, " %", 0)} - ${formatValue(humHigh, " %", 0)}`
-                    : t("noLimits")
-                }
-              />
-              <MetricBox
-                label={t("summary24h")}
-                value={`${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
-                tone="neutral"
-                accentLabel={t("minMax")}
-                icon={Activity}
-                subvalue={`Humidade: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
-              />
-            </div>
-          </section>
-        ) : null}
-
-        {activeDeviceSection === "readings" ? (
           <UnifiedPredictionCard
             prediction={predictiveStatus}
             isOffline={effectiveStatus === "OFFLINE"}
             theme={theme}
           />
-        ) : null}
+
+        </section>
 
         <section
           id="maintenance"
@@ -5715,9 +5672,16 @@ const styles = {
     gap: "16px",
   },
 
+  sectionTransition: {
+    animation: "stsPanelIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both",
+  },
+
   appSidebar: {
     position: "sticky",
     top: "16px",
+    width: "100%",
+    alignSelf: "stretch",
+    minHeight: "calc(100vh - 112px)",
     maxHeight: "calc(100vh - 32px)",
     overflowY: "auto",
     background: "var(--sts-sidebar-bg)",
@@ -5733,6 +5697,7 @@ const styles = {
     padding: "12px",
     borderRadius: "18px",
     overflowX: "hidden",
+    minHeight: "calc(100vh - 112px)",
   },
 
   appSidebarMobile: {
@@ -5951,6 +5916,7 @@ const styles = {
 
   deviceNavItem: {
     width: "100%",
+    minHeight: "42px",
     border: "1px solid transparent",
     background: "transparent",
     color: "#94a3b8",
@@ -5968,6 +5934,7 @@ const styles = {
   deviceNavItemCollapsed: {
     justifyContent: "center",
     padding: "10px",
+    gap: 0,
   },
 
   deviceNavItemMobile: {
@@ -6701,17 +6668,25 @@ const styles = {
     color: "var(--sts-text)",
   },
 
+  overviewSummaryPanel: {
+    marginTop: "2px",
+    paddingTop: "14px",
+    borderTop: "1px solid rgba(148, 163, 184, 0.16)",
+    display: "grid",
+    gap: "10px",
+  },
+
   sideSummary: {
     display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "10px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: "8px",
   },
 
   summaryBlock: {
     background: "var(--sts-surface-soft)",
     border: "1px solid var(--sts-border)",
-    borderRadius: "12px",
-    padding: "14px",
+    borderRadius: "10px",
+    padding: "10px 11px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -6722,12 +6697,14 @@ const styles = {
 
   summaryLabel: {
     color: "var(--sts-muted)",
-    fontSize: "13px",
+    fontSize: "11px",
     fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
   },
 
   summaryValue: {
-    fontSize: "15px",
+    fontSize: "14px",
     fontWeight: 800,
     color: "var(--sts-text)",
     wordBreak: "break-word",
