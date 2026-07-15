@@ -6023,8 +6023,11 @@ const styles = {
   entryCompany: {
     border: "1px solid var(--sts-border)",
     background: "linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(8, 13, 23, 0.72))",
-    borderRadius: "14px",
-    padding: "14px",
+    borderRadius: "16px",
+    padding: "16px",
+    minHeight: "240px",
+    display: "flex",
+    flexDirection: "column",
   },
 
   entryCompanyTitle: {
@@ -6096,8 +6099,11 @@ const styles = {
 
   entryDevices: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: "10px",
+    gridTemplateColumns: "repeat(auto-fill, minmax(210px, 240px))",
+    alignContent: "start",
+    justifyContent: "start",
+    gap: "12px",
+    flex: 1,
   },
 
   entryDeviceButton: {
@@ -6114,7 +6120,8 @@ const styles = {
     textAlign: "left",
     justifyContent: "flex-start",
     minWidth: 0,
-    minHeight: "54px",
+    minHeight: "62px",
+    width: "100%",
     transition: "border-color 160ms ease, background 160ms ease, transform 160ms ease",
   },
 
