@@ -2894,12 +2894,12 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
   const selected = toneMap[prediction?.level] || toneMap.unknown;
   const hasSpecificSource =
     prediction?.source && String(prediction.source).toLowerCase() !== "none";
-  const shouldShowSourceLabel = isOffline || hasSpecificSource;
   const shouldShowAdvice =
     isOffline ||
     prediction?.level === "medium" ||
     prediction?.level === "high" ||
     (prediction?.level === "unknown" && hasSpecificSource);
+  const predictionInfoText = "Leitura preditiva resumida do comportamento recente.";
 
   return (
     <section
@@ -2911,11 +2911,17 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
     >
       <div style={styles.smartSurfaceHeader}>
         <div>
-          <div style={styles.smartSurfaceEyebrow}>Análise preditiva</div>
-          <div style={styles.cardTitle}>Tendência de risco</div>
-          <div style={styles.smartSurfaceHint}>
-            Leitura preditiva resumida do comportamento recente
+          <div style={styles.smartSurfaceEyebrowRow}>
+            <div style={styles.smartSurfaceEyebrow}>Análise preditiva</div>
+            <span
+              aria-label={predictionInfoText}
+              title={predictionInfoText}
+              style={styles.infoTooltipIcon}
+            >
+              <Info size={13} />
+            </span>
           </div>
+          <div style={styles.predictionSectionTitle}>Tendência de risco</div>
         </div>
 
         <div
@@ -2939,12 +2945,6 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
       <div style={styles.predictionMainDetail}>
         {prediction?.detail || "Sem dados recentes para prever tendência."}
       </div>
-
-      {shouldShowSourceLabel ? (
-        <div style={styles.predictionSourceLabel}>
-          {prediction?.source_label || "Sem dados recentes"}
-        </div>
-      ) : null}
 
       {shouldShowAdvice && (prediction?.cause || prediction?.action) ? (
         <div style={styles.predictionAdviceGrid}>
@@ -6737,7 +6737,7 @@ const styles = {
   },
 
   predictionMainTitle: {
-    fontSize: "30px",
+    fontSize: "32px",
     lineHeight: 1.05,
     fontWeight: 900,
     letterSpacing: 0,
@@ -6745,16 +6745,10 @@ const styles = {
   },
 
   predictionMainDetail: {
-    fontSize: "15px",
+    fontSize: "16px",
     color: "var(--sts-text)",
     fontWeight: 700,
     marginBottom: "8px",
-  },
-
-  predictionSourceLabel: {
-    fontSize: "13px",
-    color: "var(--sts-muted)",
-    fontWeight: 700,
   },
 
   predictionAdviceGrid: {
@@ -6793,7 +6787,7 @@ const styles = {
   smartSurfaceCard: {
     border: "1px solid var(--sts-border-strong)",
     borderRadius: "16px",
-    padding: "18px 20px",
+    padding: "22px 24px",
     boxShadow: "var(--sts-shadow)",
     overflow: "hidden",
   },
@@ -6813,14 +6807,35 @@ const styles = {
     color: "#0f766e",
     textTransform: "uppercase",
     letterSpacing: "0.12em",
-    marginBottom: "5px",
   },
 
-  smartSurfaceHint: {
-    color: "var(--sts-muted)",
-    fontSize: "13px",
-    lineHeight: 1.45,
-    fontWeight: 700,
+  smartSurfaceEyebrowRow: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+    marginBottom: "6px",
+  },
+
+  infoTooltipIcon: {
+    width: "19px",
+    height: "19px",
+    borderRadius: "999px",
+    border: "1px solid var(--sts-border-strong)",
+    background: "rgba(148, 163, 184, 0.10)",
+    color: "var(--sts-muted-strong)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "help",
+    flexShrink: 0,
+  },
+
+  predictionSectionTitle: {
+    fontSize: "19px",
+    lineHeight: 1.15,
+    fontWeight: 900,
+    color: "var(--sts-text)",
+    letterSpacing: 0,
   },
 
   smartSignalLine: {
