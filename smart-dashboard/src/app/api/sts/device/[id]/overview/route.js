@@ -259,8 +259,6 @@ export async function GET(_request, context) {
     const config = normalizeConfig(device.config || {});
     const contactTimes = [
       device.last_seen,
-      device.last_contact_at,
-      device.updated_at,
       latestReading?.created_at,
     ]
       .map((value) => (value ? new Date(value).getTime() : null))

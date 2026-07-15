@@ -3270,8 +3270,6 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
       currentReading?.humidity ?? deviceRow?.last_humidity ?? latestReading?.humidity ?? null;
 
     const contactTimes = [
-      deviceRow?.last_contact_at,
-      deviceRow?.updated_at,
       deviceRow?.last_seen,
       currentReading?.created_at,
     ]
