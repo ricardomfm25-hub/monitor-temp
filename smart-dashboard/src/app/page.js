@@ -2900,6 +2900,10 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
     prediction?.level === "high" ||
     (prediction?.level === "unknown" && hasSpecificSource);
   const predictionInfoText = "Leitura preditiva resumida do comportamento recente.";
+  const predictionBadge =
+    prediction?.level === "medium" || prediction?.level === "high"
+      ? "Atenção"
+      : prediction?.chip || "Sem dados";
 
   return (
     <section
@@ -2912,16 +2916,19 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
       <div style={styles.smartSurfaceHeader}>
         <div>
           <div style={styles.smartSurfaceEyebrowRow}>
-            <div style={styles.smartSurfaceEyebrow}>Análise preditiva</div>
+            <div style={styles.smartSurfaceEyebrow}>Análise Preditiva</div>
             <span
               aria-label={predictionInfoText}
-              title={predictionInfoText}
+              className="sts-info-tooltip"
               style={styles.infoTooltipIcon}
             >
               <Info size={13} />
+              <span className="sts-info-tooltip-content">
+                <strong>Tendência de Risco</strong>
+                <span>{predictionInfoText}</span>
+              </span>
             </span>
           </div>
-          <div style={styles.predictionSectionTitle}>Tendência de risco</div>
         </div>
 
         <div
@@ -2932,7 +2939,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
             color: selected.badgeColor,
           }}
         >
-          {prediction?.chip || "Sem dados"}
+          {predictionBadge}
         </div>
       </div>
 
@@ -6789,7 +6796,7 @@ const styles = {
     borderRadius: "16px",
     padding: "22px 24px",
     boxShadow: "var(--sts-shadow)",
-    overflow: "hidden",
+    overflow: "visible",
   },
 
   smartSurfaceHeader: {
@@ -6802,18 +6809,17 @@ const styles = {
   },
 
   smartSurfaceEyebrow: {
-    fontSize: "10px",
+    fontSize: "18px",
     fontWeight: 900,
-    color: "#0f766e",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
+    color: "var(--sts-text)",
+    letterSpacing: 0,
   },
 
   smartSurfaceEyebrowRow: {
     display: "inline-flex",
     alignItems: "center",
     gap: "7px",
-    marginBottom: "6px",
+    marginBottom: "2px",
   },
 
   infoTooltipIcon: {
@@ -6828,14 +6834,6 @@ const styles = {
     justifyContent: "center",
     cursor: "help",
     flexShrink: 0,
-  },
-
-  predictionSectionTitle: {
-    fontSize: "19px",
-    lineHeight: 1.15,
-    fontWeight: 900,
-    color: "var(--sts-text)",
-    letterSpacing: 0,
   },
 
   smartSignalLine: {
