@@ -654,6 +654,20 @@ function isMissingReadingTelemetryColumnError(error) {
   );
 }
 
+function isMissingReadingOperationalColumnError(error) {
+  const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
+  return (
+    text.includes("PGRST204") ||
+    text.includes("42703") ||
+    /column .*alarm_ack_count/i.test(text) ||
+    /column .*alarm_event_count/i.test(text) ||
+    /column .*alarm_mask/i.test(text) ||
+    /column .*device_status/i.test(text) ||
+    /column .*alarm_ack/i.test(text) ||
+    /column .*alarm_reason/i.test(text)
+  );
+}
+
 function isMissingDeviceContactColumnError(error) {
   const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
   return (
@@ -2923,11 +2937,13 @@ app.post("/api/check-devices-health", async (req, res) => {
 
 // -------------------- API TEMPERATURA --------------------
 app.post("/api/temperature", async (req, res) => {
+  let failureStage = "inicio";
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
   try {
+    failureStage = "validacao_payload";
     const {
       device_id,
       temperature,
@@ -2970,6 +2986,7 @@ app.post("/api/temperature", async (req, res) => {
         .json({ error: "temperature e humidity devem ser numéricos" });
     }
 
+    failureStage = "ler_dispositivo";
     const { data: existingDeviceRow, error: deviceFetchError } = await supabase
       .from("devices")
       .select("*")
@@ -3051,7 +3068,8 @@ app.post("/api/temperature", async (req, res) => {
       Boolean(existingDeviceRow) &&
       (isOfflineCapturedReading(incomingReadingMeta, cfg) || isQueuedOlderThanCurrent);
 
-    const { data: latestReadingForRate, error: latestReadingForRateError } =
+    failureStage = "validar_cadencia";
+    let { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
         .from("readings")
         .select("created_at, alarm_ack_count, alarm_event_count, alarm_mask")
@@ -3059,6 +3077,22 @@ app.post("/api/temperature", async (req, res) => {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+
+    if (
+      latestReadingForRateError &&
+      isMissingReadingOperationalColumnError(latestReadingForRateError)
+    ) {
+      const fallbackLatestResult = await supabase
+        .from("readings")
+        .select("created_at")
+        .eq("device_id", device_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      latestReadingForRate = fallbackLatestResult.data;
+      latestReadingForRateError = fallbackLatestResult.error;
+    }
 
     if (latestReadingForRateError) {
       console.error("Erro ao validar cadÃªncia de leituras:", latestReadingForRateError);
@@ -3072,14 +3106,23 @@ app.post("/api/temperature", async (req, res) => {
     });
 
     if (storedReading) {
+      failureStage = "inserir_leitura";
       const insertReadingsResult = await supabase.from("readings").insert([
         enrichedReadingPayload,
       ]);
 
       if (insertReadingsResult.error) {
-        if (isMissingReadingTelemetryColumnError(insertReadingsResult.error)) {
+        if (
+          isMissingReadingTelemetryColumnError(insertReadingsResult.error) ||
+          isMissingReadingOperationalColumnError(insertReadingsResult.error)
+        ) {
           const fallbackInsertResult = await supabase.from("readings").insert([
-            readingPayload,
+            {
+              device_id,
+              temperature: numericTemperature,
+              humidity: numericHumidity,
+              created_at: readingCreatedAt,
+            },
           ]);
 
           if (fallbackInsertResult.error) {
@@ -3128,6 +3171,7 @@ app.post("/api/temperature", async (req, res) => {
       upsertPayload.status = statusToDbLabel(telemetryStatus);
     }
 
+    failureStage = "atualizar_dispositivo";
     const { error: upsertError } = await supabase
       .from("devices")
       .upsert([upsertPayload], { onConflict: "device_id" });
@@ -3137,6 +3181,7 @@ app.post("/api/temperature", async (req, res) => {
       return res.status(500).json({ error: "Erro ao atualizar dispositivo" });
     }
 
+    failureStage = "reler_dispositivo";
     const { data: freshDeviceRow, error: freshDeviceError } = await supabase
       .from("devices")
       .select("*")
@@ -3152,6 +3197,7 @@ app.post("/api/temperature", async (req, res) => {
 
     const refreshedCfg = getDeviceConfig(freshDeviceRow);
 
+    failureStage = "processar_alertas";
     const nextAlertState = isHistoricalBackfill
       ? { ...refreshedCfg.alert_state }
       : await processTriggeredAndResolvedAlerts({
@@ -3191,6 +3237,7 @@ app.post("/api/temperature", async (req, res) => {
       nextAlertState.alarm_last_ack_count = incomingAckCount;
     }
 
+    failureStage = "atualizar_config_final";
     const finalConfig = mergeAlertStateIntoConfig(freshDeviceRow, nextAlertState);
 
     await updateDeviceConfigAndStatus(freshDeviceRow, {
@@ -3201,15 +3248,21 @@ app.post("/api/temperature", async (req, res) => {
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });
 
-    const last24hReadings = await getRecentReadingsForAnalysis(device_id, 24);
-    const communicationHealth = getCommunicationHealth({
-      readings: last24hReadings,
-      sendIntervalS: refreshedCfg.send_interval_s,
-      deviceLastSeen: currentNowIso,
-      periodHours: 24,
-    });
+    let communicationHealth = null;
+    let predictiveStatus = null;
 
-    const predictiveStatus = getPredictiveStatus(last24hReadings, refreshedCfg);
+    try {
+      const last24hReadings = await getRecentReadingsForAnalysis(device_id, 24);
+      communicationHealth = getCommunicationHealth({
+        readings: last24hReadings,
+        sendIntervalS: refreshedCfg.send_interval_s,
+        deviceLastSeen: currentNowIso,
+        periodHours: 24,
+      });
+      predictiveStatus = getPredictiveStatus(last24hReadings, refreshedCfg);
+    } catch (analysisError) {
+      console.error("Analise pos-leitura falhou:", analysisError);
+    }
 
     res.json({
       message: "OK",
@@ -3221,8 +3274,11 @@ app.post("/api/temperature", async (req, res) => {
       predictive_status: predictiveStatus,
     });
   } catch (error) {
-    console.error("Erro em /api/temperature:", error);
-    res.status(500).json({ error: "Erro interno no servidor" });
+    console.error(`Erro em /api/temperature [${failureStage}]:`, error);
+    res.status(500).json({
+      error: "Erro interno no servidor",
+      stage: failureStage,
+    });
   }
 });
 
