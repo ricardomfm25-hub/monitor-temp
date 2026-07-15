@@ -3032,7 +3032,10 @@ app.post("/api/temperature", async (req, res) => {
     const enrichedReadingPayload = {
       ...readingPayload,
       ...persistedReadingMeta,
-      offline_captured: isOfflineCapturedReading(incomingReadingMeta, cfg),
+      offline_captured:
+        incomingReadingMeta.captured_offline === null
+          ? false
+          : incomingReadingMeta.captured_offline,
     };
     const incomingCreatedTs = new Date(readingCreatedAt).getTime();
     const existingLastSeenTs = existingDeviceRow?.last_seen
@@ -3046,7 +3049,7 @@ app.post("/api/temperature", async (req, res) => {
       incomingCreatedTs + 1000 < existingLastSeenTs;
     const isHistoricalBackfill =
       Boolean(existingDeviceRow) &&
-      (enrichedReadingPayload.offline_captured || isQueuedOlderThanCurrent);
+      (isOfflineCapturedReading(incomingReadingMeta, cfg) || isQueuedOlderThanCurrent);
 
     const { data: latestReadingForRate, error: latestReadingForRateError } =
       await supabase
