@@ -1144,7 +1144,7 @@ function buildNearLimitSignal({ latest, lowLimit, highLimit, type }) {
     active: true,
     severity: "medium",
     eta_minutes: null,
-    title: "Atenção preventiva",
+    title: "Atenção",
     detail: `${metric} muito próxima do limite ${isHigh ? "máximo" : "mínimo"} (${formatMetricValue(nearest.limit, type)}).`,
     cause: "Valor ainda dentro do intervalo, mas com margem curta face ao limite configurado.",
     action: type === "temperature"
@@ -2900,10 +2900,6 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
     prediction?.level === "high" ||
     (prediction?.level === "unknown" && hasSpecificSource);
   const predictionInfoText = "Leitura preditiva resumida do comportamento recente.";
-  const predictionBadge =
-    prediction?.level === "medium" || prediction?.level === "high"
-      ? "Atenção"
-      : prediction?.chip || "Sem dados";
 
   return (
     <section
@@ -2939,7 +2935,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
             color: selected.badgeColor,
           }}
         >
-          {predictionBadge}
+          {prediction?.chip || "Sem dados"}
         </div>
       </div>
 
