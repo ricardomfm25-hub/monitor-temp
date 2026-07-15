@@ -7,15 +7,16 @@ import { createClient } from "../utils/supabase/client";
 import {
   BarChart3,
   Bell,
-  CircleGauge,
   Clock,
   Droplets,
+  HeartPulse,
   Home,
   Info,
   LayoutDashboard,
   MapPin,
   RotateCw,
   Settings,
+  Snowflake,
   Thermometer,
   Wrench,
   Wifi,
@@ -2605,7 +2606,7 @@ const DEVICE_NAV_SECTIONS = [
   { key: "overview", label: "Overview", group: "main", icon: LayoutDashboard },
   { key: "charts", label: "Charts", group: "Monitoring", icon: BarChart3 },
   { key: "alerts", label: "Alerts", group: "Monitoring", icon: Bell },
-  { key: "diagnostics", label: "Diagnostics", group: "System", icon: CircleGauge },
+  { key: "diagnostics", label: "Diagnostics", group: "System", icon: HeartPulse },
   { key: "settings", label: "Settings", group: "System", icon: Settings },
   { key: "information", label: "Information", group: "System", icon: Info },
 ];
@@ -2713,8 +2714,13 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
               building.rooms.map((room) => (
                 <div key={`${company.name}-${building.name}-${room.name}`} style={styles.entryCompany}>
                   <div style={styles.entryCompanyTitle}>
-                    <span style={styles.clientMenuEmoji}>{getLocationEmoji(room.devices[0])}</span>
-                    <span>{room.name}</span>
+                    <span style={styles.entryLocationIcon}>
+                      <MapPin size={17} />
+                    </span>
+                    <div>
+                      <span style={styles.entryLocationLabel}>{t("location")}</span>
+                      <span style={styles.entryLocationName}>{room.name}</span>
+                    </div>
                   </div>
                   <div style={styles.entryDevices}>
                     {room.devices.map((item) => {
@@ -2732,7 +2738,9 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                           onClick={() => onSelectDevice(item.device_id)}
                           style={styles.entryDeviceButton}
                         >
-                          <span style={styles.clientMenuEmoji}>{getDeviceEmoji(item)}</span>
+                          <span style={styles.entryDeviceIcon}>
+                            <Snowflake size={17} />
+                          </span>
                           <span
                             style={{
                               ...styles.treeDeviceDot,
@@ -5964,11 +5972,11 @@ const styles = {
 
   entryPanel: {
     width: "100%",
-    maxWidth: "760px",
+    maxWidth: "680px",
     background: "var(--sts-surface)",
     border: "1px solid var(--sts-border)",
-    borderRadius: "20px",
-    padding: "14px",
+    borderRadius: "18px",
+    padding: "16px",
     boxShadow: "0 28px 64px rgba(0, 0, 0, 0.26)",
     backdropFilter: "blur(18px)",
   },
@@ -6008,25 +6016,56 @@ const styles = {
 
   entryTree: {
     display: "grid",
-    gap: "10px",
+    gap: "12px",
     marginTop: 0,
   },
 
   entryCompany: {
     border: "1px solid var(--sts-border)",
-    background: "rgba(15, 23, 42, 0.52)",
-    borderRadius: "16px",
-    padding: "12px",
+    background: "linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(8, 13, 23, 0.72))",
+    borderRadius: "14px",
+    padding: "14px",
   },
 
   entryCompanyTitle: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    gap: "10px",
     color: "#f8fafc",
     fontSize: "13px",
     fontWeight: 900,
-    marginBottom: "10px",
+    marginBottom: "12px",
+  },
+
+  entryLocationIcon: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "11px",
+    border: "1px solid rgba(94, 234, 212, 0.22)",
+    background: "rgba(20, 184, 166, 0.12)",
+    color: "#5eead4",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  entryLocationLabel: {
+    display: "block",
+    color: "#64748b",
+    fontSize: "10px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    marginBottom: "2px",
+  },
+
+  entryLocationName: {
+    display: "block",
+    color: "var(--sts-text)",
+    fontSize: "15px",
+    fontWeight: 900,
+    overflowWrap: "anywhere",
   },
 
   entryBuilding: {
@@ -6057,16 +6096,16 @@ const styles = {
 
   entryDevices: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(168px, 1fr))",
-    gap: "8px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: "10px",
   },
 
   entryDeviceButton: {
-    border: "1px solid var(--sts-border)",
-    background: "rgba(8, 13, 23, 0.62)",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "rgba(8, 13, 23, 0.70)",
     color: "#e2e8f0",
-    borderRadius: "12px",
-    padding: "10px",
+    borderRadius: "10px",
+    padding: "12px",
     display: "flex",
     alignItems: "center",
     gap: "10px",
@@ -6075,6 +6114,21 @@ const styles = {
     textAlign: "left",
     justifyContent: "flex-start",
     minWidth: 0,
+    minHeight: "54px",
+    transition: "border-color 160ms ease, background 160ms ease, transform 160ms ease",
+  },
+
+  entryDeviceIcon: {
+    width: "32px",
+    height: "32px",
+    borderRadius: "10px",
+    border: "1px solid rgba(125, 211, 252, 0.22)",
+    background: "rgba(14, 165, 233, 0.12)",
+    color: "#7dd3fc",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
 
   operationStrip: {
