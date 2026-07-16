@@ -1186,7 +1186,7 @@ function buildRiskNarrative({ type, side, deviation, durationMin, direction, eta
   }
 
   return {
-    title: "Risco baixo",
+    title: "Normal",
     detail: "Sem tendência relevante nas últimas leituras recentes.",
     cause: "Dados dentro do comportamento esperado.",
     action: "Manter monitorização normal.",
@@ -1589,7 +1589,7 @@ function buildPredictiveSignal({
     active: false,
     severity: "none",
     eta_minutes: null,
-    title: "Risco baixo",
+    title: "Normal",
     detail: "Sem tendência relevante nas últimas leituras recentes.",
     cause: "Valores dentro do comportamento esperado.",
     action: "Manter monitorização normal.",
@@ -1639,7 +1639,7 @@ if (!best || best.score <= 0) {
     detail: "Sem tendência relevante nas últimas leituras recentes.",
     cause: "Valores dentro do comportamento esperado face aos limites definidos.",
     action: "Manter monitorização normal.",
-    chip: "Baixo",
+    chip: "Normal",
     source: "none",
     source_label: "Sem variável crítica",
     eta_minutes: null,
@@ -3496,6 +3496,7 @@ const [reportPeriod, setReportPeriod] = useState("24h");
   const [lastRefreshError, setLastRefreshError] = useState("");
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
+  const [clearingAlerts, setClearingAlerts] = useState(false);
   const [deviceOverview, setDeviceOverview] = useState(null);
 const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
@@ -3529,6 +3530,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const [clientMessage, setClientMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
+  const [alertActionMessage, setAlertActionMessage] = useState("");
   const [pageError, setPageError] = useState("");
   const [activeDeviceSection, setActiveDeviceSection] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -4069,20 +4071,49 @@ const communicationHealth = useMemo(
     return alerts.filter((item) => getAlertTimestamp(item) >= cutoff);
   }, [alerts]);
 
-  const activeAlerts = useMemo(
-    () =>
-      alerts.filter((item) => {
-        const level = String(item?.level || "").toLowerCase();
-        return (
-          !level.includes("ack") &&
-          !level.includes("resolved") &&
-          (level.includes("alert") ||
-            level.includes("alarm") ||
-            level.includes("critical"))
-        );
-      }),
-    [alerts]
-  );
+  const activeAlerts = useMemo(() => {
+    const alertState = config?.alert_state || {};
+    const activeTypes = new Set();
+    if (alertState.temp_active) activeTypes.add("temperature");
+    if (alertState.hum_active) activeTypes.add("humidity");
+    if (alertState.offline_active) activeTypes.add("offline");
+
+    const sorted = [...alerts].sort(
+      (a, b) => getAlertTimestamp(b) - getAlertTimestamp(a)
+    );
+
+    if (activeTypes.size > 0) {
+      const latestActiveByType = new Map();
+      for (const item of sorted) {
+        const type = String(item?.type || "").toLowerCase();
+        if (activeTypes.has(type) && !latestActiveByType.has(type)) {
+          latestActiveByType.set(type, item);
+        }
+      }
+
+      return [...latestActiveByType.values()].filter(
+        (item) => String(item?.event || "").toLowerCase() !== "resolved"
+      );
+    }
+
+    const latestByType = new Map();
+    for (const item of sorted) {
+      const type = String(item?.type || "system").toLowerCase();
+      if (!latestByType.has(type)) latestByType.set(type, item);
+    }
+
+    return [...latestByType.values()].filter((item) => {
+      const level = String(item?.level || "").toLowerCase();
+      const event = String(item?.event || "").toLowerCase();
+      return (
+        event !== "resolved" &&
+        !level.includes("ack") &&
+        (level.includes("alert") ||
+          level.includes("alarm") ||
+          level.includes("critical"))
+      );
+    });
+  }, [alerts, config?.alert_state]);
 
   const ackAlerts = useMemo(
     () =>
@@ -4138,20 +4169,28 @@ const communicationHealth = useMemo(
   const currentTempTone =
     effectiveStatus === "OFFLINE"
       ? "neutral"
+      : String(effectiveStatus || "").toLowerCase().match(/alarm|critical/) &&
+        ((tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh) ||
+          (tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow))
+      ? "bad"
       : tempHigh !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) > tempHigh
       ? "warn"
       : tempLow !== null && parseNumber(device?.last_temperature) !== null && parseNumber(device?.last_temperature) < tempLow
       ? "warn"
-      : "neutral";
+      : "good";
 
   const currentHumTone =
     effectiveStatus === "OFFLINE"
       ? "neutral"
+      : String(effectiveStatus || "").toLowerCase().match(/alarm|critical/) &&
+        ((humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh) ||
+          (humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow))
+      ? "bad"
       : humHigh !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) > humHigh
       ? "warn"
       : humLow !== null && parseNumber(device?.last_humidity) !== null && parseNumber(device?.last_humidity) < humLow
       ? "warn"
-      : "neutral";
+      : "good";
 
   const currentTempValue = formatValue(device?.last_temperature, " °C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
@@ -4344,6 +4383,34 @@ const communicationHealth = useMemo(
 
     setClientMessage("Configurações do cliente guardadas com sucesso.");
     setSavingClient(false);
+  }
+
+  async function clearActiveAlerts() {
+    if (!selectedDeviceId || !canEditSelectedDevice || clearingAlerts) return;
+
+    const confirmed = window.confirm(
+      "Regularizar alertas ativos deste dispositivo? O historico nao sera apagado."
+    );
+    if (!confirmed) return;
+
+    setClearingAlerts(true);
+    setAlertActionMessage("");
+
+    try {
+      const data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/alerts`, {
+        method: "POST",
+        body: JSON.stringify({
+          note: "Regularizacao manual: estado atual verificado como operacional.",
+        }),
+      });
+
+      setAlertActionMessage(data?.message || "Alertas regularizados com sucesso.");
+      await loadData({ silent: true, syncForms: true });
+    } catch (error) {
+      setAlertActionMessage(error?.message || "Erro ao regularizar alertas.");
+    } finally {
+      setClearingAlerts(false);
+    }
   }
 
   async function saveAdminConfig() {
@@ -4787,6 +4854,7 @@ async function downloadPdfReport() {
               setActiveDeviceSection("overview");
               setClientMessage("");
               setAdminMessage("");
+              setAlertActionMessage("");
               setPageError("");
               setRefreshing(true);
             }}
@@ -5474,16 +5542,44 @@ async function downloadPdfReport() {
       </div>
     </div>
 
-    {hasOlderAlerts ? (
-      <button
-        type="button"
-        onClick={() => setAlertsCollapsed((prev) => !prev)}
-        style={styles.collapseButton}
-      >
-        {alertsCollapsed ? t("minimize") : t("showAll")}
-      </button>
-    ) : null}
+    <div style={styles.alertHeaderActions}>
+      {canEditSelectedDevice && alerts.length ? (
+        <button
+          type="button"
+          onClick={clearActiveAlerts}
+          disabled={clearingAlerts}
+          style={{
+            ...styles.collapseButton,
+            ...(clearingAlerts ? styles.disabledButton : {}),
+          }}
+        >
+          {clearingAlerts ? "A regularizar..." : "Regularizar alertas"}
+        </button>
+      ) : null}
+
+      {hasOlderAlerts ? (
+        <button
+          type="button"
+          onClick={() => setAlertsCollapsed((prev) => !prev)}
+          style={styles.collapseButton}
+        >
+          {alertsCollapsed ? t("minimize") : t("showAll")}
+        </button>
+      ) : null}
+    </div>
   </div>
+
+  {alertActionMessage ? (
+    <div
+      style={
+        alertActionMessage.toLowerCase().includes("erro")
+          ? styles.errorTextInline
+          : styles.successText
+      }
+    >
+      {alertActionMessage}
+    </div>
+  ) : null}
 
   <div
     style={{
@@ -8081,6 +8177,14 @@ const styles = {
     marginBottom: "16px",
   },
 
+  alertHeaderActions: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+
   alertListHint: {
     color: "#64748b",
     fontSize: "12px",
@@ -8099,6 +8203,11 @@ collapseButton: {
   fontWeight: 800,
   fontSize: "12px",
 },
+
+  disabledButton: {
+    opacity: 0.58,
+    cursor: "not-allowed",
+  },
 
   alertRow: {
     background: "var(--sts-surface-soft)",
