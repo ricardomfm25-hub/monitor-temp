@@ -724,6 +724,16 @@ function getOfflineThresholdMs(sendIntervalS) {
   return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 6);
 }
 
+function formatFirmwareVersion(value) {
+  const text = String(value || "").trim();
+  if (!text) return "Versao nao identificada";
+  const match = text.match(/v?\d+\.\d+\.\d+/i);
+  if (!match) return text;
+  return match[0].toUpperCase().startsWith("V")
+    ? match[0].toUpperCase()
+    : `V${match[0]}`;
+}
+
 function getTemperatureAlertDirection(temperature, cfg) {
   if (temperature > cfg.temp_high_c) {
     return {
@@ -2966,6 +2976,7 @@ app.post("/api/temperature", async (req, res) => {
       captured_offline,
       queued_backfill,
       capture_network_known,
+      firmware_version,
     } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
@@ -3161,6 +3172,7 @@ app.post("/api/temperature", async (req, res) => {
       location: sanitizeLocation(baseDeviceRow.location),
       config: baseDeviceRow.config || {},
       config_version: baseDeviceRow.config_version || 1,
+      firmware_version: firmware_version || baseDeviceRow.firmware_version || null,
       last_seen: currentNowIso,
       updated_at: currentNowIso,
     };
@@ -3756,6 +3768,9 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     }
 
     const cfg = getDeviceConfig(deviceRow);
+    const firmwareVersion = formatFirmwareVersion(
+      deviceRow?.firmware_version || cfg?.firmware_version
+    );
     const communicationHealth = getCommunicationHealth({
       readings: rows,
       sendIntervalS: cfg.send_interval_s,
@@ -3829,6 +3844,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
                 blocks: [
                   { label: "Dispositivo", value: sanitizeDeviceName(deviceRow?.name, deviceId) },
                   { label: "Device ID", value: deviceId },
+                  { label: "Firmware", value: firmwareVersion },
                   { label: "Localização", value: sanitizeLocation(deviceRow?.location) },
                   { label: "Período", value: periodLabel },
                   {
@@ -3885,6 +3901,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11);
     doc.text("Dispositivo", 58, 126);
     doc.text("Device ID", 58, 151);
+    doc.text("Firmware", 58, 201);
     doc.text("Localização", 58, 176);
 
     doc.text("Período", 320, 126);
@@ -3894,6 +3911,7 @@ app.get(["/api/device/:id/report", "/api/dashboard/device/:id/report"], async (r
     doc.fillColor("#334155").font("Helvetica").fontSize(11);
     doc.text(sanitizeDeviceName(deviceRow?.name, deviceId), 140, 126);
     doc.text(deviceId, 140, 151);
+    doc.text(firmwareVersion, 140, 201);
     doc.text(sanitizeLocation(deviceRow?.location), 140, 176);
 
     doc.text(periodLabel, 390, 126);

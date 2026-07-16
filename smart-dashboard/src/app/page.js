@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
+import { FirmwareVersionBadge } from "./components/FirmwareVersionBadge";
 import {
   BarChart3,
   Bell,
@@ -3149,7 +3150,9 @@ function DataChart({
       : (value) => `${Number(value).toFixed(1)}`;
 
   const timeWindow = getPeriodWindow(periodKey);
-  const xTicks = getXAxisTicks(periodKey);
+  const xTicks = isMobile
+    ? getXAxisTicks(periodKey).filter((_, index) => index % 2 === 0)
+    : getXAxisTicks(periodKey);
   const hasData = data.some((item) =>
     chartKeys.some((key) => parseNumber(item?.[key]) !== null)
   );
@@ -3186,10 +3189,14 @@ function DataChart({
         <div style={styles.emptyChartState}>Sem leituras neste período.</div>
       ) : (
         <div style={styles.chartWrap}>
-          <ResponsiveContainer width="100%" height={isMobile ? 220 : 320}>
+          <ResponsiveContainer width="100%" height={isMobile ? 240 : 320} debounce={120}>
             <LineChart
               data={data}
-              margin={{ top: 20, right: 24, left: 8, bottom: 8 }}
+              margin={
+                isMobile
+                  ? { top: 18, right: 10, left: 0, bottom: 6 }
+                  : { top: 20, right: 24, left: 8, bottom: 8 }
+              }
             >
               <CartesianGrid
                 stroke="rgba(148, 163, 184, 0.14)"
@@ -3205,17 +3212,17 @@ function DataChart({
                 scale="time"
                 tickFormatter={(value) => formatShortTime(value, periodKey)}
                 stroke="#64748b"
-                tick={{ fontSize: 12, fill: "#64748b" }}
-                tickMargin={8}
-                minTickGap={24}
+                tick={{ fontSize: isMobile ? 10 : 12, fill: "#64748b" }}
+                tickMargin={isMobile ? 6 : 8}
+                minTickGap={isMobile ? 14 : 24}
               />
 
               <YAxis
                 stroke="#64748b"
-                tick={{ fontSize: 12, fill: "#64748b" }}
+                tick={{ fontSize: isMobile ? 10 : 12, fill: "#64748b" }}
                 domain={yDomain}
                 ticks={yTicks}
-                width={64}
+                width={isMobile ? 46 : 64}
                 tickMargin={8}
                 allowDecimals={dataKey === "temperature"}
                 tickFormatter={yTickFormatter}
@@ -3367,6 +3374,8 @@ const [reportPeriod, setReportPeriod] = useState("24h");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
+  const [loadState, setLoadState] = useState("initialLoading");
+  const [lastRefreshError, setLastRefreshError] = useState("");
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
   const [deviceOverview, setDeviceOverview] = useState(null);
@@ -3423,6 +3432,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     : null;
 
   const requestInFlightRef = useRef(false);
+  const requestSeqRef = useRef(0);
   const mountedRef = useRef(true);
   const skipNextProfileLanguageSaveRef = useRef(false);
   const skipNextProfileThemeSaveRef = useRef(false);
@@ -3522,17 +3532,28 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const loadData = useCallback(
     async ({ silent = false, syncForms = true } = {}) => {
-      if (requestInFlightRef.current) return;
-
+      const requestId = requestSeqRef.current + 1;
+      requestSeqRef.current = requestId;
       requestInFlightRef.current = true;
       setPageError("");
+      setLastRefreshError("");
+
+      const switchingDevice =
+        initialLoaded &&
+        Boolean(selectedDeviceId) &&
+        Boolean(device?.device_id) &&
+        device.device_id !== selectedDeviceId;
 
       if (!silent && mountedRef.current) {
         if (!initialLoaded) {
           setLoading(true);
+          setLoadState("initialLoading");
         } else {
           setRefreshing(true);
+          setLoadState(switchingDevice ? "deviceSwitchLoading" : "backgroundRefreshing");
         }
+      } else if (silent && mountedRef.current) {
+        setLoadState(initialLoaded ? "backgroundRefreshing" : "initialLoading");
       }
 
       try {
@@ -3679,6 +3700,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.clock_synced ?? baseDeviceData?.clock_synced ?? null,
               clock_sync_age_s:
                 overviewData?.clock_sync_age_s ?? baseDeviceData?.clock_sync_age_s ?? null,
+              firmware_version:
+                overviewData?.firmware_version ||
+                overviewData?.diagnostics?.firmware_version ||
+                baseDeviceData?.firmware_version ||
+                baseDeviceData?.config?.firmware_version ||
+                null,
               alerts_24h: overviewData?.alerts_24h ?? 0,
               total_readings_24h: overviewData?.total_readings_24h ?? 0,
               last_seen:
@@ -3723,7 +3750,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           ...currentAlerts,
         ]);
 
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || requestId !== requestSeqRef.current) return;
 
         if (nextSelectedDeviceId && nextSelectedDeviceId !== selectedDeviceId) {
           setSelectedDeviceId(nextSelectedDeviceId);
@@ -3768,22 +3795,32 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         }
 
         setInitialLoaded(true);
+        setLastRefreshError("");
+        setLoadState("loaded");
       } catch (error) {
         console.warn("loadData:", error);
-        if (mountedRef.current) {
-          setPageError(
-            error?.message || "Ocorreu um erro ao carregar os dados."
-          );
+        if (mountedRef.current && requestId === requestSeqRef.current) {
+          const message =
+            error?.message || "Ocorreu um erro ao carregar os dados.";
+          if (initialLoaded) {
+            setLastRefreshError(message);
+            setLoadState("error");
+          } else {
+            setPageError(message);
+            setLoadState("error");
+          }
         }
       } finally {
-        requestInFlightRef.current = false;
-        if (mountedRef.current) {
+        if (requestId === requestSeqRef.current) {
+          requestInFlightRef.current = false;
+        }
+        if (mountedRef.current && requestId === requestSeqRef.current) {
           setLoading(false);
           setRefreshing(false);
         }
       }
     },
-    [selectedDeviceId, supabase, router, initialLoaded]
+    [selectedDeviceId, supabase, router, initialLoaded, device?.device_id]
   );
 
   useEffect(() => {
@@ -3864,6 +3901,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const hystHum = parseNumber(config?.hyst_hum);
   const sendIntervalS = parseNumber(config?.send_interval_s);
   const displayStandbyMin = parseNumber(config?.display_standby_min);
+  const canEditTechnicalConfig =
+    isSuperAdmin ||
+    (canEditSelectedDevice && Boolean(config?.client_can_edit_technical));
 
   const liveReadings = useMemo(
     () => mergeLiveDeviceReading(readings, device),
@@ -3877,6 +3917,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
   const statusInfo = getStatusInfo(effectiveStatus);
+  const deviceSwitchLoading =
+    loadState === "deviceSwitchLoading" ||
+    (initialLoaded &&
+      Boolean(selectedDeviceId) &&
+      Boolean(device?.device_id) &&
+      device.device_id !== selectedDeviceId);
+  const backgroundRefreshing =
+    loadState === "backgroundRefreshing" && !deviceSwitchLoading;
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || "Selecionar dispositivo";
   const deviceLocation = device?.location || "Localização por definir";
 
@@ -4003,20 +4051,27 @@ const communicationHealth = useMemo(
     const newTempHigh = parseNumber(clientForm.temp_high_c);
     const newHumLow = parseNumber(clientForm.hum_low);
     const newHumHigh = parseNumber(clientForm.hum_high);
-    const newHyst = parseNumber(clientForm.hyst_c);
-    const newHystHum = parseNumber(clientForm.hyst_hum);
-    const newSendInterval = parseNumber(clientForm.send_interval_s);
-    const newDisplayStandby = parseNumber(clientForm.display_standby_min);
+    const newHyst = canEditTechnicalConfig ? parseNumber(clientForm.hyst_c) : null;
+    const newHystHum = canEditTechnicalConfig
+      ? parseNumber(clientForm.hyst_hum)
+      : null;
+    const newSendInterval = canEditTechnicalConfig
+      ? parseNumber(clientForm.send_interval_s)
+      : null;
+    const newDisplayStandby = canEditTechnicalConfig
+      ? parseNumber(clientForm.display_standby_min)
+      : null;
 
     if (
       newTempLow === null ||
       newTempHigh === null ||
       newHumLow === null ||
       newHumHigh === null ||
-      newHyst === null ||
-      newHystHum === null ||
-      newSendInterval === null ||
-      newDisplayStandby === null
+      (canEditTechnicalConfig &&
+        (newHyst === null ||
+          newHystHum === null ||
+          newSendInterval === null ||
+          newDisplayStandby === null))
     ) {
       setClientMessage("Preenche todos os campos do cliente com valores válidos.");
       setSavingClient(false);
@@ -4035,39 +4090,45 @@ const communicationHealth = useMemo(
       return;
     }
 
-    if (newHyst < 0 || newHystHum < 0) {
+    if (canEditTechnicalConfig && (newHyst < 0 || newHystHum < 0)) {
       setClientMessage("A histerese nao pode ser negativa.");
       setSavingClient(false);
       return;
     }
 
-    if (newSendInterval < 5) {
+    if (canEditTechnicalConfig && newSendInterval < 5) {
       setClientMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
       setSavingClient(false);
       return;
     }
 
-    if (newDisplayStandby < 0) {
+    if (canEditTechnicalConfig && newDisplayStandby < 0) {
       setClientMessage("O standby do display nao pode ser negativo.");
       setSavingClient(false);
       return;
     }
 
     let data;
+    const payload = {
+      temp_low_c: newTempLow,
+      temp_high_c: newTempHigh,
+      hum_low: newHumLow,
+      hum_high: newHumHigh,
+    };
+
+    if (canEditTechnicalConfig) {
+      Object.assign(payload, {
+        hyst_c: newHyst,
+        hyst_hum: newHystHum,
+        send_interval_s: newSendInterval,
+        display_standby_min: newDisplayStandby,
+      });
+    }
 
     try {
       data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
         method: "POST",
-        body: JSON.stringify({
-          temp_low_c: newTempLow,
-          temp_high_c: newTempHigh,
-          hum_low: newHumLow,
-          hum_high: newHumHigh,
-          hyst_c: newHyst,
-          hyst_hum: newHystHum,
-          send_interval_s: newSendInterval,
-          display_standby_min: newDisplayStandby,
-        }),
+        body: JSON.stringify(payload),
       });
     } catch (error) {
       setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
@@ -4345,6 +4406,12 @@ async function downloadPdfReport() {
                 <span>{deviceLocation}</span>
                 <span>•</span>
                 <span>{formatDateTime(device?.last_seen)} ({formatRelativeTime(device?.last_seen)})</span>
+                {deviceSwitchLoading || backgroundRefreshing ? (
+                  <>
+                    <span>...</span>
+                    <span style={styles.subtleLoadingText}>{t("updating")}</span>
+                  </>
+                ) : null}
               </div>
             </div>
             <div style={styles.headerStatusGroup}>
@@ -4508,6 +4575,11 @@ async function downloadPdfReport() {
         </div>
         )}
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
+        {lastRefreshError && initialLoaded ? (
+          <div style={styles.softWarningBanner}>
+            Atualizacao em segundo plano falhou. Mantidos os ultimos dados validos.
+          </div>
+        ) : null}
         {!selectedDeviceId && hasDevices ? (
           <DeviceEntryPicker
             devices={devices}
@@ -5097,6 +5169,8 @@ async function downloadPdfReport() {
             </div>
           </div>
 
+          {canEditTechnicalConfig ? (
+          <>
           <div style={styles.settingsSection}>
             <div>
               <div style={styles.settingsSectionTitle}>{t("stability")}</div>
@@ -5190,6 +5264,8 @@ async function downloadPdfReport() {
               </div>
             </div>
           </div>
+          </>
+          ) : null}
 
           {canEditSelectedDevice ? (
             <div style={styles.actionsRow}>
@@ -5233,7 +5309,19 @@ async function downloadPdfReport() {
               <InfoItem label={t("model")} value={STS_PRODUCT.product} icon={Thermometer} />
               <InfoItem label={t("deviceId")} value={selectedDeviceId || "-"} icon={Info} />
               <InfoItem label={t("location")} value={deviceLocation} icon={MapPin} />
-              <InfoItem label="Firmware" value={deviceOverview?.diagnostics?.firmware || device?.firmware_version || "-"} icon={Wrench} />
+              <InfoItem
+                label="Firmware"
+                value={
+                  <FirmwareVersionBadge
+                    value={
+                      device?.firmware_version ||
+                      deviceOverview?.firmware_version ||
+                      deviceOverview?.diagnostics?.firmware_version
+                    }
+                  />
+                }
+                icon={Wrench}
+              />
               <InfoItem label={t("configVersion")} value={device?.config_version ?? "-"} icon={Settings} />
               <InfoItem label={t("lastUpdate")} value={formatDateTime(device?.updated_at || device?.last_seen)} icon={Clock} />
             </div>
@@ -5559,11 +5647,12 @@ const styles = {
 
   title: {
     margin: 0,
-    fontSize: "26px",
+    fontSize: "clamp(20px, 2.4vw, 26px)",
     lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
     color: "var(--sts-text)",
+    overflowWrap: "anywhere",
   },
 
   deviceHeaderMain: {
@@ -5608,6 +5697,11 @@ const styles = {
     color: "#94a3b8",
     fontSize: "13px",
     fontWeight: 700,
+  },
+
+  subtleLoadingText: {
+    color: "#5eead4",
+    fontWeight: 900,
   },
 
   subtitle: {
@@ -5867,6 +5961,8 @@ const styles = {
     display: "grid",
     gap: "16px",
     alignItems: "start",
+    width: "100%",
+    minWidth: 0,
   },
 
   deviceWorkspace: {
@@ -6468,6 +6564,7 @@ const styles = {
     borderRadius: "16px",
     padding: "18px",
     overflow: "visible",
+    minWidth: 0,
     boxShadow: "var(--sts-shadow)",
     backdropFilter: "blur(16px)",
     transition: "border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease",
@@ -6483,7 +6580,7 @@ const styles = {
   },
 
   cardTitle: {
-    fontSize: "18px",
+    fontSize: "clamp(16px, 1.8vw, 18px)",
     fontWeight: 800,
     letterSpacing: 0,
     color: "var(--sts-text)",
@@ -6502,6 +6599,16 @@ const styles = {
     borderRadius: "12px",
     padding: "14px 16px",
     fontWeight: 700,
+  },
+
+  softWarningBanner: {
+    background: "rgba(245, 158, 11, 0.10)",
+    border: "1px solid rgba(245, 158, 11, 0.22)",
+    color: "#facc15",
+    borderRadius: "12px",
+    padding: "10px 14px",
+    fontSize: "13px",
+    fontWeight: 800,
   },
 
   emptyState: {
@@ -6606,7 +6713,7 @@ const styles = {
     padding: "6px 10px",
     fontSize: "11px",
     fontWeight: 800,
-    whiteSpace: "nowrap",
+    overflowWrap: "anywhere",
   },
 
   selectorChevron: {
@@ -6868,7 +6975,7 @@ const styles = {
   },
 
   metricValue: {
-    fontSize: "34px",
+    fontSize: "clamp(26px, 6vw, 34px)",
     lineHeight: 1,
     fontWeight: 900,
     letterSpacing: 0,
@@ -7166,6 +7273,7 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "18px",
+    minWidth: 0,
   },
 
   chartCard: {
@@ -7183,7 +7291,7 @@ const styles = {
   },
 
   chartTitle: {
-    fontSize: "18px",
+    fontSize: "clamp(16px, 2vw, 18px)",
     fontWeight: 800,
     color: "var(--sts-text)",
   },
@@ -7192,6 +7300,7 @@ const styles = {
     marginTop: "6px",
     fontSize: "13px",
     color: "var(--sts-muted)",
+    overflowWrap: "anywhere",
   },
 
   chartHint: {
@@ -7229,7 +7338,7 @@ const styles = {
   chartWrap: {
     width: "100%",
     minWidth: 0,
-    overflow: "hidden",
+    overflow: "visible",
     paddingTop: "4px",
   },
 

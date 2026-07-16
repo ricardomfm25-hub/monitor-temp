@@ -3,9 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
-
-const STS_SYSTEM_VERSION = "V2.4.46";
-const STS_ADMIN_VERSION = STS_SYSTEM_VERSION;
+import { FirmwareVersionBadge } from "../components/FirmwareVersionBadge";
 
 function toInputValue(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -136,6 +134,7 @@ export default function AdminPage() {
     hyst_hum: "",
     send_interval_s: "",
     display_standby_min: "",
+    client_can_edit_technical: false,
   });
 
   const [message, setMessage] = useState("");
@@ -354,6 +353,7 @@ export default function AdminPage() {
         hyst_hum: "",
         send_interval_s: "",
         display_standby_min: "",
+        client_can_edit_technical: false,
       });
       return;
     }
@@ -371,6 +371,7 @@ export default function AdminPage() {
       hyst_hum: toInputValue(config.hyst_hum),
       send_interval_s: toInputValue(config.send_interval_s),
       display_standby_min: toInputValue(config.display_standby_min),
+      client_can_edit_technical: Boolean(config.client_can_edit_technical),
     });
   }, [selectedDeviceData]);
 
@@ -859,6 +860,7 @@ export default function AdminPage() {
         hyst_hum: values.hyst_hum,
         send_interval_s: values.send_interval_s,
         display_standby_min: values.display_standby_min,
+        client_can_edit_technical: Boolean(deviceForm.client_can_edit_technical),
       };
 
       const { data, error } = await supabase
@@ -946,8 +948,10 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin {STS_SYSTEM_VERSION}</h1>
-            <div style={styles.versionBadge}>ADMIN PAGE - {STS_ADMIN_VERSION}</div>
+            <h1 style={styles.title}>STS Admin</h1>
+            <div style={styles.versionBadge}>
+              <FirmwareVersionBadge value={selectedDeviceData?.firmware_version} />
+            </div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
             </p>
@@ -1736,6 +1740,31 @@ export default function AdminPage() {
               <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
               <div style={styles.configGrid}>
                 <ConfigField
+                  label="Permissão do cliente"
+                  help="Quando ativo, clientes com edição podem alterar histerese, intervalo de envio e standby do display."
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        client_can_edit_technical: !prev.client_can_edit_technical,
+                      }))
+                    }
+                    style={{
+                      ...styles.togglePill,
+                      ...(deviceForm.client_can_edit_technical
+                        ? styles.togglePillActive
+                        : styles.togglePillInactive),
+                    }}
+                  >
+                    {deviceForm.client_can_edit_technical
+                      ? "Cliente pode editar"
+                      : "Apenas admin"}
+                  </button>
+                </ConfigField>
+
+                <ConfigField
                   label="Histerese temperatura (°C)"
                   help="Margem da temperatura para evitar alertas repetidos quando o valor anda muito perto do limite."
                 >
@@ -1834,6 +1863,10 @@ export default function AdminPage() {
               <SmallStat label="Device ID" value={selectedDeviceData.device_id || "-"} />
               <SmallStat label="Nome" value={selectedDeviceData.name || "-"} />
               <SmallStat label="Localização" value={selectedDeviceData.location || "-"} />
+              <SmallStat
+                label="Firmware"
+                value={<FirmwareVersionBadge value={selectedDeviceData.firmware_version} />}
+              />
               <SmallStat label="Config version" value={selectedDeviceData.config_version ?? "-"} />
               <SmallStat label="Atualizada em" value={formatDateTime(selectedDeviceData.updated_at)} />
               <SmallStat label="Last seen" value={formatDateTime(selectedDeviceData.last_seen)} />

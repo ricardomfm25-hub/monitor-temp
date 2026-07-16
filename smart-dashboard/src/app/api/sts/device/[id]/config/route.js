@@ -16,6 +16,7 @@ const NUMERIC_FIELDS = [
 
 const MIN_SEND_INTERVAL_SECONDS = 5;
 const MAX_SEND_INTERVAL_SECONDS = 60;
+const TECHNICAL_FIELDS = ["hyst_c", "hyst_hum", "send_interval_s", "display_standby_min"];
 
 function parseNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -32,6 +33,7 @@ function normalizeConfig(config = {}) {
     hum_high: parseNumber(config.hum_high) ?? 60,
     hyst_c: parseNumber(config.hyst_c) ?? 0.5,
     hyst_hum: parseNumber(config.hyst_hum) ?? 2,
+    client_can_edit_technical: Boolean(config.client_can_edit_technical),
     send_interval_s: Math.min(
       Math.max(parseNumber(config.send_interval_s) ?? 30, MIN_SEND_INTERVAL_SECONDS),
       MAX_SEND_INTERVAL_SECONDS
@@ -200,7 +202,22 @@ export async function POST(request, context) {
       return Response.json({ error: "Dispositivo não encontrado." }, { status: 404 });
     }
 
-    const nextConfig = normalizeConfig(device.config || {});
+    const currentConfig = normalizeConfig(device.config || {});
+    const nextConfig = { ...currentConfig };
+
+    const requestedTechnicalField = TECHNICAL_FIELDS.some(
+      (field) => body[field] !== undefined
+    );
+    if (
+      requestedTechnicalField &&
+      access.profile?.role !== "super_admin" &&
+      !currentConfig.client_can_edit_technical
+    ) {
+      return Response.json(
+        { error: "ConfiguraÃ§Ã£o tÃ©cnica reservada ao administrador." },
+        { status: 403 }
+      );
+    }
 
     for (const field of NUMERIC_FIELDS) {
       if (body[field] !== undefined) {
