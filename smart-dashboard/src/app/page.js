@@ -77,14 +77,26 @@ const I18N = {
     readOnly: "Read only",
     interface: "Interface",
     interfaceHint: "Dashboard display preferences",
+    chooseLanguage: "Language used across this client dashboard",
+    chooseTheme: "Visual comfort for the operation room",
     language: "Language",
     theme: "Theme",
     darkTheme: "Dark",
     lightTheme: "Light",
+    english: "English",
+    portuguese: "Portuguese",
     tempMin: "Minimum temperature (°C)",
     tempMax: "Maximum temperature (°C)",
     humMin: "Minimum humidity (%)",
     humMax: "Maximum humidity (%)",
+    stability: "Stability",
+    stabilityHint: "Fine tuning used to avoid repeated alerts close to the limit",
+    tempHysteresis: "Temperature hysteresis (C)",
+    humHysteresis: "Humidity hysteresis (%)",
+    deviceCadence: "Device cadence",
+    deviceCadenceHint: "How often the device sends readings and manages the display",
+    sendInterval: "Send interval (s)",
+    displayStandby: "Display standby (min)",
     saveSettings: "Save settings",
     saving: "Saving...",
     chartsPeriod: "Display period",
@@ -146,6 +158,18 @@ const I18N = {
     offline: "Offline",
     settingsTitle: "Configurações operacionais",
     settingsHint: "Limites operacionais por dispositivo",
+    chooseLanguage: "Idioma usado em toda a dashboard deste cliente",
+    chooseTheme: "Conforto visual para a sala de operacao",
+    english: "Ingles",
+    portuguese: "Portugues",
+    stability: "Estabilidade",
+    stabilityHint: "Ajuste fino usado para evitar alertas repetidos junto ao limite",
+    tempHysteresis: "Histerese temperatura (C)",
+    humHysteresis: "Histerese humidade (%)",
+    deviceCadence: "Cadencia do dispositivo",
+    deviceCadenceHint: "Frequencia de envio das leituras e gestao do display",
+    sendInterval: "Intervalo de envio (s)",
+    displayStandby: "Standby do display (min)",
     editable: "Configuração editável",
     readOnly: "Só leitura",
     interface: "Interface",
@@ -3361,12 +3385,17 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     temp_high_c: "",
     hum_low: "",
     hum_high: "",
+    hyst_c: "",
+    hyst_hum: "",
+    send_interval_s: "",
+    display_standby_min: "",
   });
 
   const [adminForm, setAdminForm] = useState({
     name: "",
     location: "",
     hyst_c: "",
+    hyst_hum: "",
     send_interval_s: "",
     display_standby_min: "",
   });
@@ -3722,12 +3751,17 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             temp_high_c: toInputValue(deviceConfig?.temp_high_c),
             hum_low: toInputValue(deviceConfig?.hum_low),
             hum_high: toInputValue(deviceConfig?.hum_high),
+            hyst_c: toInputValue(deviceConfig?.hyst_c),
+            hyst_hum: toInputValue(deviceConfig?.hyst_hum),
+            send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
 
           setAdminForm({
             name: deviceData?.name || "",
             location: deviceData?.location || "",
             hyst_c: toInputValue(deviceConfig?.hyst_c),
+            hyst_hum: toInputValue(deviceConfig?.hyst_hum),
             send_interval_s: toInputValue(deviceConfig?.send_interval_s),
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
@@ -3827,6 +3861,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const humLow = parseNumber(config?.hum_low);
   const humHigh = parseNumber(config?.hum_high);
   const hystC = parseNumber(config?.hyst_c);
+  const hystHum = parseNumber(config?.hyst_hum);
   const sendIntervalS = parseNumber(config?.send_interval_s);
   const displayStandbyMin = parseNumber(config?.display_standby_min);
 
@@ -3968,12 +4003,20 @@ const communicationHealth = useMemo(
     const newTempHigh = parseNumber(clientForm.temp_high_c);
     const newHumLow = parseNumber(clientForm.hum_low);
     const newHumHigh = parseNumber(clientForm.hum_high);
+    const newHyst = parseNumber(clientForm.hyst_c);
+    const newHystHum = parseNumber(clientForm.hyst_hum);
+    const newSendInterval = parseNumber(clientForm.send_interval_s);
+    const newDisplayStandby = parseNumber(clientForm.display_standby_min);
 
     if (
       newTempLow === null ||
       newTempHigh === null ||
       newHumLow === null ||
-      newHumHigh === null
+      newHumHigh === null ||
+      newHyst === null ||
+      newHystHum === null ||
+      newSendInterval === null ||
+      newDisplayStandby === null
     ) {
       setClientMessage("Preenche todos os campos do cliente com valores válidos.");
       setSavingClient(false);
@@ -3992,6 +4035,24 @@ const communicationHealth = useMemo(
       return;
     }
 
+    if (newHyst < 0 || newHystHum < 0) {
+      setClientMessage("A histerese nao pode ser negativa.");
+      setSavingClient(false);
+      return;
+    }
+
+    if (newSendInterval < 5) {
+      setClientMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+      setSavingClient(false);
+      return;
+    }
+
+    if (newDisplayStandby < 0) {
+      setClientMessage("O standby do display nao pode ser negativo.");
+      setSavingClient(false);
+      return;
+    }
+
     let data;
 
     try {
@@ -4002,6 +4063,10 @@ const communicationHealth = useMemo(
           temp_high_c: newTempHigh,
           hum_low: newHumLow,
           hum_high: newHumHigh,
+          hyst_c: newHyst,
+          hyst_hum: newHystHum,
+          send_interval_s: newSendInterval,
+          display_standby_min: newDisplayStandby,
         }),
       });
     } catch (error) {
@@ -4038,6 +4103,10 @@ const communicationHealth = useMemo(
       temp_high_c: toInputValue(refreshedConfig?.temp_high_c),
       hum_low: toInputValue(refreshedConfig?.hum_low),
       hum_high: toInputValue(refreshedConfig?.hum_high),
+      hyst_c: toInputValue(refreshedConfig?.hyst_c),
+      hyst_hum: toInputValue(refreshedConfig?.hyst_hum),
+      send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
 
     setClientMessage("Configurações do cliente guardadas com sucesso.");
@@ -4051,15 +4120,23 @@ const communicationHealth = useMemo(
     setAdminMessage("");
 
     const newHyst = parseNumber(adminForm.hyst_c);
+    const newHystHum = parseNumber(adminForm.hyst_hum);
     const newSendInterval = parseNumber(adminForm.send_interval_s);
     const newDisplayStandby = parseNumber(adminForm.display_standby_min);
 
     if (
       newHyst === null ||
+      newHystHum === null ||
       newSendInterval === null ||
       newDisplayStandby === null
     ) {
       setAdminMessage("Preenche todos os campos admin com valores válidos.");
+      setSavingAdmin(false);
+      return;
+    }
+
+    if (newHyst < 0 || newHystHum < 0) {
+      setAdminMessage("A histerese nao pode ser negativa.");
       setSavingAdmin(false);
       return;
     }
@@ -4079,6 +4156,7 @@ const communicationHealth = useMemo(
           name: adminForm.name.trim() || device?.device_id || selectedDeviceId,
           location: adminForm.location.trim() || "Localização por definir",
           hyst_c: newHyst,
+          hyst_hum: newHystHum,
           send_interval_s: newSendInterval,
           display_standby_min: newDisplayStandby,
         }),
@@ -4116,6 +4194,7 @@ const communicationHealth = useMemo(
       name: nextDevice?.name || "",
       location: nextDevice?.location || "",
       hyst_c: toInputValue(refreshedConfig?.hyst_c),
+      hyst_hum: toInputValue(refreshedConfig?.hyst_hum),
       send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
@@ -5009,6 +5088,100 @@ async function downloadPdfReport() {
                     setClientForm((prev) => ({
                       ...prev,
                       hum_high: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.settingsSection}>
+            <div>
+              <div style={styles.settingsSectionTitle}>{t("stability")}</div>
+              <div style={styles.cardHint}>{t("stabilityHint")}</div>
+            </div>
+            <div
+              style={{
+                ...styles.formGrid,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              }}
+            >
+              <div style={styles.field}>
+                <label style={styles.label}>{t("tempHysteresis")}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={clientForm.hyst_c}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      hyst_c: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>{t("humHysteresis")}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={clientForm.hyst_hum}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      hyst_hum: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.settingsSection}>
+            <div>
+              <div style={styles.settingsSectionTitle}>{t("deviceCadence")}</div>
+              <div style={styles.cardHint}>{t("deviceCadenceHint")}</div>
+            </div>
+            <div
+              style={{
+                ...styles.formGrid,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              }}
+            >
+              <div style={styles.field}>
+                <label style={styles.label}>{t("sendInterval")}</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={clientForm.send_interval_s}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      send_interval_s: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>{t("displayStandby")}</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={clientForm.display_standby_min}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      display_standby_min: e.target.value,
                     }))
                   }
                   style={styles.configInput}
@@ -7161,13 +7334,15 @@ collapseButton: {
   settingsSection: {
     display: "flex",
     flexDirection: "column",
-    gap: "14px",
+    gap: "16px",
     alignItems: "stretch",
-    padding: "14px",
+    padding: "16px",
     marginBottom: "16px",
     border: "1px solid var(--sts-border)",
-    background: "var(--sts-surface-soft)",
-    borderRadius: "14px",
+    background:
+      "linear-gradient(135deg, color-mix(in srgb, var(--sts-surface-soft) 92%, transparent), var(--sts-surface-soft))",
+    borderRadius: "16px",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
   },
 
   settingsSectionTitle: {
@@ -7180,9 +7355,13 @@ collapseButton: {
   field: {
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    gap: "8px",
     minWidth: 0,
     width: "100%",
+    border: "1px solid var(--sts-border)",
+    background: "var(--sts-surface)",
+    borderRadius: "14px",
+    padding: "12px",
   },
 
   label: {
@@ -7201,11 +7380,11 @@ collapseButton: {
     border: "1px solid var(--sts-border-strong)",
     background: "var(--sts-input-bg)",
     color: "var(--sts-text)",
-    borderRadius: "10px",
-    padding: "7px 10px",
-    fontSize: "13px",
+    borderRadius: "12px",
+    padding: "9px 12px",
+    fontSize: "14px",
     outline: "none",
-    height: "34px",
+    height: "40px",
     boxSizing: "border-box",
     textAlign: "center",
     fontVariantNumeric: "tabular-nums",

@@ -133,6 +133,7 @@ export default function AdminPage() {
     hum_low: "",
     hum_high: "",
     hyst_c: "",
+    hyst_hum: "",
     send_interval_s: "",
     display_standby_min: "",
   });
@@ -350,6 +351,7 @@ export default function AdminPage() {
         hum_low: "",
         hum_high: "",
         hyst_c: "",
+        hyst_hum: "",
         send_interval_s: "",
         display_standby_min: "",
       });
@@ -366,6 +368,7 @@ export default function AdminPage() {
       hum_low: toInputValue(config.hum_low),
       hum_high: toInputValue(config.hum_high),
       hyst_c: toInputValue(config.hyst_c),
+      hyst_hum: toInputValue(config.hyst_hum),
       send_interval_s: toInputValue(config.send_interval_s),
       display_standby_min: toInputValue(config.display_standby_min),
     });
@@ -795,6 +798,7 @@ export default function AdminPage() {
       hum_low: parseNumber(deviceForm.hum_low),
       hum_high: parseNumber(deviceForm.hum_high),
       hyst_c: parseNumber(deviceForm.hyst_c),
+      hyst_hum: parseNumber(deviceForm.hyst_hum),
       send_interval_s: parseNumber(deviceForm.send_interval_s),
       display_standby_min: parseNumber(deviceForm.display_standby_min),
     };
@@ -821,7 +825,7 @@ export default function AdminPage() {
       return;
     }
 
-    if (values.hyst_c < 0) {
+    if (values.hyst_c < 0 || values.hyst_hum < 0) {
       setMessage("A histerese não pode ser negativa.");
       setMessageType("error");
       return;
@@ -852,6 +856,7 @@ export default function AdminPage() {
         hum_low: values.hum_low,
         hum_high: values.hum_high,
         hyst_c: values.hyst_c,
+        hyst_hum: values.hyst_hum,
         send_interval_s: values.send_interval_s,
         display_standby_min: values.display_standby_min,
       };
@@ -1731,8 +1736,8 @@ export default function AdminPage() {
               <div style={styles.configSectionTitle}>Parâmetros técnicos</div>
               <div style={styles.configGrid}>
                 <ConfigField
-                  label="Histerese (°C)"
-                  help="Margem para evitar alertas repetidos quando o valor anda muito perto do limite."
+                  label="Histerese temperatura (°C)"
+                  help="Margem da temperatura para evitar alertas repetidos quando o valor anda muito perto do limite."
                 >
                   <input
                     type="number"
@@ -1743,6 +1748,25 @@ export default function AdminPage() {
                       setDeviceForm((prev) => ({
                         ...prev,
                         hyst_c: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="Histerese humidade (%)"
+                  help="Margem da humidade para evitar alertas repetidos quando o valor oscila junto ao limite."
+                >
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Histerese humidade"
+                    value={deviceForm.hyst_hum}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        hyst_hum: e.target.value,
                       }))
                     }
                     style={styles.input}
@@ -2675,10 +2699,11 @@ const styles = {
   },
 
   configField: {
-    background: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "14px",
-    padding: "14px",
+    background: "linear-gradient(135deg, #111827, #0f172a)",
+    border: "1px solid #24324a",
+    borderRadius: "16px",
+    padding: "16px",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
   },
 
   configFieldLabel: {
