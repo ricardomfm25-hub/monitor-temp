@@ -3219,6 +3219,30 @@ app.post("/api/temperature", async (req, res) => {
           cfg: refreshedCfg,
         });
 
+    if (isHistoricalBackfill && refreshedCfg.alert_state.offline_active) {
+      await sendOnlineRecoveredEmail({
+        device: {
+          ...freshDeviceRow,
+          last_temperature: numericTemperature,
+          last_humidity: numericHumidity,
+        },
+      });
+
+      await insertAlertHistory({
+        device_id,
+        type: "offline",
+        event: "resolved",
+        title: "Dispositivo novamente online",
+        message:
+          "O dispositivo voltou a comunicar com o backend durante o reenvio do buffer.",
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+      });
+
+      nextAlertState.offline_active = false;
+      nextAlertState.offline_last_resolved_at = currentNowIso;
+    }
+
     const incomingAckCount = toOptionalNumber(alarm_ack_count) || 0;
     const lastStoredAckCount =
       toOptionalNumber(refreshedCfg.alert_state.alarm_last_ack_count) || 0;
