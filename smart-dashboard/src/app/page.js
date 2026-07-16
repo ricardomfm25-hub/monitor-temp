@@ -8,17 +8,25 @@ import { FirmwareVersionBadge } from "./components/FirmwareVersionBadge";
 import {
   BarChart3,
   Bell,
+  CheckCircle2,
   Clock,
+  Cpu,
   Droplets,
+  Gauge,
   HeartPulse,
   Home,
   Info,
   LayoutDashboard,
+  ListChecks,
   MapPin,
+  MoreHorizontal,
+  Power,
+  Radio,
   RotateCw,
   Settings,
   Snowflake,
   Thermometer,
+  Timer,
   Wrench,
   Wifi,
   X,
@@ -133,6 +141,32 @@ const I18N = {
     chooseTitle: "Choose location and device",
     chooseText: "Choose the area to start monitoring.",
     noDevices: "No devices found.",
+    executiveStatus: "Executive status",
+    generalStatus: "General status",
+    noActiveAlerts: "No active alerts",
+    activeAlerts: "Active alerts",
+    outdoorTemperature: "Outdoor temperature",
+    outdoorHumidity: "Outdoor humidity",
+    temperatureDelta: "Temperature delta",
+    lastCommunication: "Last communication",
+    externalReference: "External reference",
+    interiorMinusExterior: "Interior minus exterior",
+    avgTemp: "avg temp",
+    avgHum: "avg hum",
+    ackRegistered: "ACK registered",
+    noAckPending: "No ACK pending",
+    communication: "Communication",
+    validatedReadings: "Validated readings",
+    technicalGeneral: "General",
+    technicalSensors: "Sensors",
+    technicalAlerts: "Alerts",
+    technicalCommunicationDisplay: "Communication & display",
+    activeAlertSingular: "active alert",
+    activeAlertPlural: "active alerts",
+    requiresOperationalAttention: "Requires operational attention",
+    alarmTime: "Alarm time",
+    sinceMostRecentActiveAlert: "Since the most recent active alert",
+    noActiveAlarm: "No active alarm",
   },
   pt: {
     overview: "Visão geral",
@@ -217,6 +251,32 @@ const I18N = {
     chooseTitle: "Escolhe o local e o dispositivo",
     chooseText: "Escolhe a área para começar a monitorizar.",
     noDevices: "Nenhum dispositivo encontrado.",
+    executiveStatus: "Estado executivo",
+    generalStatus: "Estado geral",
+    noActiveAlerts: "Sem alertas ativos",
+    activeAlerts: "Alertas ativos",
+    outdoorTemperature: "Temperatura exterior",
+    outdoorHumidity: "Humidade exterior",
+    temperatureDelta: "Delta temperatura",
+    lastCommunication: "Ultima comunicacao",
+    externalReference: "Referencia exterior",
+    interiorMinusExterior: "Interior menos exterior",
+    avgTemp: "media temp.",
+    avgHum: "media hum.",
+    ackRegistered: "ACK registado",
+    noAckPending: "Sem ACK pendente",
+    communication: "Comunicacao",
+    validatedReadings: "Leituras validadas",
+    technicalGeneral: "Geral",
+    technicalSensors: "Sensores",
+    technicalAlerts: "Alertas",
+    technicalCommunicationDisplay: "Comunicacao e display",
+    activeAlertSingular: "alerta ativo",
+    activeAlertPlural: "alertas ativos",
+    requiresOperationalAttention: "Requer atencao operacional",
+    alarmTime: "Tempo em alarme",
+    sinceMostRecentActiveAlert: "Desde o alerta ativo mais recente",
+    noActiveAlarm: "Sem alarme ativo",
   },
 };
 
@@ -2367,6 +2427,47 @@ function SmallStat({ label, value }) {
   );
 }
 
+function ExecutiveStatCard({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  tone = "neutral",
+  emphasis = false,
+}) {
+  const toneStyles = getHealthToneStyles(tone);
+
+  return (
+    <div
+      style={{
+        ...styles.executiveStatCard,
+        ...(emphasis ? styles.executiveStatCardEmphasis : {}),
+        borderColor: toneStyles.badgeBorder,
+      }}
+    >
+      <div style={styles.executiveStatTop}>
+        <span
+          style={{
+            ...styles.executiveStatIcon,
+            color: toneStyles.valueColor,
+            background: toneStyles.badgeBg,
+            borderColor: toneStyles.badgeBorder,
+          }}
+        >
+          {Icon ? <Icon size={17} /> : null}
+        </span>
+        <span style={styles.executiveStatLabel}>{label}</span>
+      </div>
+
+      <div style={{ ...styles.executiveStatValue, color: toneStyles.valueColor }}>
+        {value}
+      </div>
+
+      {hint ? <div style={styles.executiveStatHint}>{hint}</div> : null}
+    </div>
+  );
+}
+
 function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
   const toneStyles = getHealthToneStyles(tone);
 
@@ -2630,6 +2731,7 @@ function DeviceSelector({
 
 const DEVICE_NAV_SECTIONS = [
   { key: "overview", label: "Overview", group: "main", icon: LayoutDashboard },
+  { key: "readings", label: "Readings", group: "Monitoring", icon: ListChecks },
   { key: "charts", label: "Charts", group: "Monitoring", icon: BarChart3 },
   { key: "alerts", label: "Alerts", group: "Monitoring", icon: Bell },
   { key: "diagnostics", label: "Diagnostics", group: "System", icon: HeartPulse },
@@ -2679,6 +2781,9 @@ function DeviceSidebar({
           {!collapsed ? <span>{t(overviewItem.key)}</span> : null}
         </button>
 
+        {!collapsed && !isMobile ? (
+          <div style={styles.deviceNavGroupLabel}>{t("monitoring")}</div>
+        ) : null}
         {monitoringItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2700,6 +2805,9 @@ function DeviceSidebar({
           );
         })}
 
+        {!collapsed && !isMobile ? (
+          <div style={styles.deviceNavGroupLabel}>{t("system")}</div>
+        ) : null}
         {systemItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2794,6 +2902,10 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
 function AlertRow({ item }) {
   const levelInfo = getAlertLevelInfo(item?.level);
   const isAck = String(item?.level || "").toLowerCase().includes("ack");
+  const deviceTime = item?.device_time || item?.deviceTime;
+  const acknowledgedBy =
+    item?.acked_by || item?.acknowledged_by || item?.operator || item?.user_name;
+  const note = item?.note || item?.notes || item?.observation || item?.alarm_reason;
 
   const typeMap = {
     temperature: "Temperatura",
@@ -2849,6 +2961,12 @@ function AlertRow({ item }) {
         ) : null}
 
         {item?.derived ? <span>Detetado automaticamente</span> : null}
+        {deviceTime ? <span>Hora dispositivo: {formatDateTime(deviceTime)}</span> : null}
+        {item?.source ? <span>Origem: {item.source}</span> : null}
+        {isAck ? (
+          <span>ACK: {acknowledgedBy || "Operador / dispositivo"}</span>
+        ) : null}
+        {note ? <span>Obs: {note}</span> : null}
       </div>
     </div>
   );
@@ -3926,6 +4044,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const backgroundRefreshing =
     loadState === "backgroundRefreshing" && !deviceSwitchLoading;
   const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || "Selecionar dispositivo";
+  const locationParts = getLocationParts(device);
+  const headerContext = {
+    company: getDeviceCompany(device, profile),
+    building: locationParts.building,
+    room: locationParts.room,
+    device: deviceDisplayName,
+  };
   const deviceLocation = device?.location || "Localização por definir";
 
 const communicationHealth = useMemo(
@@ -3943,6 +4068,29 @@ const communicationHealth = useMemo(
     const cutoff = Date.now() - ALERT_RECENT_HOURS * 60 * 60 * 1000;
     return alerts.filter((item) => getAlertTimestamp(item) >= cutoff);
   }, [alerts]);
+
+  const activeAlerts = useMemo(
+    () =>
+      alerts.filter((item) => {
+        const level = String(item?.level || "").toLowerCase();
+        return (
+          !level.includes("ack") &&
+          !level.includes("resolved") &&
+          (level.includes("alert") ||
+            level.includes("alarm") ||
+            level.includes("critical"))
+        );
+      }),
+    [alerts]
+  );
+
+  const ackAlerts = useMemo(
+    () =>
+      alerts.filter((item) =>
+        String(item?.level || "").toLowerCase().includes("ack")
+      ),
+    [alerts]
+  );
 
   const visibleAlerts = alertsCollapsed ? alerts : recentAlerts;
   const hasOlderAlerts = alerts.length > recentAlerts.length;
@@ -4007,8 +4155,32 @@ const communicationHealth = useMemo(
 
   const currentTempValue = formatValue(device?.last_temperature, " °C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
+  const outdoorTemperature =
+    parseNumber(device?.last_external_temperature) ??
+    parseNumber(device?.external_temperature) ??
+    parseNumber(device?.outdoor_temperature) ??
+    parseNumber(device?.temperature_external);
+  const outdoorHumidity =
+    parseNumber(device?.last_external_humidity) ??
+    parseNumber(device?.external_humidity) ??
+    parseNumber(device?.outdoor_humidity) ??
+    parseNumber(device?.humidity_external);
+  const currentTemperatureNumber = parseNumber(device?.last_temperature);
+  const deltaTemperature =
+    currentTemperatureNumber !== null && outdoorTemperature !== null
+      ? Number((currentTemperatureNumber - outdoorTemperature).toFixed(1))
+      : null;
   const currentTempAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
   const currentHumAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
+
+  const latestReadings = useMemo(
+    () =>
+      [...liveReadings]
+        .filter((item) => Number.isFinite(item?.timestamp))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 8),
+    [liveReadings]
+  );
 
   const summary24h = useMemo(() => {
     const { start, end } = getPeriodWindow("24h");
@@ -4401,11 +4573,20 @@ async function downloadPdfReport() {
           <div style={{ ...styles.deviceHeaderMain, ...(isMobile ? styles.deviceHeaderMainMobile : {}) }}>
             <div>
               <div style={styles.deviceHeaderKicker}>{STS_PRODUCT.product}</div>
+              <div style={styles.headerBreadcrumb}>
+                <span>{headerContext.company}</span>
+                <span style={styles.headerBreadcrumbDivider}>&gt;</span>
+                <span>{headerContext.building}</span>
+                <span style={styles.headerBreadcrumbDivider}>&gt;</span>
+                <span>{headerContext.room}</span>
+                <span style={styles.headerBreadcrumbDivider}>&gt;</span>
+                <span>{headerContext.device}</span>
+              </div>
               <h1 style={styles.title}>{deviceDisplayName}</h1>
               <div style={styles.deviceHeaderMeta}>
-                <span>{deviceLocation}</span>
+                <span>{formatDateTime(device?.last_seen)}</span>
                 <span>•</span>
-                <span>{formatDateTime(device?.last_seen)} ({formatRelativeTime(device?.last_seen)})</span>
+                <span>{formatRelativeTime(device?.last_seen)}</span>
                 {deviceSwitchLoading || backgroundRefreshing ? (
                   <>
                     <span>...</span>
@@ -4435,6 +4616,22 @@ async function downloadPdfReport() {
                 <Wifi size={15} />
                 <span>{communicationHealth.label}</span>
               </div>
+              <div style={styles.statusPillLarge}>
+                <FirmwareVersionBadge
+                  value={
+                    device?.firmware_version ||
+                    deviceOverview?.firmware_version ||
+                    deviceOverview?.diagnostics?.firmware_version
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                title="Acoes rapidas"
+                style={styles.quickActionButton}
+              >
+                <MoreHorizontal size={17} />
+              </button>
             </div>
           </div>
 
@@ -4603,8 +4800,8 @@ async function downloadPdfReport() {
             gridTemplateColumns: isMobile
               ? "1fr"
               : sidebarOpen
-              ? "236px minmax(0, 1fr)"
-              : "72px minmax(0, 1fr)",
+              ? "276px minmax(0, 1fr)"
+              : "82px minmax(0, 1fr)",
           }}
         >
           <DeviceSidebar
@@ -4676,9 +4873,130 @@ async function downloadPdfReport() {
           }}
         >
           <section
+            id="overview-executive"
+            style={{
+              ...styles.executiveOverview,
+              borderColor: statusInfo.border,
+            }}
+          >
+            <div style={styles.executiveHeader}>
+              <div>
+                <div style={styles.sectionEyebrow}>{t("overview")}</div>
+                <div style={styles.executiveTitle}>{t("executiveStatus")}</div>
+              </div>
+              <div
+                style={{
+                  ...styles.statusPillLarge,
+                  color: statusInfo.color,
+                  background: statusInfo.soft,
+                  borderColor: statusInfo.border,
+                }}
+              >
+                {statusInfo.label}
+              </div>
+            </div>
+
+            <div
+              style={{
+                ...styles.executiveGrid,
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(4, minmax(0, 1fr))",
+              }}
+            >
+              <ExecutiveStatCard
+                label={t("generalStatus")}
+                value={statusInfo.label}
+                hint={
+                  activeAlerts.length
+                    ? `${activeAlerts.length} ${
+                        activeAlerts.length === 1
+                          ? t("activeAlertSingular")
+                          : t("activeAlertPlural")
+                      }`
+                    : t("noActiveAlerts")
+                }
+                icon={Gauge}
+                tone={effectiveStatus === "OFFLINE" ? "neutral" : activeAlerts.length ? "bad" : "good"}
+                emphasis
+              />
+              <ExecutiveStatCard
+                label={t("indoorTemperature")}
+                value={isDeviceOffline ? "-" : currentTempValue}
+                hint={
+                  tempLow !== null && tempHigh !== null
+                    ? `${t("limits")}: ${formatValue(tempLow, " Â°C")} - ${formatValue(tempHigh, " Â°C")}`
+                    : currentTempAccentLabel
+                }
+                icon={Thermometer}
+                tone={currentTempTone}
+                emphasis
+              />
+              <ExecutiveStatCard
+                label={t("indoorHumidity")}
+                value={isDeviceOffline ? "-" : currentHumValue}
+                hint={
+                  humLow !== null && humHigh !== null
+                    ? `${t("limits")}: ${formatValue(humLow, " %", 0)} - ${formatValue(humHigh, " %", 0)}`
+                    : currentHumAccentLabel
+                }
+                icon={Droplets}
+                tone={currentHumTone}
+                emphasis
+              />
+              <ExecutiveStatCard
+                label={t("activeAlerts")}
+                value={activeAlerts.length}
+                hint={ackAlerts.length ? `${ackAlerts.length} ${t("ackRegistered")}` : t("noAckPending")}
+                icon={Bell}
+                tone={activeAlerts.length ? "bad" : "good"}
+              />
+              <ExecutiveStatCard
+                label={t("outdoorTemperature")}
+                value={formatValue(outdoorTemperature, " Â°C")}
+                hint={t("externalReference")}
+                icon={Snowflake}
+              />
+              <ExecutiveStatCard
+                label={t("outdoorHumidity")}
+                value={formatValue(outdoorHumidity, " %", 0)}
+                hint={t("externalReference")}
+                icon={Droplets}
+              />
+              <ExecutiveStatCard
+                label={t("temperatureDelta")}
+                value={formatValue(deltaTemperature, " Â°C")}
+                hint={t("interiorMinusExterior")}
+                icon={Gauge}
+              />
+              <ExecutiveStatCard
+                label={t("lastCommunication")}
+                value={formatRelativeTime(device?.last_seen)}
+                hint={formatDateTime(device?.last_seen)}
+                icon={Radio}
+                tone={communicationHealth.tone}
+              />
+              <ExecutiveStatCard
+                label="Wi-Fi"
+                value={communicationHealth.label}
+                hint={communicationHealth.summary}
+                icon={Wifi}
+                tone={communicationHealth.tone}
+              />
+              <ExecutiveStatCard
+                label={t("summary24h")}
+                value={`${summary24h.totalReadings ?? 0}`}
+                hint={`${formatValue(summary24h.tempAvg, " Â°C")} ${t("avgTemp")} | ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
+                icon={Timer}
+              />
+            </div>
+          </section>
+
+          <section
             id="overview"
           style={{
             ...styles.heroCard,
+            display: "none",
             background: `linear-gradient(135deg, ${statusInfo.panel} 0%, rgba(15,23,42,0.92) 100%)`,
             borderColor: statusInfo.border,
             gridTemplateColumns: "1fr",
@@ -4760,6 +5078,89 @@ async function downloadPdfReport() {
             theme={theme}
           />
 
+        </section>
+
+        <section
+          id="readings"
+          style={{
+            ...styles.card,
+            display: activeDeviceSection === "readings" ? "block" : "none",
+          }}
+        >
+          <div style={styles.cardHeader}>
+            <div>
+              <div style={styles.cardTitle}>{t("readingsTitle")}</div>
+              <div style={styles.cardHint}>{t("readingsHint")}</div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              ...styles.readingKpiGrid,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "repeat(4, minmax(0, 1fr))",
+            }}
+          >
+            <ExecutiveStatCard
+              label={t("indoorTemperature")}
+              value={isDeviceOffline ? "-" : currentTempValue}
+              hint={`${t("minMax")}: ${formatValue(summary24h.tempMin, " Â°C")} / ${formatValue(summary24h.tempMax, " Â°C")}`}
+              icon={Thermometer}
+              tone={currentTempTone}
+            />
+            <ExecutiveStatCard
+              label={t("indoorHumidity")}
+              value={isDeviceOffline ? "-" : currentHumValue}
+              hint={`${t("minMax")}: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
+              icon={Droplets}
+              tone={currentHumTone}
+            />
+            <ExecutiveStatCard
+              label={t("summary24h")}
+              value={summary24h.totalReadings ?? 0}
+              hint={t("validatedReadings")}
+              icon={ListChecks}
+            />
+            <ExecutiveStatCard
+              label={t("communication")}
+              value={communicationHealth.label}
+              hint={communicationHealth.summary}
+              icon={Radio}
+              tone={communicationHealth.tone}
+            />
+          </div>
+
+          <div style={styles.readingList}>
+            {latestReadings.length ? (
+              latestReadings.map((item, index) => (
+                <div
+                  key={`${item.created_at || item.timestamp}-${index}`}
+                  style={{
+                    ...styles.readingRow,
+                    gridTemplateColumns: isMobile
+                      ? "1fr 1fr"
+                      : styles.readingRow.gridTemplateColumns,
+                  }}
+                >
+                  <span style={styles.readingTime}>
+                    {formatDateTime(item.created_at || item.timestamp)}
+                  </span>
+                  <span style={styles.readingValue}>
+                    {formatValue(item.temperature, " Â°C")}
+                  </span>
+                  <span style={styles.readingValue}>
+                    {formatValue(item.humidity, " %", 0)}
+                  </span>
+                  <span style={styles.readingMeta}>
+                    {item.is_offline || item.offline ? "Offline buffer" : "Live"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div style={styles.emptyState}>No readings available.</div>
+            )}
+          </div>
         </section>
 
         <section
@@ -4854,6 +5255,87 @@ async function downloadPdfReport() {
               hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
               tone={communicationHealth.tone}
               badge={communicationHealth.label}
+            />
+          </div>
+
+          <div
+            style={{
+              ...styles.diagnosticsDetailGrid,
+              gridTemplateColumns: isMobile
+                ? "1fr"
+                : "repeat(3, minmax(0, 1fr))",
+            }}
+          >
+            <InfoItem
+              label="Sensor"
+              value={deviceOverview?.sensor_status || device?.sensor_status || "OK / sem detalhe"}
+              icon={HeartPulse}
+            />
+            <InfoItem
+              label="Wi-Fi"
+              value={communicationHealth.label}
+              valueColor={communicationHealth.tone === "bad" ? "#ef4444" : communicationHealth.tone === "warn" ? "#f59e0b" : "#22c55e"}
+              icon={Wifi}
+            />
+            <InfoItem
+              label="Firmware"
+              value={
+                <FirmwareVersionBadge
+                  value={
+                    device?.firmware_version ||
+                    deviceOverview?.firmware_version ||
+                    deviceOverview?.diagnostics?.firmware_version
+                  }
+                />
+              }
+              icon={Cpu}
+            />
+            <InfoItem
+              label="Memoria"
+              value={
+                device?.free_heap ||
+                deviceOverview?.diagnostics?.free_heap ||
+                device?.memory_free ||
+                "-"
+              }
+              icon={Cpu}
+            />
+            <InfoItem
+              label="Uptime"
+              value={
+                parseNumber(device?.uptime_s || deviceOverview?.uptime_s)
+                  ? formatDurationCompact(parseNumber(device?.uptime_s || deviceOverview?.uptime_s) * 1000)
+                  : "-"
+              }
+              icon={Timer}
+            />
+            <InfoItem
+              label="Reinicios"
+              value={device?.boot_count ?? deviceOverview?.boot_count ?? "-"}
+              icon={Power}
+            />
+            <InfoItem
+              label="Latencia"
+              value={
+                device?.latency_ms || deviceOverview?.latency_ms
+                  ? `${device?.latency_ms || deviceOverview?.latency_ms} ms`
+                  : "-"
+              }
+              icon={Radio}
+            />
+            <InfoItem
+              label="Pacotes perdidos"
+              value={Math.max(
+                0,
+                (communicationHealth.expected_readings || 0) -
+                  (communicationHealth.received_readings || 0)
+              )}
+              icon={ListChecks}
+            />
+            <InfoItem
+              label="Alimentacao"
+              value={device?.power_state || deviceOverview?.power_state || "-"}
+              icon={Power}
             />
           </div>
         </section>
@@ -5003,6 +5485,45 @@ async function downloadPdfReport() {
     ) : null}
   </div>
 
+  <div
+    style={{
+      ...styles.alertOverviewGrid,
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+    }}
+  >
+    <ExecutiveStatCard
+      label={t("activeAlerts")}
+      value={activeAlerts.length}
+      hint={activeAlerts.length ? t("requiresOperationalAttention") : t("noActiveAlerts")}
+      icon={Bell}
+      tone={activeAlerts.length ? "bad" : "good"}
+    />
+    <ExecutiveStatCard
+      label={t("alertHistory")}
+      value={alerts.length}
+      hint={`Last ${ALERT_RECENT_HOURS}h first`}
+      icon={ListChecks}
+    />
+    <ExecutiveStatCard
+      label="ACK"
+      value={ackAlerts.length}
+      hint="Confirmation without deleting the alert"
+      icon={CheckCircle2}
+      tone={ackAlerts.length ? "good" : "neutral"}
+    />
+    <ExecutiveStatCard
+      label={t("alarmTime")}
+      value={
+        activeAlerts[0]
+          ? formatDurationCompact(Date.now() - getAlertTimestamp(activeAlerts[0]))
+          : "-"
+      }
+      hint={activeAlerts[0] ? t("sinceMostRecentActiveAlert") : t("noActiveAlarm")}
+      icon={Clock}
+      tone={activeAlerts.length ? "warn" : "good"}
+    />
+  </div>
+
   {!alerts.length ? (
     <div style={styles.emptyState}>
       {t("noAlerts")}
@@ -5052,7 +5573,7 @@ async function downloadPdfReport() {
 
           <div style={styles.settingsSection}>
             <div>
-              <div style={styles.settingsSectionTitle}>{t("interface")}</div>
+              <div style={styles.settingsSectionTitle}>{t("technicalGeneral")}</div>
               <div style={styles.cardHint}>{t("interfaceHint")}</div>
             </div>
             <div
@@ -5088,7 +5609,7 @@ async function downloadPdfReport() {
 
           <div style={styles.settingsSection}>
             <div>
-              <div style={styles.settingsSectionTitle}>{t("limits")}</div>
+              <div style={styles.settingsSectionTitle}>{t("technicalSensors")}</div>
               <div style={styles.cardHint}>{t("settingsHint")}</div>
             </div>
             <div
@@ -5173,7 +5694,7 @@ async function downloadPdfReport() {
           <>
           <div style={styles.settingsSection}>
             <div>
-              <div style={styles.settingsSectionTitle}>{t("stability")}</div>
+              <div style={styles.settingsSectionTitle}>{t("technicalAlerts")}</div>
               <div style={styles.cardHint}>{t("stabilityHint")}</div>
             </div>
             <div
@@ -5220,7 +5741,7 @@ async function downloadPdfReport() {
 
           <div style={styles.settingsSection}>
             <div>
-              <div style={styles.settingsSectionTitle}>{t("deviceCadence")}</div>
+              <div style={styles.settingsSectionTitle}>{t("technicalCommunicationDisplay")}</div>
               <div style={styles.cardHint}>{t("deviceCadenceHint")}</div>
             </div>
             <div
@@ -5689,6 +6210,23 @@ const styles = {
     marginBottom: "6px",
   },
 
+  headerBreadcrumb: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    flexWrap: "wrap",
+    color: "var(--sts-muted-strong)",
+    fontSize: "12px",
+    fontWeight: 800,
+    marginBottom: "7px",
+  },
+
+  headerBreadcrumbDivider: {
+    color: "var(--sts-muted)",
+    fontSize: "11px",
+    fontWeight: 900,
+  },
+
   deviceHeaderMeta: {
     marginTop: "8px",
     display: "flex",
@@ -5790,6 +6328,20 @@ const styles = {
     fontSize: "13px",
     color: "#99f6e4",
     fontWeight: 700,
+  },
+
+  quickActionButton: {
+    width: "38px",
+    height: "38px",
+    border: "1px solid var(--sts-border)",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-text)",
+    borderRadius: "12px",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 180ms ease, border-color 180ms ease, transform 180ms ease",
   },
 
   refreshButton: {
@@ -5981,23 +6533,23 @@ const styles = {
     top: "16px",
     width: "100%",
     alignSelf: "stretch",
-    minHeight: "calc(100vh - 112px)",
+    minHeight: "calc(100vh - 96px)",
     maxHeight: "calc(100vh - 32px)",
     overflowY: "auto",
     background: "var(--sts-sidebar-bg)",
     border: "1px solid var(--sts-border)",
-    borderRadius: "18px",
-    padding: "12px",
-    boxShadow: "0 24px 54px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255,255,255,0.04)",
+    borderRadius: "22px",
+    padding: "14px",
+    boxShadow: "0 26px 60px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.05)",
     backdropFilter: "blur(16px)",
     transition: "padding 200ms ease, border-radius 200ms ease, box-shadow 200ms ease, background 200ms ease",
   },
 
   appSidebarCollapsed: {
     padding: "12px",
-    borderRadius: "18px",
+    borderRadius: "22px",
     overflowX: "hidden",
-    minHeight: "calc(100vh - 112px)",
+    minHeight: "calc(100vh - 96px)",
   },
 
   appSidebarMobile: {
@@ -6205,7 +6757,16 @@ const styles = {
     marginTop: 0,
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    gap: "8px",
+  },
+
+  deviceNavGroupLabel: {
+    margin: "12px 4px 3px",
+    color: "var(--sts-muted)",
+    fontSize: "10px",
+    fontWeight: 900,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
   },
 
   deviceNavMobile: {
@@ -6216,12 +6777,12 @@ const styles = {
 
   deviceNavItem: {
     width: "100%",
-    minHeight: "42px",
+    minHeight: "48px",
     border: "1px solid transparent",
     background: "transparent",
     color: "#94a3b8",
-    borderRadius: "11px",
-    padding: "10px",
+    borderRadius: "14px",
+    padding: "11px 12px",
     display: "flex",
     alignItems: "center",
     gap: "10px",
@@ -6229,6 +6790,7 @@ const styles = {
     textAlign: "left",
     fontSize: "13px",
     fontWeight: 850,
+    transition: "background 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease",
   },
 
   deviceNavItemCollapsed: {
@@ -6246,9 +6808,10 @@ const styles = {
   },
 
   deviceNavItemActive: {
-    background: "rgba(148, 163, 184, 0.12)",
-    border: "1px solid var(--sts-border)",
+    background: "linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(15, 23, 42, 0.48))",
+    border: "1px solid rgba(94, 234, 212, 0.28)",
     color: "#f8fafc",
+    boxShadow: "0 14px 32px rgba(20, 184, 166, 0.10)",
   },
 
   entryGate: {
@@ -6475,8 +7038,142 @@ const styles = {
 
   commandGrid: {
     display: "grid",
-    gap: "16px",
+    gap: "18px",
     alignItems: "stretch",
+  },
+
+  executiveOverview: {
+    background: "var(--sts-surface)",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "20px",
+    padding: "20px",
+    minWidth: 0,
+    boxShadow: "var(--sts-shadow)",
+    backdropFilter: "blur(16px)",
+  },
+
+  executiveHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "14px",
+    flexWrap: "wrap",
+    marginBottom: "16px",
+  },
+
+  executiveTitle: {
+    color: "var(--sts-text)",
+    fontSize: "clamp(20px, 2.1vw, 26px)",
+    fontWeight: 950,
+    lineHeight: 1,
+    letterSpacing: 0,
+  },
+
+  executiveGrid: {
+    display: "grid",
+    gap: "14px",
+  },
+
+  executiveStatCard: {
+    minWidth: 0,
+    border: "1px solid var(--sts-border)",
+    background: "var(--sts-surface-soft)",
+    borderRadius: "16px",
+    padding: "15px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    minHeight: "136px",
+    transition: "border-color 180ms ease, background 180ms ease, transform 180ms ease",
+  },
+
+  executiveStatCardEmphasis: {
+    minHeight: "154px",
+    background: "linear-gradient(135deg, rgba(20,184,166,0.10), var(--sts-surface-soft))",
+  },
+
+  executiveStatTop: {
+    display: "flex",
+    alignItems: "center",
+    gap: "9px",
+    minWidth: 0,
+  },
+
+  executiveStatIcon: {
+    width: "32px",
+    height: "32px",
+    borderRadius: "11px",
+    border: "1px solid transparent",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  executiveStatLabel: {
+    color: "var(--sts-muted-strong)",
+    fontSize: "12px",
+    fontWeight: 850,
+    overflowWrap: "anywhere",
+  },
+
+  executiveStatValue: {
+    color: "var(--sts-text)",
+    fontSize: "clamp(22px, 2.4vw, 31px)",
+    lineHeight: 1,
+    fontWeight: 950,
+    overflowWrap: "anywhere",
+  },
+
+  executiveStatHint: {
+    marginTop: "auto",
+    color: "var(--sts-muted)",
+    fontSize: "12px",
+    lineHeight: 1.35,
+    fontWeight: 700,
+    overflowWrap: "anywhere",
+  },
+
+  readingKpiGrid: {
+    display: "grid",
+    gap: "12px",
+    marginBottom: "16px",
+  },
+
+  readingList: {
+    display: "grid",
+    gap: "8px",
+  },
+
+  readingRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(160px, 1.4fr) minmax(90px, 0.7fr) minmax(90px, 0.7fr) minmax(110px, 0.7fr)",
+    gap: "10px",
+    alignItems: "center",
+    border: "1px solid var(--sts-border)",
+    background: "var(--sts-surface-soft)",
+    borderRadius: "12px",
+    padding: "11px 12px",
+    minWidth: 0,
+  },
+
+  readingTime: {
+    color: "var(--sts-muted-strong)",
+    fontSize: "12px",
+    fontWeight: 800,
+    overflowWrap: "anywhere",
+  },
+
+  readingValue: {
+    color: "var(--sts-text)",
+    fontSize: "14px",
+    fontWeight: 900,
+  },
+
+  readingMeta: {
+    color: "var(--sts-muted)",
+    fontSize: "12px",
+    fontWeight: 800,
   },
 
   commandSide: {
@@ -7223,6 +7920,12 @@ const styles = {
     gap: "14px",
   },
 
+  diagnosticsDetailGrid: {
+    display: "grid",
+    gap: "12px",
+    marginTop: "14px",
+  },
+
   healthCard: {
     background: "var(--sts-surface-soft)",
     border: "1px solid var(--sts-border-strong)",
@@ -7370,6 +8073,12 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
+  },
+
+  alertOverviewGrid: {
+    display: "grid",
+    gap: "12px",
+    marginBottom: "16px",
   },
 
   alertListHint: {
