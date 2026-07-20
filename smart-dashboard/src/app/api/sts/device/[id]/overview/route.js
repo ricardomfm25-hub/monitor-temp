@@ -90,6 +90,7 @@ function normalizeConfig(config = {}) {
     hyst_c: parseNumber(config.hyst_c) ?? 0.5,
     hyst_hum: parseNumber(config.hyst_hum) ?? 2,
     send_interval_s: parseNumber(config.send_interval_s) ?? 60,
+    offline_alert_after_min: parseNumber(config.offline_alert_after_min) ?? 6,
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
     maintenance: {
       active_until: maintenance.active_until || null,
@@ -107,13 +108,13 @@ function isMaintenanceActive(config) {
   return Number.isFinite(ts) && ts > Date.now();
 }
 
-function getOfflineLimitMs(sendIntervalS) {
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 60 * 1000;
+function getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin) {
+  const configuredMs =
+    Number.isFinite(Number(offlineAlertAfterMin)) && Number(offlineAlertAfterMin) > 0
+      ? Number(offlineAlertAfterMin) * 60 * 1000
+      : 6 * 60 * 1000;
 
-  return Math.max(expectedMs * 3, 180 * 1000);
+  return Math.max(configuredMs, 180 * 1000);
 }
 
 function getStatus({ online, temperature, humidity, config }) {
@@ -292,7 +293,8 @@ export async function GET(_request, context) {
       : null;
     const online =
       lastSeenTs !== null &&
-      Date.now() - lastSeenTs <= getOfflineLimitMs(config.send_interval_s);
+      Date.now() - lastSeenTs <=
+        getOfflineLimitMs(config.send_interval_s, config.offline_alert_after_min);
 
     const temperature =
       parseNumber(device.last_temperature) ??

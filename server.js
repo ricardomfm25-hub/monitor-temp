@@ -25,7 +25,6 @@ const OFFLINE_ALERT_SECONDS = parseInt(
   process.env.OFFLINE_ALERT_SECONDS || "180",
   10
 );
-const OFFLINE_MISSED_SENDS_THRESHOLD = 3;
 const HEALTH_CHECK_INTERVAL_SECONDS = parseInt(
   process.env.HEALTH_CHECK_INTERVAL_SECONDS || "60",
   10
@@ -444,6 +443,10 @@ function validateConfigNumbers(payload) {
     payload.send_interval_s !== undefined
       ? Number(payload.send_interval_s)
       : undefined;
+  const offlineAlertAfter =
+    payload.offline_alert_after_min !== undefined
+      ? Number(payload.offline_alert_after_min)
+      : undefined;
   const standby =
     payload.display_standby_min !== undefined
       ? Number(payload.display_standby_min)
@@ -500,6 +503,13 @@ function validateConfigNumbers(payload) {
     errors.push("send_interval_s deve ser pelo menos 5");
   }
 
+  if (
+    offlineAlertAfter !== undefined &&
+    (!Number.isFinite(offlineAlertAfter) || offlineAlertAfter < 1)
+  ) {
+    errors.push("offline_alert_after_min deve ser pelo menos 1");
+  }
+
   if (standby !== undefined && (!Number.isFinite(standby) || standby < 0)) {
     errors.push("display_standby_min inválido");
   }
@@ -521,6 +531,7 @@ function getDeviceConfig(deviceRow) {
     hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
     hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
     send_interval_s: toNumberOrDefault(cfg.send_interval_s, 60),
+    offline_alert_after_min: toNumberOrDefault(cfg.offline_alert_after_min, 6),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     maintenance: {
       active_until: maintenance.active_until || null,
@@ -758,16 +769,13 @@ function getDeviceStatus({
   return "normal";
 }
 
-function getOfflineThresholdMs(sendIntervalS) {
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 60 * 1000;
+function getOfflineThresholdMs(sendIntervalS, offlineAlertAfterMin) {
+  const configuredMs =
+    Number.isFinite(Number(offlineAlertAfterMin)) && Number(offlineAlertAfterMin) > 0
+      ? Number(offlineAlertAfterMin) * 60 * 1000
+      : 6 * 60 * 1000;
 
-  return Math.max(
-    OFFLINE_ALERT_SECONDS * 1000,
-    expectedMs * OFFLINE_MISSED_SENDS_THRESHOLD
-  );
+  return Math.max(OFFLINE_ALERT_SECONDS * 1000, configuredMs);
 }
 
 function formatFirmwareVersion(value) {
@@ -930,6 +938,7 @@ function canSendByCooldown(lastSentAt) {
 function getCommunicationHealth({
   readings,
   sendIntervalS,
+  offlineAlertAfterMin,
   deviceLastSeen,
   periodHours = 24,
 }) {
@@ -938,7 +947,7 @@ function getCommunicationHealth({
       ? Number(sendIntervalS) * 1000
       : 60 * 1000;
 
-  const offlineThresholdMs = getOfflineThresholdMs(sendIntervalS);
+  const offlineThresholdMs = getOfflineThresholdMs(sendIntervalS, offlineAlertAfterMin);
   const periodMs = periodHours * 60 * 60 * 1000;
   const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
 
@@ -2243,7 +2252,10 @@ async function sendHumidityResolvedEmail({
 async function sendOfflineTriggeredEmail({ device, cfg }) {
   const deviceName = device?.name || device?.device_id;
   const location = device?.location || "Localização por definir";
-  const thresholdMs = getOfflineThresholdMs(cfg.send_interval_s);
+  const thresholdMs = getOfflineThresholdMs(
+    cfg.send_interval_s,
+    cfg.offline_alert_after_min
+  );
   const subject = `[STS] Dispositivo offline — ${deviceName}`;
   const recipients = await getDeviceAlertRecipients(device.device_id, "offline");
 
@@ -2621,7 +2633,10 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
     const lastSeenTs = deviceRow?.last_seen
       ? new Date(deviceRow.last_seen).getTime()
       : null;
-    const thresholdMs = getOfflineThresholdMs(cfg.send_interval_s);
+    const thresholdMs = getOfflineThresholdMs(
+      cfg.send_interval_s,
+      cfg.offline_alert_after_min
+    );
     const isOffline = !lastSeenTs || Date.now() - lastSeenTs > thresholdMs;
 
     if (!isOffline) continue;
@@ -3406,6 +3421,7 @@ app.post("/api/temperature", async (req, res) => {
       communicationHealth = getCommunicationHealth({
         readings: last24hReadings,
         sendIntervalS: refreshedCfg.send_interval_s,
+        offlineAlertAfterMin: refreshedCfg.offline_alert_after_min,
         deviceLastSeen: currentNowIso,
         periodHours: 24,
       });
@@ -3494,7 +3510,9 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
 
     const online =
       lastSeenSeconds <=
-      Math.floor(getOfflineThresholdMs(cfg.send_interval_s) / 1000);
+      Math.floor(
+        getOfflineThresholdMs(cfg.send_interval_s, cfg.offline_alert_after_min) / 1000
+      );
 
     const computedStatus =
       temperature !== null && humidity !== null
@@ -3527,6 +3545,7 @@ app.get("/api/dashboard/device/:id", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings: readings24hRows,
       sendIntervalS: cfg.send_interval_s,
+      offlineAlertAfterMin: cfg.offline_alert_after_min,
       deviceLastSeen: lastSeenIso,
       periodHours: 24,
     });
@@ -3622,6 +3641,7 @@ app.get("/api/dashboard/device/:id/health", async (req, res) => {
     const communicationHealth = getCommunicationHealth({
       readings,
       sendIntervalS: cfg.send_interval_s,
+      offlineAlertAfterMin: cfg.offline_alert_after_min,
       deviceLastSeen: deviceRow.last_seen,
       periodHours: hours,
     });
@@ -4318,6 +4338,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       hyst_c,
       hyst_hum,
       send_interval_s,
+      offline_alert_after_min,
       display_standby_min,
       name,
       location,
@@ -4331,6 +4352,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       hyst_c,
       hyst_hum,
       send_interval_s,
+      offline_alert_after_min,
       display_standby_min,
     });
 
@@ -4365,6 +4387,9 @@ app.post("/api/device/:id/config", async (req, res) => {
       ...(hyst_hum !== undefined ? { hyst_hum: Number(hyst_hum) } : {}),
       ...(send_interval_s !== undefined
         ? { send_interval_s: Number(send_interval_s) }
+        : {}),
+      ...(offline_alert_after_min !== undefined
+        ? { offline_alert_after_min: Number(offline_alert_after_min) }
         : {}),
       ...(display_standby_min !== undefined
         ? { display_standby_min: Number(display_standby_min) }

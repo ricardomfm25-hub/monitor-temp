@@ -11,12 +11,19 @@ const NUMERIC_FIELDS = [
   "hyst_c",
   "hyst_hum",
   "send_interval_s",
+  "offline_alert_after_min",
   "display_standby_min",
 ];
 
 const MIN_SEND_INTERVAL_SECONDS = 5;
 const MAX_SEND_INTERVAL_SECONDS = 60;
-const TECHNICAL_FIELDS = ["hyst_c", "hyst_hum", "send_interval_s", "display_standby_min"];
+const TECHNICAL_FIELDS = [
+  "hyst_c",
+  "hyst_hum",
+  "send_interval_s",
+  "offline_alert_after_min",
+  "display_standby_min",
+];
 
 function parseNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -38,6 +45,7 @@ function normalizeConfig(config = {}) {
       Math.max(parseNumber(config.send_interval_s) ?? 60, MIN_SEND_INTERVAL_SECONDS),
       MAX_SEND_INTERVAL_SECONDS
     ),
+    offline_alert_after_min: Math.max(parseNumber(config.offline_alert_after_min) ?? 6, 1),
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
   };
 }
@@ -124,6 +132,10 @@ function validateConfig(config) {
 
   if (config.display_standby_min < 0) {
     errors.push("O standby do display não pode ser negativo.");
+  }
+
+  if (config.offline_alert_after_min < 1) {
+    errors.push("A falha de comunicacao deve ser pelo menos 1 minuto.");
   }
 
   return errors;

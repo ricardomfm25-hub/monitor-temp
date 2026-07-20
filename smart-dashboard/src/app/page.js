@@ -408,25 +408,33 @@ function parseBoolean(value) {
   return null;
 }
 
-function getOfflineLimitMs(sendIntervalS) {
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 60 * 1000;
+function getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin) {
+  const configuredMs =
+    Number.isFinite(Number(offlineAlertAfterMin)) && Number(offlineAlertAfterMin) > 0
+      ? Number(offlineAlertAfterMin) * 60 * 1000
+      : 6 * 60 * 1000;
 
-  return Math.max(expectedMs * 3, 180 * 1000);
+  return Math.max(configuredMs, 180 * 1000);
 }
 
-function getEffectiveStatus(device, sendIntervalS) {
+function getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin) {
   const lastSeen = device?.last_seen ? new Date(device.last_seen).getTime() : null;
   const now = Date.now();
-  const offlineLimitMs = getOfflineLimitMs(sendIntervalS);
+  const offlineLimitMs = getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin);
 
   if (!lastSeen || now - lastSeen > offlineLimitMs) {
     return "OFFLINE";
   }
 
   return device?.status || "SEM DADOS";
+}
+
+function getDeviceEffectiveStatus(device) {
+  return getEffectiveStatus(
+    device,
+    parseNumber(device?.config?.send_interval_s),
+    parseNumber(device?.config?.offline_alert_after_min)
+  );
 }
 
 function isOfflineCapturedReading(reading, sendIntervalS) {
@@ -894,6 +902,7 @@ function getXAxisTicks(periodKey) {
 function getCommunicationHealth({
   rawReadings,
   sendIntervalS,
+  offlineAlertAfterMin,
   deviceLastSeen,
   periodKey,
 }) {
@@ -909,7 +918,7 @@ function getCommunicationHealth({
       ? Number(sendIntervalS) * 1000
       : 60 * 1000;
 
-  const offlineThresholdMs = getOfflineLimitMs(sendIntervalS);
+  const offlineThresholdMs = getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin);
   const periodMs = Math.max(end - start, expectedMs);
   const expectedReadings = Math.max(1, Math.round(periodMs / expectedMs));
   const receivedReadings = sorted.length;
@@ -2161,9 +2170,7 @@ function mergeAlertEvents(backendAlerts, derivedAlerts) {
 }
 
 function getDevicePriority(device) {
-  return getStatusInfo(
-    getEffectiveStatus(device, parseNumber(device?.config?.send_interval_s))
-  ).priority;
+  return getStatusInfo(getDeviceEffectiveStatus(device)).priority;
 }
 
 function sortDevices(devices) {
@@ -2569,21 +2576,16 @@ function DeviceSelector({
     orderedDevices[0] ||
     null;
 
-  const selectedStatusInfo = getStatusInfo(
-    getEffectiveStatus(selectedDevice, parseNumber(selectedDevice?.config?.send_interval_s))
-  );
+  const selectedStatusInfo = getStatusInfo(getDeviceEffectiveStatus(selectedDevice));
 
   const stats = useMemo(() => {
     const all = orderedDevices.length;
     const offline = orderedDevices.filter(
-      (item) =>
-        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) === "OFFLINE"
+      (item) => getDeviceEffectiveStatus(item) === "OFFLINE"
     ).length;
 
     const alerts = orderedDevices.filter((item) => {
-      const status = String(
-        getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s)) || ""
-      ).toLowerCase();
+      const status = String(getDeviceEffectiveStatus(item) || "").toLowerCase();
 
       return status.includes("alert") || status.includes("alarm") || status.includes("critical");
     }).length;
@@ -2695,9 +2697,7 @@ function DeviceSelector({
             }}
           >
             {orderedDevices.map((item) => {
-              const info = getStatusInfo(
-                getEffectiveStatus(item, parseNumber(item?.config?.send_interval_s))
-              );
+              const info = getStatusInfo(getDeviceEffectiveStatus(item));
               const active = item.device_id === selectedDeviceId;
 
               return (
@@ -2884,12 +2884,7 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                   </div>
                   <div style={styles.entryDevices}>
                     {room.devices.map((item) => {
-                      const info = getStatusInfo(
-                        getEffectiveStatus(
-                          item,
-                          parseNumber(item?.config?.send_interval_s)
-                        )
-                      );
+                      const info = getStatusInfo(getDeviceEffectiveStatus(item));
 
                       return (
                         <button
@@ -3542,6 +3537,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     hyst_c: "",
     hyst_hum: "",
     send_interval_s: "",
+    offline_alert_after_min: "",
     display_standby_min: "",
   });
 
@@ -3551,6 +3547,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     hyst_c: "",
     hyst_hum: "",
     send_interval_s: "",
+    offline_alert_after_min: "",
     display_standby_min: "",
   });
 
@@ -3933,6 +3930,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             hyst_c: toInputValue(deviceConfig?.hyst_c),
             hyst_hum: toInputValue(deviceConfig?.hyst_hum),
             send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            offline_alert_after_min: toInputValue(deviceConfig?.offline_alert_after_min ?? 6),
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
 
@@ -3942,6 +3940,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             hyst_c: toInputValue(deviceConfig?.hyst_c),
             hyst_hum: toInputValue(deviceConfig?.hyst_hum),
             send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            offline_alert_after_min: toInputValue(deviceConfig?.offline_alert_after_min ?? 6),
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
         }
@@ -4074,7 +4073,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     [liveReadings, period, sendIntervalS]
   );
 
-  const effectiveStatus = getEffectiveStatus(device, sendIntervalS);
+  const offlineAlertAfterMin = parseNumber(config?.offline_alert_after_min);
+  const effectiveStatus = getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin);
   const statusInfo = getStatusInfo(effectiveStatus);
   const deviceSwitchLoading =
     loadState === "deviceSwitchLoading" ||
@@ -4099,10 +4099,11 @@ const communicationHealth = useMemo(
     getCommunicationHealth({
       rawReadings: liveReadings,
       sendIntervalS,
+      offlineAlertAfterMin,
       deviceLastSeen: device?.last_seen,
       periodKey: diagnosticsPeriod,
     }),
-  [liveReadings, sendIntervalS, device?.last_seen, diagnosticsPeriod]
+  [liveReadings, sendIntervalS, offlineAlertAfterMin, device?.last_seen, diagnosticsPeriod]
 );
 
   const recentAlerts = useMemo(() => {
@@ -4325,6 +4326,9 @@ const communicationHealth = useMemo(
     const newSendInterval = canEditTechnicalConfig
       ? parseNumber(clientForm.send_interval_s)
       : null;
+    const newOfflineAlertAfter = canEditTechnicalConfig
+      ? parseNumber(clientForm.offline_alert_after_min)
+      : null;
     const newDisplayStandby = canEditTechnicalConfig
       ? parseNumber(clientForm.display_standby_min)
       : null;
@@ -4369,6 +4373,12 @@ const communicationHealth = useMemo(
       return;
     }
 
+    if (canEditTechnicalConfig && (newOfflineAlertAfter === null || newOfflineAlertAfter < 1)) {
+      setClientMessage("A falha de comunicacao deve ser pelo menos 1 minuto.");
+      setSavingClient(false);
+      return;
+    }
+
     if (canEditTechnicalConfig && newDisplayStandby < 0) {
       setClientMessage("O standby do display nao pode ser negativo.");
       setSavingClient(false);
@@ -4388,6 +4398,7 @@ const communicationHealth = useMemo(
         hyst_c: newHyst,
         hyst_hum: newHystHum,
         send_interval_s: newSendInterval,
+        offline_alert_after_min: newOfflineAlertAfter,
         display_standby_min: newDisplayStandby,
       });
     }
@@ -4434,6 +4445,7 @@ const communicationHealth = useMemo(
       hyst_c: toInputValue(refreshedConfig?.hyst_c),
       hyst_hum: toInputValue(refreshedConfig?.hyst_hum),
       send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      offline_alert_after_min: toInputValue(refreshedConfig?.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
 
@@ -4478,12 +4490,14 @@ const communicationHealth = useMemo(
     const newHyst = parseNumber(adminForm.hyst_c);
     const newHystHum = parseNumber(adminForm.hyst_hum);
     const newSendInterval = parseNumber(adminForm.send_interval_s);
+    const newOfflineAlertAfter = parseNumber(adminForm.offline_alert_after_min);
     const newDisplayStandby = parseNumber(adminForm.display_standby_min);
 
     if (
       newHyst === null ||
       newHystHum === null ||
       newSendInterval === null ||
+      newOfflineAlertAfter === null ||
       newDisplayStandby === null
     ) {
       setAdminMessage("Preenche todos os campos admin com valores válidos.");
@@ -4503,6 +4517,12 @@ const communicationHealth = useMemo(
       return;
     }
 
+    if (newOfflineAlertAfter < 1) {
+      setAdminMessage("A falha de comunicacao deve ser pelo menos 1 minuto.");
+      setSavingAdmin(false);
+      return;
+    }
+
     let data;
 
     try {
@@ -4514,6 +4534,7 @@ const communicationHealth = useMemo(
           hyst_c: newHyst,
           hyst_hum: newHystHum,
           send_interval_s: newSendInterval,
+          offline_alert_after_min: newOfflineAlertAfter,
           display_standby_min: newDisplayStandby,
         }),
       });
@@ -4552,6 +4573,7 @@ const communicationHealth = useMemo(
       hyst_c: toInputValue(refreshedConfig?.hyst_c),
       hyst_hum: toInputValue(refreshedConfig?.hyst_hum),
       send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      offline_alert_after_min: toInputValue(refreshedConfig?.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
 
@@ -4803,10 +4825,7 @@ async function downloadPdfReport() {
                             <div style={styles.clientMenuDevices}>
                               {room.devices.map((item) => {
                                 const info = getStatusInfo(
-                                  getEffectiveStatus(
-                                    item,
-                                    parseNumber(item?.config?.send_interval_s)
-                                  )
+                                  getDeviceEffectiveStatus(item)
                                 );
                                 const active = item.device_id === selectedDeviceId;
 
@@ -5924,6 +5943,23 @@ async function downloadPdfReport() {
                     setClientForm((prev) => ({
                       ...prev,
                       send_interval_s: e.target.value,
+                    }))
+                  }
+                  style={styles.configInput}
+                  disabled={!canEditSelectedDevice}
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Falha comunicação (min)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={clientForm.offline_alert_after_min}
+                  onChange={(e) =>
+                    setClientForm((prev) => ({
+                      ...prev,
+                      offline_alert_after_min: e.target.value,
                     }))
                   }
                   style={styles.configInput}

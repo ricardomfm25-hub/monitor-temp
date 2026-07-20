@@ -165,6 +165,7 @@ export default function AdminPage() {
     hyst_c: "",
     hyst_hum: "",
     send_interval_s: "",
+    offline_alert_after_min: "",
     display_standby_min: "",
     client_can_edit_technical: false,
   });
@@ -385,6 +386,7 @@ export default function AdminPage() {
         hyst_c: "",
         hyst_hum: "",
         send_interval_s: "",
+        offline_alert_after_min: "",
         display_standby_min: "",
         client_can_edit_technical: false,
       });
@@ -403,6 +405,7 @@ export default function AdminPage() {
       hyst_c: toInputValue(config.hyst_c),
       hyst_hum: toInputValue(config.hyst_hum),
       send_interval_s: toInputValue(config.send_interval_s),
+      offline_alert_after_min: toInputValue(config.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(config.display_standby_min),
       client_can_edit_technical: Boolean(config.client_can_edit_technical),
     });
@@ -834,6 +837,7 @@ export default function AdminPage() {
       hyst_c: parseNumber(deviceForm.hyst_c),
       hyst_hum: parseNumber(deviceForm.hyst_hum),
       send_interval_s: parseNumber(deviceForm.send_interval_s),
+      offline_alert_after_min: parseNumber(deviceForm.offline_alert_after_min),
       display_standby_min: parseNumber(deviceForm.display_standby_min),
     };
 
@@ -871,6 +875,12 @@ export default function AdminPage() {
       return;
     }
 
+    if (values.offline_alert_after_min < 1) {
+      setMessage("A falha de comunicacao deve ser pelo menos 1 minuto.");
+      setMessageType("error");
+      return;
+    }
+
     if (values.display_standby_min < 0) {
       setMessage("O standby do display não pode ser negativo.");
       setMessageType("error");
@@ -892,6 +902,7 @@ export default function AdminPage() {
         hyst_c: values.hyst_c,
         hyst_hum: values.hyst_hum,
         send_interval_s: values.send_interval_s,
+        offline_alert_after_min: values.offline_alert_after_min,
         display_standby_min: values.display_standby_min,
         client_can_edit_technical: Boolean(deviceForm.client_can_edit_technical),
       };
@@ -1908,6 +1919,25 @@ export default function AdminPage() {
                       setDeviceForm((prev) => ({
                         ...prev,
                         send_interval_s: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                  />
+                </ConfigField>
+
+                <ConfigField
+                  label="Falha de comunicação (min)"
+                  help="Minutos sem receber leituras até marcar falha de comunicação e disparar alerta offline."
+                >
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="6"
+                    value={deviceForm.offline_alert_after_min}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        offline_alert_after_min: e.target.value,
                       }))
                     }
                     style={styles.input}
