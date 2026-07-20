@@ -199,14 +199,12 @@ export async function POST(request, context) {
       },
     };
 
+    const insideLimits = isCurrentReadingInsideLimits(device, config);
     const updatePayload = {
       config: nextConfig,
       updated_at: nowIso,
+      status: insideLimits ? "NORMAL" : "ALARM_ACK",
     };
-
-    if (isCurrentReadingInsideLimits(device, config)) {
-      updatePayload.status = "NORMAL";
-    }
 
     const { error: updateError } = await supabase
       .from("devices")
@@ -233,7 +231,7 @@ export async function POST(request, context) {
     return Response.json({
       message: "Alertas ativos regularizados com sucesso.",
       alert_state: nextConfig.alert_state,
-      status: updatePayload.status || device.status || null,
+      status: updatePayload.status,
     });
   } catch (error) {
     console.error("Erro na API alerts POST:", error);

@@ -4073,6 +4073,11 @@ const communicationHealth = useMemo(
 
   const activeAlerts = useMemo(() => {
     const alertState = config?.alert_state || {};
+    const hasAuthoritativeAlertState =
+      config?.alert_state &&
+      ["temp_active", "hum_active", "offline_active"].some((key) =>
+        Object.prototype.hasOwnProperty.call(config.alert_state, key)
+      );
     const activeTypes = new Set();
     if (alertState.temp_active) activeTypes.add("temperature");
     if (alertState.hum_active) activeTypes.add("humidity");
@@ -4095,6 +4100,8 @@ const communicationHealth = useMemo(
         (item) => String(item?.event || "").toLowerCase() !== "resolved"
       );
     }
+
+    if (hasAuthoritativeAlertState) return [];
 
     const latestByType = new Map();
     for (const item of sorted) {
