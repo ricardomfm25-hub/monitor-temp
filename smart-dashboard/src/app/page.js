@@ -3811,7 +3811,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
         const baseDeviceData = deviceResponse?.data || null;
 
-        const deviceData = baseDeviceData
+        let deviceData = baseDeviceData
           ? {
               ...baseDeviceData,
               last_temperature:
@@ -3884,6 +3884,29 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             };
           })
           .filter((item) => Number.isFinite(item.timestamp));
+
+        if (deviceData && readingsData.length) {
+          const latestHistoryReading = [...readingsData].sort(
+            (a, b) => b.timestamp - a.timestamp
+          )[0];
+          const deviceLastSeenTs = deviceData?.last_seen
+            ? new Date(deviceData.last_seen).getTime()
+            : 0;
+
+          if (latestHistoryReading?.timestamp > deviceLastSeenTs) {
+            deviceData = {
+              ...deviceData,
+              last_seen: latestHistoryReading.created_at,
+              last_seen_seconds: Math.max(
+                0,
+                Math.floor((Date.now() - latestHistoryReading.timestamp) / 1000)
+              ),
+              last_temperature:
+                latestHistoryReading.temperature ?? deviceData.last_temperature,
+              last_humidity: latestHistoryReading.humidity ?? deviceData.last_humidity,
+            };
+          }
+        }
 
         const derivedAlerts = deriveAlertEventsFromReadings(
           readingsData,
@@ -4123,7 +4146,9 @@ const communicationHealth = useMemo(
     const activeTypes = new Set();
     if (alertState.temp_active) activeTypes.add("temperature");
     if (alertState.hum_active) activeTypes.add("humidity");
-    if (alertState.offline_active) activeTypes.add("offline");
+    if (alertState.offline_active && effectiveStatus === "OFFLINE") {
+      activeTypes.add("offline");
+    }
 
     const sorted = [...alerts].sort(
       (a, b) => getAlertTimestamp(b) - getAlertTimestamp(a)
@@ -4162,7 +4187,7 @@ const communicationHealth = useMemo(
           level.includes("critical"))
       );
     });
-  }, [alerts, config?.alert_state, maintenanceActive]);
+  }, [alerts, config?.alert_state, effectiveStatus, maintenanceActive]);
 
   const ackAlerts = useMemo(
     () =>

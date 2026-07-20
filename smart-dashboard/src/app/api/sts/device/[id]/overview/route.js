@@ -295,12 +295,24 @@ export async function GET(_request, context) {
       lastSeenTs !== null &&
       Date.now() - lastSeenTs <=
         getOfflineLimitMs(config.send_interval_s, config.offline_alert_after_min);
+    const latestReadingTs = latestReading?.created_at
+      ? new Date(latestReading.created_at).getTime()
+      : NaN;
+    const deviceLastSeenTs = device?.last_seen
+      ? new Date(device.last_seen).getTime()
+      : NaN;
+    const latestReadingIsNewer =
+      Number.isFinite(latestReadingTs) &&
+      (!Number.isFinite(deviceLastSeenTs) || latestReadingTs >= deviceLastSeenTs);
 
     const temperature =
-      parseNumber(device.last_temperature) ??
-      parseNumber(latestReading?.temperature);
+      latestReadingIsNewer
+        ? parseNumber(latestReading?.temperature) ?? parseNumber(device.last_temperature)
+        : parseNumber(device.last_temperature) ?? parseNumber(latestReading?.temperature);
     const humidity =
-      parseNumber(device.last_humidity) ?? parseNumber(latestReading?.humidity);
+      latestReadingIsNewer
+        ? parseNumber(latestReading?.humidity) ?? parseNumber(device.last_humidity)
+        : parseNumber(device.last_humidity) ?? parseNumber(latestReading?.humidity);
     const computedStatus = getStatus({ online, temperature, humidity, config });
     const status = resolveTelemetryStatus({
       online,
