@@ -510,8 +510,10 @@ function validateConfigNumbers(payload) {
 function getDeviceConfig(deviceRow) {
   const cfg = deviceRow?.config || {};
   const alertState = cfg.alert_state || {};
+  const maintenance = cfg.maintenance || {};
 
   return {
+    ...cfg,
     temp_low_c: toNumberOrDefault(cfg.temp_low_c, 18),
     temp_high_c: toNumberOrDefault(cfg.temp_high_c, TEMP_LIMIT),
     hum_low: toNumberOrDefault(cfg.hum_low, 30),
@@ -520,6 +522,12 @@ function getDeviceConfig(deviceRow) {
     hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
     send_interval_s: toNumberOrDefault(cfg.send_interval_s, 60),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
+    maintenance: {
+      active_until: maintenance.active_until || null,
+      started_at: maintenance.started_at || null,
+      duration_min: toOptionalNumber(maintenance.duration_min),
+      started_by: maintenance.started_by || null,
+    },
     alert_state: {
       temp_active: Boolean(alertState.temp_active),
       hum_active: Boolean(alertState.hum_active),
@@ -543,6 +551,40 @@ function getDeviceConfig(deviceRow) {
       hum_last_resolved_at: alertState.hum_last_resolved_at || null,
       offline_last_resolved_at: alertState.offline_last_resolved_at || null,
       alarm_last_ack_count: toOptionalNumber(alertState.alarm_last_ack_count) || 0,
+    },
+  };
+}
+
+function isMaintenanceActive(config) {
+  const activeUntil = config?.maintenance?.active_until;
+  if (!activeUntil) return false;
+  const ts = new Date(activeUntil).getTime();
+  return Number.isFinite(ts) && ts > Date.now();
+}
+
+function normalizeHardwareDiagnostics(value, fallback = {}) {
+  if (
+    (!value || typeof value !== "object") &&
+    (!fallback || !fallback.components)
+  ) {
+    return null;
+  }
+
+  const source = value && typeof value === "object" ? value : {};
+  const components =
+    source.components && typeof source.components === "object"
+      ? source.components
+      : {};
+
+  return {
+    overall_ok:
+      source.overall_ok === undefined || source.overall_ok === null
+        ? Object.values(components).every((item) => item?.ok !== false)
+        : toBoolean(source.overall_ok),
+    updated_at: nowIso(),
+    components: {
+      ...(fallback.components || {}),
+      ...components,
     },
   };
 }
@@ -2368,6 +2410,13 @@ async function processTriggeredAndResolvedAlerts({
   cfg,
 }) {
   const alertState = cfg.alert_state;
+  if (isMaintenanceActive(cfg)) {
+    return {
+      ...alertState,
+      maintenance_suppressed_at: nowIso(),
+    };
+  }
+
   const tempInfo = getTemperatureAlertDirection(numericTemperature, cfg);
   const humInfo = getHumidityAlertDirection(numericHumidity, cfg);
 
@@ -2567,6 +2616,7 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
     processed += 1;
 
     const cfg = getDeviceConfig(deviceRow);
+    if (isMaintenanceActive(cfg)) continue;
     const alertState = cfg.alert_state;
     const lastSeenTs = deviceRow?.last_seen
       ? new Date(deviceRow.last_seen).getTime()
@@ -2981,6 +3031,7 @@ app.post("/api/temperature", async (req, res) => {
       queued_backfill,
       capture_network_known,
       firmware_version,
+      hardware_diagnostics,
     } = req.body;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
@@ -3023,6 +3074,10 @@ app.post("/api/temperature", async (req, res) => {
       };
 
     const cfg = getDeviceConfig(baseDeviceRow);
+    const receivedHardwareDiagnostics = normalizeHardwareDiagnostics(
+      hardware_diagnostics,
+      cfg.hardware_diagnostics
+    );
     const readingCreatedAt = getIncomingReadingCreatedAt(sample_age_s, sample_epoch);
     const readingPayload = {
       device_id,
@@ -3174,7 +3229,12 @@ app.post("/api/temperature", async (req, res) => {
       device_id,
       name: sanitizeDeviceName(baseDeviceRow.name, device_id),
       location: sanitizeLocation(baseDeviceRow.location),
-      config: baseDeviceRow.config || {},
+      config: {
+        ...(baseDeviceRow.config || {}),
+        ...(receivedHardwareDiagnostics
+          ? { hardware_diagnostics: receivedHardwareDiagnostics }
+          : {}),
+      },
       config_version: baseDeviceRow.config_version || 1,
       firmware_version: firmware_version || baseDeviceRow.firmware_version || null,
       last_seen: currentNowIso,
@@ -3272,24 +3332,26 @@ app.post("/api/temperature", async (req, res) => {
         });
 
     if (isHistoricalBackfill && refreshedCfg.alert_state.offline_active) {
-      await sendOnlineRecoveredEmail({
-        device: {
-          ...freshDeviceRow,
-          last_temperature: numericTemperature,
-          last_humidity: numericHumidity,
-        },
-      });
+      if (!isMaintenanceActive(refreshedCfg)) {
+        await sendOnlineRecoveredEmail({
+          device: {
+            ...freshDeviceRow,
+            last_temperature: numericTemperature,
+            last_humidity: numericHumidity,
+          },
+        });
 
-      await insertAlertHistory({
-        device_id,
-        type: "offline",
-        event: "resolved",
-        title: "Dispositivo novamente online",
-        message:
-          "O dispositivo voltou a comunicar com o backend durante o reenvio do buffer.",
-        temperature: numericTemperature,
-        humidity: numericHumidity,
-      });
+        await insertAlertHistory({
+          device_id,
+          type: "offline",
+          event: "resolved",
+          title: "Dispositivo novamente online",
+          message:
+            "O dispositivo voltou a comunicar com o backend durante o reenvio do buffer.",
+          temperature: numericTemperature,
+          humidity: numericHumidity,
+        });
+      }
 
       nextAlertState.offline_active = false;
       nextAlertState.offline_last_resolved_at = currentNowIso;

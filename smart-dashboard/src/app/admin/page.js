@@ -51,6 +51,38 @@ function SmallStat({ label, value }) {
   );
 }
 
+function isMaintenanceActive(config) {
+  const ts = config?.maintenance?.active_until
+    ? new Date(config.maintenance.active_until).getTime()
+    : NaN;
+  return Number.isFinite(ts) && ts > Date.now();
+}
+
+function formatMaintenanceRemaining(config) {
+  if (!isMaintenanceActive(config)) return "Inativo";
+  const remainingMs = new Date(config.maintenance.active_until).getTime() - Date.now();
+  const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
+  return `${minutes} min restantes`;
+}
+
+function getHardwareDiagnostics(device) {
+  return device?.config?.hardware_diagnostics || device?.hardware_diagnostics || null;
+}
+
+function getHardwareComponentRows(device) {
+  const diagnostics = getHardwareDiagnostics(device);
+  const components = diagnostics?.components || {};
+  return Object.entries(components).map(([key, value]) => ({
+    key,
+    label: value?.label || key,
+    ok: value?.ok !== false,
+    detail: Object.entries(value || {})
+      .filter(([itemKey]) => !["label", "ok"].includes(itemKey))
+      .map(([itemKey, itemValue]) => `${itemKey}: ${itemValue}`)
+      .join(" · "),
+  }));
+}
+
 function FieldHelp({ children }) {
   return <div style={styles.fieldHelp}>{children}</div>;
 }
@@ -152,6 +184,7 @@ export default function AdminPage() {
   const [savingPasswordPermission, setSavingPasswordPermission] = useState(false);
   const [savingPasswordUpdate, setSavingPasswordUpdate] = useState(false);
   const [deletingUser, setDeletingUser] = useState(false);
+  const [savingMaintenance, setSavingMaintenance] = useState(false);
 
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== "super_admin"),
@@ -893,6 +926,66 @@ export default function AdminPage() {
       setMessageType("error");
     } finally {
       setSavingDevice(false);
+    }
+  }
+
+  async function setMaintenanceMode(durationMin) {
+    if (!selectedDeviceData || !selectedDevice) {
+      setMessage("Seleciona um dispositivo.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingMaintenance(true);
+    setMessage("");
+
+    try {
+      const now = new Date();
+      const activeUntil =
+        durationMin > 0 ? new Date(now.getTime() + durationMin * 60000).toISOString() : null;
+      const currentConfig = selectedDeviceData.config || {};
+      const nextConfig = {
+        ...currentConfig,
+        maintenance: {
+          active_until: activeUntil,
+          started_at: durationMin > 0 ? now.toISOString() : null,
+          duration_min: durationMin > 0 ? durationMin : null,
+          started_by: durationMin > 0 ? profile?.email || profile?.id || "admin" : null,
+        },
+      };
+
+      const { data, error } = await supabase
+        .from("devices")
+        .update({
+          config: nextConfig,
+          config_version: Number(selectedDeviceData.config_version || 0) + 1,
+          updated_at: now.toISOString(),
+        })
+        .eq("device_id", selectedDevice)
+        .select("*")
+        .single();
+
+      if (error || !data) {
+        throw error || new Error("Erro ao atualizar modo manutenção.");
+      }
+
+      setDevices((prev) =>
+        prev.map((item) =>
+          item.device_id === data.device_id ? { ...item, ...data } : item
+        )
+      );
+
+      setMessage(
+        durationMin > 0
+          ? `Modo manutenção ativo por ${durationMin} minutos. Alertas silenciados.`
+          : "Modo manutenção desativado."
+      );
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error?.message || "Erro ao atualizar modo manutenção.");
+      setMessageType("error");
+    } finally {
+      setSavingMaintenance(false);
     }
   }
 
@@ -1879,6 +1972,62 @@ export default function AdminPage() {
                 label="Última hum."
                 value={formatValue(selectedDeviceData.last_humidity, " %")}
               />
+              <SmallStat
+                label="Modo manutenção"
+                value={formatMaintenanceRemaining(selectedDeviceData.config || {})}
+              />
+            </div>
+
+            <div style={styles.maintenanceBox}>
+              <div>
+                <div style={styles.configSectionTitle}>Modo manutenção</div>
+                <div style={styles.cardHint}>
+                  Silencia alertas e emails durante testes, mantendo leituras e valores em tempo real.
+                </div>
+              </div>
+              <div style={styles.actionsRow}>
+                {[15, 30, 60].map((minutes) => (
+                  <button
+                    key={minutes}
+                    type="button"
+                    style={styles.secondaryButton}
+                    disabled={savingMaintenance}
+                    onClick={() => setMaintenanceMode(minutes)}
+                  >
+                    {minutes === 60 ? "1h" : `${minutes} min`}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  style={styles.dangerButton}
+                  disabled={savingMaintenance || !isMaintenanceActive(selectedDeviceData.config || {})}
+                  onClick={() => setMaintenanceMode(0)}
+                >
+                  Desativar
+                </button>
+              </div>
+            </div>
+
+            <div style={styles.hardwareGrid}>
+              {getHardwareComponentRows(selectedDeviceData).length ? (
+                getHardwareComponentRows(selectedDeviceData).map((component) => (
+                  <div
+                    key={component.key}
+                    style={{
+                      ...styles.hardwareItem,
+                      borderColor: component.ok ? "#14532d" : "#7f1d1d",
+                    }}
+                  >
+                    <span style={styles.hardwareLabel}>{component.label}</span>
+                    <strong style={{ color: component.ok ? "#22c55e" : "#ef4444" }}>
+                      {component.ok ? "OK" : "Atenção"}
+                    </strong>
+                    <small style={styles.hardwareDetail}>{component.detail || component.key}</small>
+                  </div>
+                ))
+              ) : (
+                <div style={styles.emptyState}>Sem diagnóstico de hardware recebido ainda.</div>
+              )}
             </div>
           </section>
           </>
@@ -2162,6 +2311,17 @@ const styles = {
     fontSize: "14px",
   },
 
+  dangerButton: {
+    border: "1px solid #7f1d1d",
+    background: "#3f1218",
+    color: "#fecaca",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+
   primaryButton: {
     border: "1px solid #2563eb",
     background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
@@ -2198,6 +2358,47 @@ const styles = {
   disabledButton: {
     opacity: 0.55,
     cursor: "not-allowed",
+  },
+
+  maintenanceBox: {
+    marginTop: "18px",
+    border: "1px solid #243b63",
+    borderRadius: "16px",
+    padding: "16px",
+    background: "#0f172a",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "14px",
+    flexWrap: "wrap",
+  },
+
+  hardwareGrid: {
+    marginTop: "16px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+  },
+
+  hardwareItem: {
+    border: "1px solid #334155",
+    borderRadius: "14px",
+    padding: "13px",
+    background: "#0b1220",
+    display: "grid",
+    gap: "6px",
+  },
+
+  hardwareLabel: {
+    color: "#cbd5e1",
+    fontSize: "12px",
+    fontWeight: 800,
+  },
+
+  hardwareDetail: {
+    color: "#64748b",
+    fontSize: "11px",
+    lineHeight: 1.4,
   },
 
   card: {

@@ -2418,6 +2418,32 @@ function InfoItem({ label, value, valueColor, icon: Icon }) {
   );
 }
 
+function getHardwareSummary(diagnostics) {
+  const components = diagnostics?.components || {};
+  const entries = Object.values(components);
+  if (!diagnostics || entries.length === 0) {
+    return { label: "Sem detalhe", tone: "neutral", color: "#94a3b8" };
+  }
+
+  const failing = entries.filter((item) => item?.ok === false);
+  if (diagnostics?.overall_ok === false || failing.length > 0) {
+    return {
+      label: failing.length ? `${failing.length} componente(s) com atenção` : "Atenção",
+      tone: "bad",
+      color: "#ef4444",
+    };
+  }
+
+  return { label: "Hardware OK", tone: "good", color: "#22c55e" };
+}
+
+function isMaintenanceActive(config) {
+  const ts = config?.maintenance?.active_until
+    ? new Date(config.maintenance.active_until).getTime()
+    : NaN;
+  return Number.isFinite(ts) && ts > Date.now();
+}
+
 function SmallStat({ label, value }) {
   return (
     <div style={styles.smallStat}>
@@ -3803,6 +3829,12 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               last_seen_seconds:
                 overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
               communication_health: overviewData?.communication_health || null,
+              config: overviewData?.config || baseDeviceData?.config || {},
+              hardware_diagnostics:
+                overviewData?.hardware_diagnostics ||
+                overviewData?.diagnostics?.hardware_diagnostics ||
+                baseDeviceData?.config?.hardware_diagnostics ||
+                null,
               predictive_status: overviewData?.predictive_status || null,
               telemetry_seq:
                 overviewData?.telemetry_seq ?? baseDeviceData?.telemetry_seq ?? null,
@@ -4012,6 +4044,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   }, [selectedDeviceId, loadData, supabase]);
 
   const config = useMemo(() => device?.config ?? {}, [device?.config]);
+  const hardwareDiagnostics =
+    deviceOverview?.hardware_diagnostics ||
+    deviceOverview?.diagnostics?.hardware_diagnostics ||
+    config?.hardware_diagnostics ||
+    null;
+  const hardwareSummary = getHardwareSummary(hardwareDiagnostics);
+  const maintenanceActive = isMaintenanceActive(config);
 
   const tempLow = parseNumber(config?.temp_low_c);
   const tempHigh = parseNumber(config?.temp_high_c);
@@ -4072,6 +4111,8 @@ const communicationHealth = useMemo(
   }, [alerts]);
 
   const activeAlerts = useMemo(() => {
+    if (maintenanceActive) return [];
+
     const alertState = config?.alert_state || {};
     const hasAuthoritativeAlertState =
       config?.alert_state &&
@@ -4120,7 +4161,7 @@ const communicationHealth = useMemo(
           level.includes("critical"))
       );
     });
-  }, [alerts, config?.alert_state]);
+  }, [alerts, config?.alert_state, maintenanceActive]);
 
   const ackAlerts = useMemo(
     () =>
@@ -5349,6 +5390,18 @@ async function downloadPdfReport() {
                 : "repeat(3, minmax(0, 1fr))",
             }}
           >
+            <InfoItem
+              label="Hardware"
+              value={hardwareSummary.label}
+              valueColor={hardwareSummary.color}
+              icon={Cpu}
+            />
+            <InfoItem
+              label="Modo manutenção"
+              value={maintenanceActive ? "Ativo" : "Inativo"}
+              valueColor={maintenanceActive ? "#f59e0b" : "#94a3b8"}
+              icon={Settings}
+            />
             <InfoItem
               label="Sensor"
               value={deviceOverview?.sensor_status || device?.sensor_status || "OK / sem detalhe"}

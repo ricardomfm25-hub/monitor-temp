@@ -80,6 +80,7 @@ function resolveTelemetryStatus({
 }
 
 function normalizeConfig(config = {}) {
+  const maintenance = config.maintenance || {};
   return {
     ...config,
     temp_low_c: parseNumber(config.temp_low_c) ?? 18,
@@ -90,7 +91,20 @@ function normalizeConfig(config = {}) {
     hyst_hum: parseNumber(config.hyst_hum) ?? 2,
     send_interval_s: parseNumber(config.send_interval_s) ?? 60,
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
+    maintenance: {
+      active_until: maintenance.active_until || null,
+      started_at: maintenance.started_at || null,
+      duration_min: parseNumber(maintenance.duration_min),
+      started_by: maintenance.started_by || null,
+    },
   };
+}
+
+function isMaintenanceActive(config) {
+  const ts = config?.maintenance?.active_until
+    ? new Date(config.maintenance.active_until).getTime()
+    : NaN;
+  return Number.isFinite(ts) && ts > Date.now();
 }
 
 function getOfflineLimitMs(sendIntervalS) {
@@ -198,6 +212,12 @@ function getDiagnostics(device, config) {
       diagnostics.battery ??
       null,
     diagnostics,
+    hardware_diagnostics:
+      device?.hardware_diagnostics ||
+      diagnostics.hardware_diagnostics ||
+      config.hardware_diagnostics ||
+      null,
+    maintenance_active: isMaintenanceActive(config),
   };
 }
 
