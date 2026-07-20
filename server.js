@@ -25,6 +25,7 @@ const OFFLINE_ALERT_SECONDS = parseInt(
   process.env.OFFLINE_ALERT_SECONDS || "180",
   10
 );
+const OFFLINE_MISSED_SENDS_THRESHOLD = 3;
 const HEALTH_CHECK_INTERVAL_SECONDS = parseInt(
   process.env.HEALTH_CHECK_INTERVAL_SECONDS || "60",
   10
@@ -517,7 +518,7 @@ function getDeviceConfig(deviceRow) {
     hum_high: toNumberOrDefault(cfg.hum_high, 60),
     hyst_c: toNumberOrDefault(cfg.hyst_c, 0.5),
     hyst_hum: toNumberOrDefault(cfg.hyst_hum, 2),
-    send_interval_s: toNumberOrDefault(cfg.send_interval_s, 30),
+    send_interval_s: toNumberOrDefault(cfg.send_interval_s, 60),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     alert_state: {
       temp_active: Boolean(alertState.temp_active),
@@ -559,7 +560,7 @@ function shouldStoreReading({ latestReading, cfg, incoming }) {
   const expectedMs =
     Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
       ? Number(cfg.send_interval_s) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
   const minIntervalMs = expectedMs * READING_MIN_INTERVAL_FACTOR;
   const isBackfill = isOfflineCapturedReading(incoming, cfg);
 
@@ -626,7 +627,7 @@ function isOfflineCapturedReading(incoming, cfg) {
   const expectedMs =
     Number.isFinite(Number(cfg?.send_interval_s)) && Number(cfg.send_interval_s) > 0
       ? Number(cfg.send_interval_s) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
 
   if (deliveryAttempts > 1) return true;
   if (sampleAgeS !== null && sampleAgeS * 1000 > Math.max(expectedMs, 60 * 1000)) {
@@ -719,9 +720,12 @@ function getOfflineThresholdMs(sendIntervalS) {
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
       ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
 
-  return Math.max(OFFLINE_ALERT_SECONDS * 1000, expectedMs * 6);
+  return Math.max(
+    OFFLINE_ALERT_SECONDS * 1000,
+    expectedMs * OFFLINE_MISSED_SENDS_THRESHOLD
+  );
 }
 
 function formatFirmwareVersion(value) {
@@ -890,7 +894,7 @@ function getCommunicationHealth({
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
       ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
 
   const offlineThresholdMs = getOfflineThresholdMs(sendIntervalS);
   const periodMs = periodHours * 60 * 60 * 1000;
@@ -933,7 +937,7 @@ function getCommunicationHealth({
   }
 
   const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
-  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
+  const severeGapThresholdMs = Math.max(expectedMs * 3, offlineThresholdMs);
 
   let maxGapMs = 0;
   let relevantGapCount = 0;
@@ -954,7 +958,7 @@ function getCommunicationHealth({
 
   if (lastDelayMs !== null) {
     if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
-    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
+    if (lastDelayMs > offlineThresholdMs * 0.7) {
       penalty += 10;
     }
   }

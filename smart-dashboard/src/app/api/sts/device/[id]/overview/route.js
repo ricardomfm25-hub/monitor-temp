@@ -88,7 +88,7 @@ function normalizeConfig(config = {}) {
     hum_high: parseNumber(config.hum_high) ?? 60,
     hyst_c: parseNumber(config.hyst_c) ?? 0.5,
     hyst_hum: parseNumber(config.hyst_hum) ?? 2,
-    send_interval_s: parseNumber(config.send_interval_s) ?? 30,
+    send_interval_s: parseNumber(config.send_interval_s) ?? 60,
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
   };
 }
@@ -97,9 +97,9 @@ function getOfflineLimitMs(sendIntervalS) {
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
       ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
 
-  return Math.max(expectedMs * 6, 180 * 1000);
+  return Math.max(expectedMs * 3, 180 * 1000);
 }
 
 function getStatus({ online, temperature, humidity, config }) {

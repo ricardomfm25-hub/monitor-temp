@@ -412,9 +412,9 @@ function getOfflineLimitMs(sendIntervalS) {
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
       ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
 
-  return Math.max(expectedMs * 6, 180 * 1000);
+  return Math.max(expectedMs * 3, 180 * 1000);
 }
 
 function getEffectiveStatus(device, sendIntervalS) {
@@ -439,7 +439,7 @@ function isOfflineCapturedReading(reading, sendIntervalS) {
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
       ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
   const delayedMs = Math.max(expectedMs, 60 * 1000);
 
   if (deliveryAttempts > 1) return true;
@@ -907,7 +907,7 @@ function getCommunicationHealth({
   const expectedMs =
     Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
       ? Number(sendIntervalS) * 1000
-      : 30 * 1000;
+      : 60 * 1000;
 
   const offlineThresholdMs = getOfflineLimitMs(sendIntervalS);
   const periodMs = Math.max(end - start, expectedMs);
@@ -943,7 +943,7 @@ function getCommunicationHealth({
   }
 
   const relevantGapThresholdMs = Math.max(expectedMs * 3.5, 150 * 1000);
-  const severeGapThresholdMs = Math.max(expectedMs * 6, 5 * 60 * 1000);
+  const severeGapThresholdMs = Math.max(expectedMs * 3, offlineThresholdMs);
 
   let maxGapMs = 0;
   let relevantGapCount = 0;
@@ -964,7 +964,7 @@ function getCommunicationHealth({
 
   if (lastDelayMs !== null) {
     if (lastDelayMs > Math.max(expectedMs * 4, 2 * 60 * 1000)) penalty += 6;
-    if (lastDelayMs > Math.max(expectedMs * 6, offlineThresholdMs * 0.7)) {
+    if (lastDelayMs > offlineThresholdMs * 0.7) {
       penalty += 10;
     }
   }

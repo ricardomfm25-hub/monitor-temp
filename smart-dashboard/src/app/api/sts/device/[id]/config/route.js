@@ -35,7 +35,7 @@ function normalizeConfig(config = {}) {
     hyst_hum: parseNumber(config.hyst_hum) ?? 2,
     client_can_edit_technical: Boolean(config.client_can_edit_technical),
     send_interval_s: Math.min(
-      Math.max(parseNumber(config.send_interval_s) ?? 30, MIN_SEND_INTERVAL_SECONDS),
+      Math.max(parseNumber(config.send_interval_s) ?? 60, MIN_SEND_INTERVAL_SECONDS),
       MAX_SEND_INTERVAL_SECONDS
     ),
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
