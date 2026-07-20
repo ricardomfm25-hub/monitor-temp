@@ -4161,6 +4161,14 @@ const communicationHealth = useMemo(
       : device?.last_seen
       ? Date.now() - new Date(device.last_seen).getTime()
       : null;
+  const lastCommunicationTone =
+    effectiveLastDelayMs === null
+      ? "neutral"
+      : effectiveLastDelayMs > communicationHealth.offline_threshold_ms
+      ? "bad"
+      : effectiveLastDelayMs > communicationHealth.offline_threshold_ms * 0.7
+      ? "warn"
+      : "neutral";
 
   const operationalInsights = useMemo(
     () =>
@@ -5049,7 +5057,7 @@ async function downloadPdfReport() {
                 value={formatRelativeTime(device?.last_seen)}
                 hint={formatDateTime(device?.last_seen)}
                 icon={Radio}
-                tone={communicationHealth.tone}
+                tone={lastCommunicationTone}
               />
               <ExecutiveStatCard
                 label="Wi-Fi"
