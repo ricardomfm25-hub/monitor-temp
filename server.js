@@ -3184,13 +3184,61 @@ app.post("/api/temperature", async (req, res) => {
     }
 
     failureStage = "atualizar_dispositivo";
-    const { error: upsertError } = await supabase
-      .from("devices")
-      .upsert([upsertPayload], { onConflict: "device_id" });
+    let deviceUpdateError = null;
 
-    if (upsertError) {
-      console.error("Erro ao atualizar device por upsert:", upsertError);
-      return res.status(500).json({ error: "Erro ao atualizar dispositivo" });
+    if (existingDeviceRow) {
+      const { device_id: _deviceId, name: _name, location: _location, config: _config, config_version: _configVersion, ...updatePayload } =
+        upsertPayload;
+      const updateAttempts = [
+        updatePayload,
+        { ...updatePayload, firmware_version: undefined },
+        { ...updatePayload, firmware_version: undefined, status: undefined },
+        {
+          last_seen: currentNowIso,
+          updated_at: currentNowIso,
+          ...(isHistoricalBackfill
+            ? {}
+            : {
+                last_temperature: numericTemperature,
+                last_humidity: numericHumidity,
+              }),
+        },
+        {
+          last_seen: currentNowIso,
+          updated_at: currentNowIso,
+        },
+      ].map((payload) =>
+        Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined))
+      );
+
+      for (const payload of updateAttempts) {
+        const { error } = await supabase
+          .from("devices")
+          .update(payload)
+          .eq("device_id", device_id);
+
+        if (!error) {
+          deviceUpdateError = null;
+          break;
+        }
+
+        deviceUpdateError = error;
+        console.error("Erro ao atualizar device. A tentar fallback:", error);
+      }
+    } else {
+      const { error } = await supabase
+        .from("devices")
+        .upsert([upsertPayload], { onConflict: "device_id" });
+      deviceUpdateError = error;
+    }
+
+    if (deviceUpdateError) {
+      console.error("Erro ao atualizar device apos fallbacks:", deviceUpdateError);
+      return res.status(500).json({
+        error: "Erro ao atualizar dispositivo",
+        detail: deviceUpdateError.message || null,
+        code: deviceUpdateError.code || null,
+      });
     }
 
     failureStage = "reler_dispositivo";
