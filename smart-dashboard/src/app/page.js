@@ -6022,9 +6022,13 @@ async function downloadPdfReport() {
           </div>
 
           <div style={styles.settingsSection}>
-            <div>
-              <div style={styles.settingsSectionTitle}>{t("technicalGeneral")}</div>
-              <div style={styles.cardHint}>{t("interfaceHint")}</div>
+            <div style={styles.settingsSectionHeader}>
+              <div style={styles.settingsSectionIcon}><LayoutDashboard size={18} /></div>
+              <div>
+                <div style={styles.settingsSectionEyebrow}>01 · Dashboard</div>
+                <div style={styles.settingsSectionTitle}>{t("technicalGeneral")}</div>
+                <div style={styles.cardHint}>{t("interfaceHint")}</div>
+              </div>
             </div>
             <div
               style={{
@@ -6058,84 +6062,57 @@ async function downloadPdfReport() {
           </div>
 
           <div style={styles.settingsSection}>
-            <div>
-              <div style={styles.settingsSectionTitle}>{t("technicalSensors")}</div>
-              <div style={styles.cardHint}>{t("settingsHint")}</div>
+            <div style={styles.settingsSectionHeader}>
+              <div style={styles.settingsSectionIcon}><Gauge size={18} /></div>
+              <div>
+                <div style={styles.settingsSectionEyebrow}>02 · Limites operacionais</div>
+                <div style={styles.settingsSectionTitle}>{t("technicalSensors")}</div>
+                <div style={styles.cardHint}>Defina a janela segura para cada grandeza monitorizada.</div>
+              </div>
             </div>
             <div
               style={{
-                ...styles.formGrid,
-                gridTemplateColumns: isMobile
-                  ? "1fr"
-                  : "repeat(4, minmax(0, 1fr))",
+                ...styles.settingsMetricGrid,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
               }}
             >
-              <div style={styles.field}>
-                <label style={styles.label}>{t("tempMin")}</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={clientForm.temp_low_c}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      temp_low_c: e.target.value,
-                    }))
-                  }
-                  style={styles.configInput}
-                  disabled={!canEditSelectedDevice}
-                />
+              <div style={styles.settingsMetricCard}>
+                <div style={styles.settingsMetricTitle}><Thermometer size={16} /> Temperatura</div>
+                <div style={styles.settingsMetricFields}>
+                  <div style={styles.field}>
+                    <label style={styles.label}>{t("tempMin")}</label>
+                    <div style={styles.inputWithUnit}>
+                      <input type="number" step="0.1" value={clientForm.temp_low_c} onChange={(e) => setClientForm((prev) => ({ ...prev, temp_low_c: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <span style={styles.inputUnit}>°C</span>
+                    </div>
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>{t("tempMax")}</label>
+                    <div style={styles.inputWithUnit}>
+                      <input type="number" step="0.1" value={clientForm.temp_high_c} onChange={(e) => setClientForm((prev) => ({ ...prev, temp_high_c: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <span style={styles.inputUnit}>°C</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>{t("tempMax")}</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={clientForm.temp_high_c}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      temp_high_c: e.target.value,
-                    }))
-                  }
-                  style={styles.configInput}
-                  disabled={!canEditSelectedDevice}
-                />
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>{t("humMin")}</label>
-                <input
-                  type="number"
-                  step="1"
-                  value={clientForm.hum_low}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      hum_low: e.target.value,
-                    }))
-                  }
-                  style={styles.configInput}
-                  disabled={!canEditSelectedDevice}
-                />
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>{t("humMax")}</label>
-                <input
-                  type="number"
-                  step="1"
-                  value={clientForm.hum_high}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      hum_high: e.target.value,
-                    }))
-                  }
-                  style={styles.configInput}
-                  disabled={!canEditSelectedDevice}
-                />
+              <div style={styles.settingsMetricCard}>
+                <div style={styles.settingsMetricTitle}><Droplets size={16} /> Humidade</div>
+                <div style={styles.settingsMetricFields}>
+                  <div style={styles.field}>
+                    <label style={styles.label}>{t("humMin")}</label>
+                    <div style={styles.inputWithUnit}>
+                      <input type="number" step="1" value={clientForm.hum_low} onChange={(e) => setClientForm((prev) => ({ ...prev, hum_low: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <span style={styles.inputUnit}>%</span>
+                    </div>
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>{t("humMax")}</label>
+                    <div style={styles.inputWithUnit}>
+                      <input type="number" step="1" value={clientForm.hum_high} onChange={(e) => setClientForm((prev) => ({ ...prev, hum_high: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <span style={styles.inputUnit}>%</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -6143,9 +6120,13 @@ async function downloadPdfReport() {
           {canEditTechnicalConfig ? (
           <>
           <div style={styles.settingsSection}>
-            <div>
-              <div style={styles.settingsSectionTitle}>{t("technicalAlerts")}</div>
-              <div style={styles.cardHint}>{t("stabilityHint")}</div>
+            <div style={styles.settingsSectionHeader}>
+              <div style={styles.settingsSectionIcon}><Bell size={18} /></div>
+              <div>
+                <div style={styles.settingsSectionEyebrow}>03 · Alertas</div>
+                <div style={styles.settingsSectionTitle}>{t("technicalAlerts")}</div>
+                <div style={styles.cardHint}>{t("stabilityHint")}</div>
+              </div>
             </div>
             <div
               style={{
@@ -6190,9 +6171,13 @@ async function downloadPdfReport() {
           </div>
 
           <div style={styles.settingsSection}>
-            <div>
-              <div style={styles.settingsSectionTitle}>{t("technicalCommunicationDisplay")}</div>
-              <div style={styles.cardHint}>{t("deviceCadenceHint")}</div>
+            <div style={styles.settingsSectionHeader}>
+              <div style={styles.settingsSectionIcon}><Radio size={18} /></div>
+              <div>
+                <div style={styles.settingsSectionEyebrow}>04 · Dispositivo</div>
+                <div style={styles.settingsSectionTitle}>{t("technicalCommunicationDisplay")}</div>
+                <div style={styles.cardHint}>{t("deviceCadenceHint")}</div>
+              </div>
             </div>
             <div
               style={{
@@ -6258,7 +6243,11 @@ async function downloadPdfReport() {
           ) : null}
 
           {canEditSelectedDevice ? (
-            <div style={styles.actionsRow}>
+            <div style={styles.settingsSaveBar}>
+              <div>
+                <div style={styles.settingsSaveTitle}>Aplicar configuração</div>
+                <div style={styles.cardHint}>As alterações serão sincronizadas com este dispositivo.</div>
+              </div>
               <button
                 style={styles.primaryButton}
                 onClick={saveClientConfig}
@@ -9000,6 +8989,119 @@ collapseButton: {
     fontSize: "15px",
     fontWeight: 900,
     marginBottom: "4px",
+  },
+
+  settingsSectionHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "12px",
+  },
+
+  settingsSectionIcon: {
+    width: "40px",
+    height: "40px",
+    flex: "0 0 40px",
+    borderRadius: "12px",
+    display: "grid",
+    placeItems: "center",
+    color: "var(--sts-accent)",
+    border: "1px solid color-mix(in srgb, var(--sts-accent) 30%, var(--sts-border))",
+    background: "color-mix(in srgb, var(--sts-accent) 10%, var(--sts-surface))",
+  },
+
+  settingsSectionEyebrow: {
+    marginBottom: "3px",
+    color: "var(--sts-accent)",
+    fontSize: "10px",
+    fontWeight: 900,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+  },
+
+  settingsMetricGrid: {
+    display: "grid",
+    gap: "12px",
+  },
+
+  settingsMetricCard: {
+    padding: "12px",
+    borderRadius: "14px",
+    border: "1px solid var(--sts-border)",
+    background: "color-mix(in srgb, var(--sts-surface) 88%, transparent)",
+  },
+
+  settingsMetricTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    margin: "2px 2px 12px",
+    color: "var(--sts-text)",
+    fontSize: "13px",
+    fontWeight: 850,
+  },
+
+  settingsMetricFields: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "10px",
+  },
+
+  inputWithUnit: {
+    display: "flex",
+    alignItems: "center",
+    overflow: "hidden",
+    height: "40px",
+    border: "1px solid var(--sts-border-strong)",
+    background: "var(--sts-input-bg)",
+    borderRadius: "12px",
+  },
+
+  configInputUnit: {
+    width: "100%",
+    minWidth: 0,
+    height: "100%",
+    padding: "9px 8px 9px 12px",
+    border: 0,
+    outline: "none",
+    background: "transparent",
+    color: "var(--sts-text)",
+    fontSize: "14px",
+    fontWeight: 750,
+    textAlign: "center",
+    fontVariantNumeric: "tabular-nums",
+  },
+
+  inputUnit: {
+    alignSelf: "stretch",
+    minWidth: "42px",
+    padding: "0 10px",
+    display: "grid",
+    placeItems: "center",
+    borderLeft: "1px solid var(--sts-border)",
+    color: "var(--sts-muted)",
+    fontSize: "12px",
+    fontWeight: 850,
+    background: "var(--sts-surface-soft)",
+  },
+
+  settingsSaveBar: {
+    marginTop: "18px",
+    padding: "14px 16px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "16px",
+    flexWrap: "wrap",
+    border: "1px solid color-mix(in srgb, var(--sts-accent) 28%, var(--sts-border))",
+    background: "color-mix(in srgb, var(--sts-accent) 7%, var(--sts-surface))",
+    borderRadius: "16px",
+  },
+
+  settingsSaveTitle: {
+    marginBottom: "3px",
+    color: "var(--sts-text)",
+    fontSize: "14px",
+    fontWeight: 900,
   },
 
   field: {
