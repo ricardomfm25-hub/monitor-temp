@@ -19,10 +19,8 @@ import {
   LayoutDashboard,
   ListChecks,
   MapPin,
-  MoreHorizontal,
   Power,
   Radio,
-  RotateCw,
   Settings,
   Snowflake,
   Thermometer,
@@ -2859,8 +2857,10 @@ function DeviceSidebar({
   );
 }
 
-function NotificationCenter({ alerts, devices, isMobile }) {
+function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
   const [open, setOpen] = useState(false);
+  const [seenAt, setSeenAt] = useState(0);
+  const [clearedAt, setClearedAt] = useState(0);
   const wrapRef = useRef(null);
   const deviceMap = useMemo(
     () => new Map((devices || []).map((item) => [item.device_id, item])),
@@ -2868,10 +2868,44 @@ function NotificationCenter({ alerts, devices, isMobile }) {
   );
   const visibleAlerts = useMemo(
     () => [...(alerts || [])]
+      .filter((item) => !clearedAt || getAlertTimestamp(item) > clearedAt)
       .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
       .slice(0, 30),
-    [alerts]
+    [alerts, clearedAt]
   );
+  const unreadCount = useMemo(
+    () => visibleAlerts.filter((item) => !seenAt || getAlertTimestamp(item) > seenAt).length,
+    [seenAt, visibleAlerts]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !storageKey) return;
+    const timer = window.setTimeout(() => {
+      setSeenAt(Number(window.localStorage.getItem(`${storageKey}:seen`) || 0));
+      setClearedAt(Number(window.localStorage.getItem(`${storageKey}:cleared`) || 0));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [storageKey]);
+
+  function toggleNotifications() {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (nextOpen && unreadCount) {
+      const timestamp = Date.now();
+      setSeenAt(timestamp);
+      if (storageKey) window.localStorage.setItem(`${storageKey}:seen`, String(timestamp));
+    }
+  }
+
+  function clearNotifications() {
+    const timestamp = Date.now();
+    setClearedAt(timestamp);
+    setSeenAt(timestamp);
+    if (storageKey) {
+      window.localStorage.setItem(`${storageKey}:cleared`, String(timestamp));
+      window.localStorage.setItem(`${storageKey}:seen`, String(timestamp));
+    }
+  }
 
   useEffect(() => {
     function closeOnOutsideClick(event) {
@@ -2885,15 +2919,15 @@ function NotificationCenter({ alerts, devices, isMobile }) {
     <div ref={wrapRef} style={styles.notificationWrap}>
       <button
         type="button"
-        aria-label={`Notificações: ${visibleAlerts.length}`}
+        aria-label={`Notificações por ver: ${unreadCount}`}
         title="Notificações de todos os dispositivos"
-        onClick={() => setOpen((value) => !value)}
+        onClick={toggleNotifications}
         style={{ ...styles.notificationButton, ...(isMobile ? styles.notificationButtonMobile : {}) }}
       >
         <Bell size={17} />
         <span>Notificações</span>
-        {visibleAlerts.length ? (
-          <span style={styles.notificationCount}>{visibleAlerts.length > 99 ? "99+" : visibleAlerts.length}</span>
+        {unreadCount ? (
+          <span style={styles.notificationCount}>{unreadCount > 99 ? "99+" : unreadCount}</span>
         ) : null}
       </button>
 
@@ -2904,7 +2938,14 @@ function NotificationCenter({ alerts, devices, isMobile }) {
               <strong style={styles.notificationTitle}>Centro de notificações</strong>
               <span style={styles.notificationSubtitle}>Alertas de todos os equipamentos</span>
             </div>
-            <span style={styles.notificationHeaderCount}>{visibleAlerts.length}</span>
+            <div style={styles.notificationHeaderActions}>
+              <span style={styles.notificationHeaderCount}>{visibleAlerts.length}</span>
+              {visibleAlerts.length ? (
+                <button type="button" onClick={clearNotifications} style={styles.notificationClearButton}>
+                  Limpar
+                </button>
+              ) : null}
+            </div>
           </div>
           <div style={styles.notificationList}>
             {visibleAlerts.length ? visibleAlerts.map((item, index) => {
@@ -3657,7 +3698,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [language, setLanguage] = useState("en");
   const [theme, setTheme] = useState("dark");
-  const [clientMenuOpen, setClientMenuOpen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
 
@@ -4764,13 +4804,8 @@ async function downloadPdfReport() {
   const hasDevices = devices.length > 0;
   const isSelectionMode = !selectedDeviceId && hasDevices;
   const hasReadings = readings.length > 0;
-  const clientHierarchy = useMemo(
-    () => buildDeviceHierarchy(devices, profile),
-    [devices, profile]
-  );
   const selectDevice = useCallback((deviceId) => {
     if (!deviceId || deviceId === selectedDeviceId) {
-      setClientMenuOpen(false);
       return;
     }
 
@@ -4782,7 +4817,6 @@ async function downloadPdfReport() {
     setAdminMessage("");
     setAlertActionMessage("");
     setPageError("");
-    setClientMenuOpen(false);
   }, [selectedDeviceId]);
   const themeOverrides =
     theme === "light"
@@ -4831,7 +4865,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
-              <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} />
+              <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
               {isSuperAdmin ? (
                 <button
                   onClick={() => router.push("/admin")}
@@ -4936,115 +4970,11 @@ async function downloadPdfReport() {
                   value={firmwareVersion}
                 />
               </div>
-              <button
-                type="button"
-                title="Acoes rapidas"
-                style={styles.quickActionButton}
-              >
-                <MoreHorizontal size={17} />
-              </button>
             </div>
           </div>
 
           <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
-            <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} />
-            <div
-              style={{
-                ...styles.clientMenuWrap,
-                ...(isMobile ? styles.clientMenuWrapMobile : {}),
-              }}
-            >
-              <button
-                onClick={() => setClientMenuOpen((prev) => !prev)}
-                style={{
-                  ...styles.refreshButton,
-                  ...(isMobile ? styles.refreshButtonMobile : {}),
-                }}
-              >
-                <Home size={15} />
-                {t("client")}
-              </button>
-
-              {clientMenuOpen ? (
-                <>
-                  <button
-                    type="button"
-                    aria-label="Fechar menu de cliente"
-                    onClick={() => setClientMenuOpen(false)}
-                    style={styles.clientMenuBackdrop}
-                  />
-                  <div
-                    style={{
-                      ...styles.clientMenu,
-                      ...(isMobile ? styles.clientMenuMobile : {}),
-                    }}
-                  >
-                    {clientHierarchy.flatMap((company) =>
-                      company.buildings.flatMap((building) =>
-                        building.rooms.map((room) => (
-                          <div key={`${company.name}-${building.name}-${room.name}`} style={styles.clientMenuRoom}>
-                            <div style={styles.clientMenuRoomTitle}>
-                              <span style={styles.clientMenuEmoji}>
-                                {getLocationEmoji(room.devices[0])}
-                              </span>
-                              <span>{room.name}</span>
-                            </div>
-                            <div style={styles.clientMenuDevices}>
-                              {room.devices.map((item) => {
-                                const info = getStatusInfo(
-                                  getDeviceEffectiveStatus(item)
-                                );
-                                const active = item.device_id === selectedDeviceId;
-
-                                return (
-                                  <button
-                                    key={item.device_id}
-                                    type="button"
-                                    onClick={() => {
-                                      selectDevice(item.device_id);
-                                    }}
-                                    style={{
-                                      ...styles.clientMenuDeviceButton,
-                                      ...(active ? styles.clientMenuDeviceButtonActive : {}),
-                                    }}
-                                  >
-                                    <span style={styles.clientMenuEmoji}>{getDeviceEmoji(item)}</span>
-                                    <span
-                                      style={{
-                                        ...styles.treeDeviceDot,
-                                        background: info.dot,
-                                        boxShadow: `0 0 12px ${info.dot}`,
-                                      }}
-                                    />
-                                    <span style={styles.clientMenuDeviceName}>
-                                      {item?.name || item?.device_id}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))
-                      )
-                    )}
-                  </div>
-                </>
-              ) : null}
-            </div>
-
-            <button
-              onClick={async () => {
-                await loadData({ syncForms: true });
-              }}
-              style={{
-                ...styles.refreshButton,
-                ...(isMobile ? styles.refreshButtonMobile : {}),
-              }}
-            >
-              <RotateCw size={16} />
-              {refreshing ? t("updating") : t("refresh")}
-            </button>
-
+            <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
             {isSuperAdmin ? (
               <button
                 onClick={() => router.push("/admin")}
@@ -5066,7 +4996,6 @@ async function downloadPdfReport() {
                 setReadings([]);
                 setAlerts([]);
                 setActiveDeviceSection("overview");
-                setClientMenuOpen(false);
                 setLoadState("loaded");
               }}
               style={{
@@ -6839,6 +6768,24 @@ const styles = {
     color: "#f87171",
     fontSize: "12px",
     fontWeight: 950,
+  },
+
+  notificationHeaderActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+
+  notificationClearButton: {
+    minHeight: "30px",
+    padding: "0 10px",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    borderRadius: "9px",
+    background: "rgba(148, 163, 184, 0.10)",
+    color: "var(--sts-text)",
+    cursor: "pointer",
+    fontSize: "11px",
+    fontWeight: 900,
   },
 
   notificationList: {
