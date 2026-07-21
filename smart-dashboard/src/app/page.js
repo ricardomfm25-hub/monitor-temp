@@ -2859,6 +2859,84 @@ function DeviceSidebar({
   );
 }
 
+function NotificationCenter({ alerts, devices, isMobile }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const deviceMap = useMemo(
+    () => new Map((devices || []).map((item) => [item.device_id, item])),
+    [devices]
+  );
+  const visibleAlerts = useMemo(
+    () => [...(alerts || [])]
+      .sort((a, b) => getAlertTimestamp(b) - getAlertTimestamp(a))
+      .slice(0, 30),
+    [alerts]
+  );
+
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, []);
+
+  return (
+    <div ref={wrapRef} style={styles.notificationWrap}>
+      <button
+        type="button"
+        aria-label={`Notificações: ${visibleAlerts.length}`}
+        title="Notificações de todos os dispositivos"
+        onClick={() => setOpen((value) => !value)}
+        style={{ ...styles.notificationButton, ...(isMobile ? styles.notificationButtonMobile : {}) }}
+      >
+        <Bell size={17} />
+        <span>Notificações</span>
+        {visibleAlerts.length ? (
+          <span style={styles.notificationCount}>{visibleAlerts.length > 99 ? "99+" : visibleAlerts.length}</span>
+        ) : null}
+      </button>
+
+      {open ? (
+        <div style={{ ...styles.notificationPanel, ...(isMobile ? styles.notificationPanelMobile : {}) }}>
+          <div style={styles.notificationHeader}>
+            <div>
+              <strong style={styles.notificationTitle}>Centro de notificações</strong>
+              <span style={styles.notificationSubtitle}>Alertas de todos os equipamentos</span>
+            </div>
+            <span style={styles.notificationHeaderCount}>{visibleAlerts.length}</span>
+          </div>
+          <div style={styles.notificationList}>
+            {visibleAlerts.length ? visibleAlerts.map((item, index) => {
+              const sourceDevice = deviceMap.get(item.device_id);
+              const level = getAlertLevelInfo(item?.level);
+              return (
+                <div key={item.id || `${item.device_id}-${getAlertTimestamp(item)}-${index}`} style={styles.notificationItem}>
+                  <span style={{ ...styles.notificationDot, background: level.color }} />
+                  <div style={styles.notificationItemBody}>
+                    <div style={styles.notificationItemTop}>
+                      <strong>{sourceDevice?.name || item.device_id || "Dispositivo"}</strong>
+                      <span style={{ color: level.color }}>{level.label}</span>
+                    </div>
+                    <span style={styles.notificationLocation}>
+                      {getLocationEmoji(sourceDevice)} {sourceDevice?.location || "Localização por definir"}
+                    </span>
+                    <span style={styles.notificationMessage}>
+                      {String(item?.type || "Alerta").replace(/^./, (letter) => letter.toUpperCase())}
+                      {item?.state ? ` · ${item.state}` : ""}
+                    </span>
+                    <span style={styles.notificationTime}>{formatDateTime(item?.detected_at || item?.event_at || item?.created_at)}</span>
+                  </div>
+                </div>
+              );
+            }) : <div style={styles.notificationEmpty}>Sem alertas registados.</div>}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
   const hierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
@@ -2868,6 +2946,18 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
   return (
     <section style={styles.entryGate}>
       <div style={styles.entryPanel}>
+        <div style={styles.controlCenterIntro}>
+          <div>
+            <div style={styles.entryKicker}>Centro de controlo</div>
+            <h2 style={styles.controlCenterTitle}>Locais de frio controlado</h2>
+            <p style={styles.controlCenterText}>Consulta o estado geral e entra no equipamento que pretendes monitorizar.</p>
+          </div>
+          <div style={styles.controlCenterStats}>
+            <span><strong>{hierarchy.reduce((total, company) => total + company.buildings.reduce((sum, building) => sum + building.rooms.length, 0), 0)}</strong> locais</span>
+            <span><strong>{devices.length}</strong> dispositivos</span>
+            <span><strong>{devices.filter((item) => getDeviceEffectiveStatus(item) === "OFFLINE").length}</strong> offline</span>
+          </div>
+        </div>
         <div style={styles.entryTree}>
           {hierarchy.flatMap((company) =>
             company.buildings.flatMap((building) =>
@@ -2875,7 +2965,7 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                 <div key={`${company.name}-${building.name}-${room.name}`} style={styles.entryCompany}>
                   <div style={styles.entryCompanyTitle}>
                     <span style={styles.entryLocationIcon}>
-                      <MapPin size={17} />
+                      <span aria-hidden="true">{getLocationEmoji(room.devices[0])}</span>
                     </span>
                     <div>
                       <span style={styles.entryLocationLabel}>{t("location")}</span>
@@ -2894,7 +2984,7 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                           style={styles.entryDeviceButton}
                         >
                           <span style={styles.entryDeviceIcon}>
-                            <Snowflake size={17} />
+                            <span aria-hidden="true">{getDeviceEmoji(item)}</span>
                           </span>
                           <span
                             style={{
@@ -2903,8 +2993,15 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                               boxShadow: `0 0 12px ${info.dot}`,
                             }}
                           />
-                          <span style={styles.clientMenuDeviceName}>
-                            {item?.name || item?.device_id}
+                          <span style={styles.entryDeviceContent}>
+                            <span style={styles.entryDeviceTopline}>
+                              <strong>{item?.name || item?.device_id}</strong>
+                              <span style={{ color: info.color }}>{info.label}</span>
+                            </span>
+                            <span style={styles.entryDeviceMetrics}>
+                              {formatValue(item?.last_temperature, " °C")} · {formatValue(item?.last_humidity, " %")} · {formatRelativeTime(item?.last_seen)}
+                            </span>
+                            <span style={styles.entryDeviceId}>{item.device_id}</span>
                           </span>
                         </button>
                       );
@@ -3528,6 +3625,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const [device, setDevice] = useState(null);
   const [readings, setReadings] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [globalAlerts, setGlobalAlerts] = useState([]);
 
   const [clientForm, setClientForm] = useState({
     temp_low_c: "",
@@ -3773,7 +3871,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         const safeDevices = devicesData || [];
         const nextSelectedDeviceId = getBestInitialDeviceId(safeDevices, selectedDeviceId);
 
-        const [deviceResponse, overviewData, historyRows, alertsRows] = await Promise.all([
+        const [deviceResponse, overviewData, historyRows, alertsRows, globalAlertRows] = await Promise.all([
           nextSelectedDeviceId
             ? supabase
                 .from("devices")
@@ -3801,6 +3899,21 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 console.warn("alerts:", error);
                 return [];
               })
+            : Promise.resolve([]),
+
+          safeDevices.length
+            ? supabase
+                .from("alerts")
+                .select("*")
+                .in("device_id", safeDevices.map((item) => item.device_id))
+                .limit(200)
+                .then(({ data, error }) => {
+                  if (error) {
+                    console.warn("global alerts:", error);
+                    return [];
+                  }
+                  return data || [];
+                })
             : Promise.resolve([]),
         ]);
 
@@ -3941,6 +4054,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
         setDeviceOverview(overviewData || null);
         setReadings(readingsData);
         setAlerts(alertsData);
+        setGlobalAlerts(mergeAlertEvents(globalAlertRows, []));
 
         if (syncForms && deviceData) {
           const deviceConfig = deviceData?.config ?? {};
@@ -4717,6 +4831,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
+              <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} />
               {isSuperAdmin ? (
                 <button
                   onClick={() => router.push("/admin")}
@@ -4832,6 +4947,7 @@ async function downloadPdfReport() {
           </div>
 
           <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
+            <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} />
             <div
               style={{
                 ...styles.clientMenuWrap,
@@ -4943,17 +5059,23 @@ async function downloadPdfReport() {
             ) : null}
 
             <button
-              onClick={async () => {
-                await supabase.auth.signOut();
-                router.replace("/login");
+              onClick={() => {
+                setSelectedDeviceId(null);
+                setDevice(null);
+                setDeviceOverview(null);
+                setReadings([]);
+                setAlerts([]);
+                setActiveDeviceSection("overview");
+                setClientMenuOpen(false);
+                setLoadState("loaded");
               }}
               style={{
                 ...styles.refreshButton,
                 ...(isMobile ? styles.refreshButtonMobile : {}),
               }}
             >
-              <X size={16} />
-              {t("logout")}
+              <Home size={16} />
+              Voltar
             </button>
           </div>
         </div>
@@ -6617,6 +6739,172 @@ const styles = {
     padding: "10px 9px",
   },
 
+  notificationWrap: {
+    position: "relative",
+    zIndex: 9300,
+  },
+
+  notificationButton: {
+    position: "relative",
+    minHeight: "38px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "7px",
+    padding: "9px 12px",
+    border: "1px solid rgba(255, 255, 255, 0.20)",
+    borderRadius: "10px",
+    background: "rgba(255, 255, 255, 0.10)",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 850,
+  },
+
+  notificationButtonMobile: {
+    width: "100%",
+  },
+
+  notificationCount: {
+    minWidth: "20px",
+    height: "20px",
+    padding: "0 5px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "999px",
+    background: "#ef4444",
+    color: "#fff",
+    fontSize: "10px",
+    fontWeight: 950,
+  },
+
+  notificationPanel: {
+    position: "absolute",
+    top: "calc(100% + 10px)",
+    right: 0,
+    width: "min(430px, calc(100vw - 32px))",
+    maxHeight: "min(620px, calc(100vh - 110px))",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "17px",
+    background: "var(--sts-menu-bg)",
+    boxShadow: "0 28px 75px rgba(0, 0, 0, 0.48)",
+    backdropFilter: "blur(20px)",
+  },
+
+  notificationPanelMobile: {
+    position: "fixed",
+    top: "84px",
+    left: "12px",
+    right: "12px",
+    width: "auto",
+    maxHeight: "calc(100vh - 105px)",
+  },
+
+  notificationHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    padding: "16px",
+    borderBottom: "1px solid var(--sts-border)",
+  },
+
+  notificationTitle: {
+    display: "block",
+    color: "var(--sts-text)",
+    fontSize: "14px",
+    fontWeight: 950,
+  },
+
+  notificationSubtitle: {
+    display: "block",
+    marginTop: "3px",
+    color: "var(--sts-muted-strong)",
+    fontSize: "11px",
+    fontWeight: 700,
+  },
+
+  notificationHeaderCount: {
+    minWidth: "30px",
+    height: "30px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "10px",
+    background: "rgba(239, 68, 68, 0.14)",
+    color: "#f87171",
+    fontSize: "12px",
+    fontWeight: 950,
+  },
+
+  notificationList: {
+    overflowY: "auto",
+    padding: "8px",
+  },
+
+  notificationItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "11px",
+    padding: "12px",
+    borderBottom: "1px solid rgba(148, 163, 184, 0.10)",
+  },
+
+  notificationDot: {
+    width: "9px",
+    height: "9px",
+    marginTop: "5px",
+    borderRadius: "999px",
+    flexShrink: 0,
+    boxShadow: "0 0 10px currentColor",
+  },
+
+  notificationItemBody: {
+    minWidth: 0,
+    flex: 1,
+    display: "grid",
+    gap: "4px",
+  },
+
+  notificationItemTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    color: "var(--sts-text)",
+    fontSize: "12px",
+    fontWeight: 900,
+  },
+
+  notificationLocation: {
+    color: "var(--sts-muted-strong)",
+    fontSize: "11px",
+    fontWeight: 750,
+  },
+
+  notificationMessage: {
+    color: "var(--sts-text)",
+    fontSize: "12px",
+    fontWeight: 750,
+  },
+
+  notificationTime: {
+    color: "var(--sts-muted)",
+    fontSize: "10px",
+    fontWeight: 700,
+  },
+
+  notificationEmpty: {
+    padding: "28px 16px",
+    color: "var(--sts-muted-strong)",
+    textAlign: "center",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+
   clientMenuWrap: {
     position: "relative",
     zIndex: 9100,
@@ -7117,18 +7405,18 @@ const styles = {
   entryGate: {
     minHeight: "calc(100vh - 112px)",
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "center",
     padding: "14px 0 24px",
   },
 
   entryPanel: {
     width: "100%",
-    maxWidth: "680px",
+    maxWidth: "1180px",
     background: "var(--sts-surface)",
     border: "1px solid var(--sts-border)",
     borderRadius: "18px",
-    padding: "16px",
+    padding: "22px",
     boxShadow: "0 28px 64px rgba(0, 0, 0, 0.26)",
     backdropFilter: "blur(18px)",
   },
@@ -7168,8 +7456,43 @@ const styles = {
 
   entryTree: {
     display: "grid",
-    gap: "12px",
-    marginTop: 0,
+    gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
+    gap: "16px",
+    marginTop: "20px",
+  },
+
+  controlCenterIntro: {
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: "24px",
+    padding: "4px 4px 20px",
+    borderBottom: "1px solid var(--sts-border)",
+    flexWrap: "wrap",
+  },
+
+  controlCenterTitle: {
+    margin: 0,
+    color: "var(--sts-text)",
+    fontSize: "clamp(22px, 3vw, 32px)",
+    lineHeight: 1.1,
+    fontWeight: 950,
+  },
+
+  controlCenterText: {
+    margin: "8px 0 0",
+    color: "var(--sts-muted-strong)",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+
+  controlCenterStats: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+    color: "var(--sts-muted-strong)",
+    fontSize: "11px",
+    fontWeight: 800,
   },
 
   entryCompany: {
@@ -7177,7 +7500,7 @@ const styles = {
     background: "linear-gradient(135deg, rgba(15, 23, 42, 0.72), rgba(8, 13, 23, 0.72))",
     borderRadius: "16px",
     padding: "16px",
-    minHeight: "240px",
+    minHeight: "220px",
     display: "flex",
     flexDirection: "column",
   },
@@ -7251,7 +7574,7 @@ const styles = {
 
   entryDevices: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(210px, 240px))",
+    gridTemplateColumns: "1fr",
     alignContent: "start",
     justifyContent: "start",
     gap: "12px",
@@ -7262,8 +7585,8 @@ const styles = {
     border: "1px solid rgba(148, 163, 184, 0.18)",
     background: "rgba(8, 13, 23, 0.70)",
     color: "#e2e8f0",
-    borderRadius: "10px",
-    padding: "12px",
+    borderRadius: "13px",
+    padding: "13px",
     display: "flex",
     alignItems: "center",
     gap: "10px",
@@ -7272,14 +7595,14 @@ const styles = {
     textAlign: "left",
     justifyContent: "flex-start",
     minWidth: 0,
-    minHeight: "62px",
+    minHeight: "82px",
     width: "100%",
     transition: "border-color 160ms ease, background 160ms ease, transform 160ms ease",
   },
 
   entryDeviceIcon: {
-    width: "32px",
-    height: "32px",
+    width: "42px",
+    height: "42px",
     borderRadius: "10px",
     border: "1px solid rgba(125, 211, 252, 0.22)",
     background: "rgba(14, 165, 233, 0.12)",
@@ -7288,6 +7611,34 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    fontSize: "21px",
+  },
+
+  entryDeviceContent: {
+    minWidth: 0,
+    flex: 1,
+    display: "grid",
+    gap: "4px",
+  },
+
+  entryDeviceTopline: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    fontSize: "13px",
+  },
+
+  entryDeviceMetrics: {
+    color: "var(--sts-muted-strong)",
+    fontSize: "11px",
+    fontWeight: 750,
+  },
+
+  entryDeviceId: {
+    color: "var(--sts-muted)",
+    fontSize: "10px",
+    fontWeight: 700,
   },
 
   operationStrip: {
