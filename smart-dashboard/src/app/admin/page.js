@@ -1054,7 +1054,14 @@ export default function AdminPage() {
           <div style={styles.header}>
             <h1 style={styles.title}>STS Admin</h1>
             <div style={styles.versionBadge}>
-              <FirmwareVersionBadge value={selectedDeviceData?.firmware_version} />
+              <FirmwareVersionBadge
+                value={
+                  selectedDeviceData?.firmware_version ||
+                  selectedDeviceData?.config?.firmware_version ||
+                  selectedDeviceData?.config?.fw_version ||
+                  selectedDeviceData?.config?.firmware
+                }
+              />
             </div>
             <p style={styles.subtitle}>
               Centro técnico para clientes, dispositivos, acessos, alertas e configuração técnica
@@ -1988,7 +1995,16 @@ export default function AdminPage() {
               <SmallStat label="Localização" value={selectedDeviceData.location || "-"} />
               <SmallStat
                 label="Firmware"
-                value={<FirmwareVersionBadge value={selectedDeviceData.firmware_version} />}
+                value={
+                  <FirmwareVersionBadge
+                    value={
+                      selectedDeviceData.firmware_version ||
+                      selectedDeviceData.config?.firmware_version ||
+                      selectedDeviceData.config?.fw_version ||
+                      selectedDeviceData.config?.firmware
+                    }
+                  />
+                }
               />
               <SmallStat label="Config version" value={selectedDeviceData.config_version ?? "-"} />
               <SmallStat label="Atualizada em" value={formatDateTime(selectedDeviceData.updated_at)} />

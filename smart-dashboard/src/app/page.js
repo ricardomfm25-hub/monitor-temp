@@ -4006,6 +4006,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.firmware_version ||
                 overviewData?.fw_version ||
                 overviewData?.firmware ||
+                overviewData?.config?.firmware_version ||
+                overviewData?.config?.fw_version ||
+                overviewData?.config?.firmware ||
                 overviewData?.diagnostics?.firmware_version ||
                 overviewData?.diagnostics?.fw_version ||
                 overviewData?.diagnostics?.firmware ||
@@ -4281,7 +4284,6 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     headerContext.company,
     headerContext.building,
     headerContext.room,
-    headerContext.device,
   ].filter((part, index, parts) => {
     const normalized = String(part || "").trim().toLocaleLowerCase("pt");
     return normalized && parts.findIndex(
@@ -4295,6 +4297,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     deviceOverview?.firmware_version ||
     deviceOverview?.fw_version ||
     deviceOverview?.firmware ||
+    deviceOverview?.config?.firmware_version ||
+    deviceOverview?.config?.fw_version ||
+    deviceOverview?.config?.firmware ||
     deviceOverview?.diagnostics?.firmware_version ||
     deviceOverview?.diagnostics?.fw_version ||
     deviceOverview?.diagnostics?.firmware ||
