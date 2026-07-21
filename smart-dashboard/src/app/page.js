@@ -4115,6 +4115,14 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     room: locationParts.room,
     device: deviceDisplayName,
   };
+  const locationEmoji = getLocationEmoji(device);
+  const deviceEmoji = getDeviceEmoji(device);
+  const firmwareVersion =
+    device?.firmware_version ||
+    deviceOverview?.firmware_version ||
+    deviceOverview?.diagnostics?.firmware_version ||
+    device?.config?.firmware_version ||
+    null;
   const deviceLocation = device?.location || "Localização por definir";
 
 const communicationHealth = useMemo(
@@ -4646,6 +4654,22 @@ async function downloadPdfReport() {
     () => buildDeviceHierarchy(devices, profile),
     [devices, profile]
   );
+  const selectDevice = useCallback((deviceId) => {
+    if (!deviceId || deviceId === selectedDeviceId) {
+      setClientMenuOpen(false);
+      return;
+    }
+
+    setLoadState("deviceSwitchLoading");
+    setRefreshing(true);
+    setSelectedDeviceId(deviceId);
+    setActiveDeviceSection("overview");
+    setClientMessage("");
+    setAdminMessage("");
+    setAlertActionMessage("");
+    setPageError("");
+    setClientMenuOpen(false);
+  }, [selectedDeviceId]);
   const themeOverrides =
     theme === "light"
       ? {
@@ -4746,11 +4770,17 @@ async function downloadPdfReport() {
               <div style={styles.headerBreadcrumb}>
                 <span>{headerContext.company}</span>
                 <span style={styles.headerBreadcrumbDivider}>&gt;</span>
-                <span>{headerContext.building}</span>
+                <span style={styles.headerBreadcrumbItem}>
+                  <span aria-hidden="true">{locationEmoji}</span>
+                  <span>{headerContext.building}</span>
+                </span>
                 <span style={styles.headerBreadcrumbDivider}>&gt;</span>
                 <span>{headerContext.room}</span>
                 <span style={styles.headerBreadcrumbDivider}>&gt;</span>
-                <span>{headerContext.device}</span>
+                <span style={styles.headerBreadcrumbItem}>
+                  <span aria-hidden="true">{deviceEmoji}</span>
+                  <span>{headerContext.device}</span>
+                </span>
               </div>
               <h1 style={styles.title}>{deviceDisplayName}</h1>
               <div style={styles.deviceHeaderMeta}>
@@ -4774,7 +4804,7 @@ async function downloadPdfReport() {
                   borderColor: statusInfo.border,
                 }}
               >
-                {statusInfo.label}
+                {deviceSwitchLoading ? t("updating") : statusInfo.label}
               </div>
               <div
                 title={communicationHealth.summary}
@@ -4788,11 +4818,7 @@ async function downloadPdfReport() {
               </div>
               <div style={styles.statusPillLarge}>
                 <FirmwareVersionBadge
-                  value={
-                    device?.firmware_version ||
-                    deviceOverview?.firmware_version ||
-                    deviceOverview?.diagnostics?.firmware_version
-                  }
+                  value={firmwareVersion}
                 />
               </div>
               <button
@@ -4859,13 +4885,7 @@ async function downloadPdfReport() {
                                     key={item.device_id}
                                     type="button"
                                     onClick={() => {
-                                      setSelectedDeviceId(item.device_id);
-                                      setActiveDeviceSection("overview");
-                                      setClientMessage("");
-                                      setAdminMessage("");
-                                      setPageError("");
-                                      setRefreshing(true);
-                                      setClientMenuOpen(false);
+                                      selectDevice(item.device_id);
                                     }}
                                     style={{
                                       ...styles.clientMenuDeviceButton,
@@ -4950,13 +4970,7 @@ async function downloadPdfReport() {
             profile={profile}
             t={t}
             onSelectDevice={(deviceId) => {
-              setSelectedDeviceId(deviceId);
-              setActiveDeviceSection("overview");
-              setClientMessage("");
-              setAdminMessage("");
-              setAlertActionMessage("");
-              setPageError("");
-              setRefreshing(true);
+              selectDevice(deviceId);
             }}
           />
         ) : null}
@@ -4972,6 +4986,17 @@ async function downloadPdfReport() {
               : "82px minmax(0, 1fr)",
           }}
         >
+          {deviceSwitchLoading ? (
+            <div style={styles.deviceSwitchOverlay} role="status" aria-live="polite">
+              <div style={styles.deviceSwitchCard}>
+                <span style={styles.deviceSwitchSpinner} aria-hidden="true" />
+                <div>
+                  <strong style={styles.deviceSwitchTitle}>A sincronizar dispositivo</strong>
+                  <span style={styles.deviceSwitchHint}>A carregar os dados mais recentes...</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <DeviceSidebar
             activeSection={activeDeviceSection}
             onSectionChange={setActiveDeviceSection}
@@ -5461,11 +5486,7 @@ async function downloadPdfReport() {
               label="Firmware"
               value={
                 <FirmwareVersionBadge
-                  value={
-                    device?.firmware_version ||
-                    deviceOverview?.firmware_version ||
-                    deviceOverview?.diagnostics?.firmware_version
-                  }
+                  value={firmwareVersion}
                 />
               }
               icon={Cpu}
@@ -6059,11 +6080,7 @@ async function downloadPdfReport() {
                 label="Firmware"
                 value={
                   <FirmwareVersionBadge
-                    value={
-                      device?.firmware_version ||
-                      deviceOverview?.firmware_version ||
-                      deviceOverview?.diagnostics?.firmware_version
-                    }
+                    value={firmwareVersion}
                   />
                 }
                 icon={Wrench}
@@ -6452,6 +6469,12 @@ const styles = {
     fontWeight: 900,
   },
 
+  headerBreadcrumbItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+  },
+
   deviceHeaderMeta: {
     marginTop: "8px",
     display: "flex",
@@ -6735,11 +6758,63 @@ const styles = {
   },
 
   appLayout: {
+    position: "relative",
     display: "grid",
     gap: "16px",
     alignItems: "start",
     width: "100%",
     minWidth: 0,
+  },
+
+  deviceSwitchOverlay: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 100,
+    minHeight: "260px",
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    paddingTop: "72px",
+    borderRadius: "22px",
+    background: "rgba(6, 12, 22, 0.64)",
+    backdropFilter: "blur(5px)",
+    animation: "stsPanelIn 180ms ease both",
+  },
+
+  deviceSwitchCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: "14px",
+    padding: "15px 19px",
+    border: "1px solid rgba(94, 234, 212, 0.28)",
+    borderRadius: "15px",
+    background: "rgba(15, 23, 42, 0.94)",
+    boxShadow: "0 18px 50px rgba(0, 0, 0, 0.34)",
+  },
+
+  deviceSwitchSpinner: {
+    width: "24px",
+    height: "24px",
+    flexShrink: 0,
+    borderRadius: "999px",
+    border: "3px solid rgba(94, 234, 212, 0.20)",
+    borderTopColor: "#5eead4",
+    animation: "spin 0.8s linear infinite",
+  },
+
+  deviceSwitchTitle: {
+    display: "block",
+    color: "var(--sts-text)",
+    fontSize: "14px",
+    fontWeight: 900,
+  },
+
+  deviceSwitchHint: {
+    display: "block",
+    marginTop: "3px",
+    color: "var(--sts-muted-strong)",
+    fontSize: "12px",
+    fontWeight: 700,
   },
 
   deviceWorkspace: {
