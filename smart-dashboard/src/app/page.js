@@ -3006,7 +3006,7 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                 <div key={`${company.name}-${building.name}-${room.name}`} style={styles.entryCompany}>
                   <div style={styles.entryCompanyTitle}>
                     <span style={styles.entryLocationIcon}>
-                      <span aria-hidden="true">{getLocationEmoji(room.devices[0])}</span>
+                      <MapPin size={17} />
                     </span>
                     <div>
                       <span style={styles.entryLocationLabel}>{t("location")}</span>
@@ -3025,7 +3025,7 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                           style={styles.entryDeviceButton}
                         >
                           <span style={styles.entryDeviceIcon}>
-                            <span aria-hidden="true">{getDeviceEmoji(item)}</span>
+                            <Snowflake size={17} />
                           </span>
                           <span
                             style={{
@@ -4004,9 +4004,17 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.clock_sync_age_s ?? baseDeviceData?.clock_sync_age_s ?? null,
               firmware_version:
                 overviewData?.firmware_version ||
+                overviewData?.fw_version ||
+                overviewData?.firmware ||
                 overviewData?.diagnostics?.firmware_version ||
+                overviewData?.diagnostics?.fw_version ||
+                overviewData?.diagnostics?.firmware ||
                 baseDeviceData?.firmware_version ||
+                baseDeviceData?.fw_version ||
+                baseDeviceData?.firmware ||
                 baseDeviceData?.config?.firmware_version ||
+                baseDeviceData?.config?.fw_version ||
+                baseDeviceData?.config?.firmware ||
                 null,
               alerts_24h: overviewData?.alerts_24h ?? 0,
               total_readings_24h: overviewData?.total_readings_24h ?? 0,
@@ -4269,13 +4277,30 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     room: locationParts.room,
     device: deviceDisplayName,
   };
-  const locationEmoji = getLocationEmoji(device);
-  const deviceEmoji = getDeviceEmoji(device);
+  const headerBreadcrumbParts = [
+    headerContext.company,
+    headerContext.building,
+    headerContext.room,
+    headerContext.device,
+  ].filter((part, index, parts) => {
+    const normalized = String(part || "").trim().toLocaleLowerCase("pt");
+    return normalized && parts.findIndex(
+      (candidate) => String(candidate || "").trim().toLocaleLowerCase("pt") === normalized
+    ) === index;
+  });
   const firmwareVersion =
     device?.firmware_version ||
+    device?.fw_version ||
+    device?.firmware ||
     deviceOverview?.firmware_version ||
+    deviceOverview?.fw_version ||
+    deviceOverview?.firmware ||
     deviceOverview?.diagnostics?.firmware_version ||
+    deviceOverview?.diagnostics?.fw_version ||
+    deviceOverview?.diagnostics?.firmware ||
     device?.config?.firmware_version ||
+    device?.config?.fw_version ||
+    device?.config?.firmware ||
     null;
   const deviceLocation = device?.location || "Localização por definir";
 
@@ -4917,19 +4942,12 @@ async function downloadPdfReport() {
             <div>
               <div style={styles.deviceHeaderKicker}>{STS_PRODUCT.product}</div>
               <div style={styles.headerBreadcrumb}>
-                <span>{headerContext.company}</span>
-                <span style={styles.headerBreadcrumbDivider}>&gt;</span>
-                <span style={styles.headerBreadcrumbItem}>
-                  <span aria-hidden="true">{locationEmoji}</span>
-                  <span>{headerContext.building}</span>
-                </span>
-                <span style={styles.headerBreadcrumbDivider}>&gt;</span>
-                <span>{headerContext.room}</span>
-                <span style={styles.headerBreadcrumbDivider}>&gt;</span>
-                <span style={styles.headerBreadcrumbItem}>
-                  <span aria-hidden="true">{deviceEmoji}</span>
-                  <span>{headerContext.device}</span>
-                </span>
+                {headerBreadcrumbParts.map((part, index) => (
+                  <span key={`${part}-${index}`} style={styles.headerBreadcrumbItem}>
+                    {index ? <span style={styles.headerBreadcrumbDivider}>&gt;</span> : null}
+                    <span>{part}</span>
+                  </span>
+                ))}
               </div>
               <h1 style={styles.title}>{deviceDisplayName}</h1>
               <div style={styles.deviceHeaderMeta}>

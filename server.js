@@ -3046,8 +3046,14 @@ app.post("/api/temperature", async (req, res) => {
       queued_backfill,
       capture_network_known,
       firmware_version,
+      fw_version,
+      firmware,
+      firmwareVersion,
       hardware_diagnostics,
     } = req.body;
+
+    const incomingFirmwareVersion =
+      firmware_version || fw_version || firmware || firmwareVersion || null;
 
     if (!device_id || temperature === undefined || humidity === undefined) {
       return res.status(400).json({
@@ -3246,12 +3252,19 @@ app.post("/api/temperature", async (req, res) => {
       location: sanitizeLocation(baseDeviceRow.location),
       config: {
         ...(baseDeviceRow.config || {}),
+        ...(incomingFirmwareVersion
+          ? { firmware_version: incomingFirmwareVersion }
+          : {}),
         ...(receivedHardwareDiagnostics
           ? { hardware_diagnostics: receivedHardwareDiagnostics }
           : {}),
       },
       config_version: baseDeviceRow.config_version || 1,
-      firmware_version: firmware_version || baseDeviceRow.firmware_version || null,
+      firmware_version:
+        incomingFirmwareVersion ||
+        baseDeviceRow.firmware_version ||
+        baseDeviceRow.config?.firmware_version ||
+        null,
       last_seen: currentNowIso,
       updated_at: currentNowIso,
     };

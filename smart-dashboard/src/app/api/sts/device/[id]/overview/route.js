@@ -198,8 +198,14 @@ function getDiagnostics(device, config) {
     api_contract: device?.api_contract || config.api_contract || API_CONTRACT,
     firmware_version:
       device?.firmware_version ||
+      device?.fw_version ||
+      device?.firmware ||
       diagnostics.firmware_version ||
+      diagnostics.fw_version ||
+      diagnostics.firmware ||
       config.firmware_version ||
+      config.fw_version ||
+      config.firmware ||
       null,
     sensor_status:
       device?.sensor_status || diagnostics.sensor_status || config.sensor_status || null,
