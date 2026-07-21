@@ -2798,10 +2798,21 @@ function DeviceSidebar({
       style={{
         ...styles.appSidebar,
         ...(collapsed ? styles.appSidebarCollapsed : {}),
+        ...(!collapsed && !isMobile ? styles.appSidebarExpanded : {}),
         ...(isMobile ? styles.appSidebarMobile : {}),
       }}
     >
       <nav style={{ ...styles.deviceNav, ...(isMobile ? styles.deviceNavMobile : {}) }}>
+        {!isMobile ? (
+          <div
+            style={{
+              ...styles.deviceNavGroupLabel,
+              ...(collapsed ? styles.deviceNavGroupLabelCollapsed : {}),
+            }}
+          >
+            {t("monitoring")}
+          </div>
+        ) : null}
         {monitoringItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2818,11 +2829,28 @@ function DeviceSidebar({
               title={t(item.key)}
             >
               <span style={styles.deviceNavIconSlot}><Icon size={16} /></span>
-              {!collapsed ? <span>{t(item.key)}</span> : null}
+              <span
+                style={{
+                  ...styles.deviceNavText,
+                  ...(collapsed ? styles.deviceNavTextCollapsed : {}),
+                }}
+              >
+                {t(item.key)}
+              </span>
             </button>
           );
         })}
 
+        {!isMobile ? (
+          <div
+            style={{
+              ...styles.deviceNavGroupLabel,
+              ...(collapsed ? styles.deviceNavGroupLabelCollapsed : {}),
+            }}
+          >
+            {t("system")}
+          </div>
+        ) : null}
         {systemItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2839,7 +2867,14 @@ function DeviceSidebar({
               title={t(item.key)}
             >
               <span style={styles.deviceNavIconSlot}><Icon size={16} /></span>
-              {!collapsed ? <span>{t(item.key)}</span> : null}
+              <span
+                style={{
+                  ...styles.deviceNavText,
+                  ...(collapsed ? styles.deviceNavTextCollapsed : {}),
+                }}
+              >
+                {t(item.key)}
+              </span>
             </button>
           );
         })}
@@ -5145,8 +5180,6 @@ async function downloadPdfReport() {
             ...styles.appLayout,
             gridTemplateColumns: isMobile
               ? "1fr"
-              : sidebarOpen
-              ? "276px minmax(0, 1fr)"
               : "82px minmax(0, 1fr)",
           }}
         >
@@ -5309,6 +5342,13 @@ async function downloadPdfReport() {
                 tone={activeAlerts.length ? "bad" : "good"}
               />
               <ExecutiveStatCard
+                label="Wi-Fi"
+                value={communicationHealth.label}
+                hint={communicationHealth.summary}
+                icon={Wifi}
+                tone={communicationHealth.tone}
+              />
+              <ExecutiveStatCard
                 label={t("outdoorTemperature")}
                 value={formatValue(outdoorTemperature, " °C")}
                 hint={t("externalReference")}
@@ -5338,13 +5378,6 @@ async function downloadPdfReport() {
                 hint={formatDateTime(device?.last_seen)}
                 icon={Radio}
                 tone={lastCommunicationTone}
-              />
-              <ExecutiveStatCard
-                label="Wi-Fi"
-                value={communicationHealth.label}
-                hint={communicationHealth.summary}
-                icon={Wifi}
-                tone={communicationHealth.tone}
               />
             </div>
           </section>
@@ -7138,7 +7171,6 @@ const styles = {
     alignItems: "start",
     width: "100%",
     minWidth: 0,
-    transition: "grid-template-columns 200ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
 
   deviceSwitchOverlay: {
@@ -7211,13 +7243,20 @@ const styles = {
     minHeight: "calc(100vh - 96px)",
     maxHeight: "calc(100vh - 32px)",
     overflowY: "auto",
+    overflowX: "hidden",
     background: "var(--sts-sidebar-bg)",
     border: "1px solid var(--sts-border)",
     borderRadius: "22px",
     padding: "14px",
     boxShadow: "0 26px 60px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.05)",
     backdropFilter: "blur(16px)",
-    transition: "padding 200ms ease, border-radius 200ms ease, box-shadow 200ms ease, background 200ms ease",
+    zIndex: 40,
+    transition: "width 220ms cubic-bezier(0.22, 1, 0.36, 1), padding 180ms ease, border-radius 180ms ease, box-shadow 220ms ease, background 180ms ease",
+  },
+
+  appSidebarExpanded: {
+    width: "276px",
+    boxShadow: "0 30px 74px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255,255,255,0.05)",
   },
 
   appSidebarCollapsed: {
@@ -7436,12 +7475,23 @@ const styles = {
   },
 
   deviceNavGroupLabel: {
-    margin: "12px 4px 3px",
+    height: "16px",
+    margin: "8px 12px 2px",
     color: "var(--sts-muted)",
     fontSize: "10px",
     fontWeight: 900,
     textTransform: "uppercase",
     letterSpacing: "0.12em",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    opacity: 1,
+    transform: "translateX(0)",
+    transition: "opacity 140ms ease, transform 180ms ease",
+  },
+
+  deviceNavGroupLabelCollapsed: {
+    opacity: 0,
+    transform: "translateX(-4px)",
   },
 
   deviceNavMobile: {
@@ -7482,6 +7532,23 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+  },
+
+  deviceNavText: {
+    display: "block",
+    maxWidth: "180px",
+    opacity: 1,
+    transform: "translateX(0)",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    transition: "max-width 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 130ms ease 55ms, transform 180ms ease",
+  },
+
+  deviceNavTextCollapsed: {
+    maxWidth: 0,
+    opacity: 0,
+    transform: "translateX(-5px)",
+    transition: "max-width 180ms ease, opacity 80ms ease, transform 140ms ease",
   },
 
   deviceNavItemMobile: {
