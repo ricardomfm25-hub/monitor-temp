@@ -4988,11 +4988,6 @@ async function downloadPdfReport() {
                 <Wifi size={15} />
                 <span>{communicationHealth.label}</span>
               </div>
-              <div style={styles.statusPillLarge}>
-                <FirmwareVersionBadge
-                  value={firmwareVersion}
-                />
-              </div>
             </div>
           </div>
 
