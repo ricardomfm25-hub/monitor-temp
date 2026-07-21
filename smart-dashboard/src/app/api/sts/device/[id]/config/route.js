@@ -15,8 +15,8 @@ const NUMERIC_FIELDS = [
   "display_standby_min",
 ];
 
-const MIN_SEND_INTERVAL_SECONDS = 5;
-const MAX_SEND_INTERVAL_SECONDS = 60;
+const MIN_SEND_INTERVAL_SECONDS = 60;
+const MAX_SEND_INTERVAL_SECONDS = 15 * 60;
 const TECHNICAL_FIELDS = [
   "hyst_c",
   "hyst_hum",
@@ -126,7 +126,7 @@ function validateConfig(config) {
     config.send_interval_s > MAX_SEND_INTERVAL_SECONDS
   ) {
     errors.push(
-      `O intervalo de envio deve estar entre ${MIN_SEND_INTERVAL_SECONDS} e ${MAX_SEND_INTERVAL_SECONDS} segundos.`
+      "O intervalo de envio deve estar entre 1 e 15 minutos."
     );
   }
 

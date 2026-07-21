@@ -498,9 +498,9 @@ function validateConfigNumbers(payload) {
 
   if (
     sendInterval !== undefined &&
-    (!Number.isFinite(sendInterval) || sendInterval < 5)
+    (!Number.isFinite(sendInterval) || sendInterval < 60 || sendInterval > 15 * 60)
   ) {
-    errors.push("send_interval_s deve ser pelo menos 5");
+    errors.push("send_interval_s deve estar entre 60 e 900 segundos");
   }
 
   if (
@@ -775,7 +775,12 @@ function getOfflineThresholdMs(sendIntervalS, offlineAlertAfterMin) {
       ? Number(offlineAlertAfterMin) * 60 * 1000
       : 6 * 60 * 1000;
 
-  return Math.max(OFFLINE_ALERT_SECONDS * 1000, configuredMs);
+  const cadenceGraceMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000 * 2.5
+      : 0;
+
+  return Math.max(OFFLINE_ALERT_SECONDS * 1000, configuredMs, cadenceGraceMs);
 }
 
 function formatFirmwareVersion(value) {
@@ -3435,31 +3440,12 @@ app.post("/api/temperature", async (req, res) => {
       last_humidity: isHistoricalBackfill ? undefined : numericHumidity,
     });
 
-    let communicationHealth = null;
-    let predictiveStatus = null;
-
-    try {
-      const last24hReadings = await getRecentReadingsForAnalysis(device_id, 24);
-      communicationHealth = getCommunicationHealth({
-        readings: last24hReadings,
-        sendIntervalS: refreshedCfg.send_interval_s,
-        offlineAlertAfterMin: refreshedCfg.offline_alert_after_min,
-        deviceLastSeen: currentNowIso,
-        periodHours: 24,
-      });
-      predictiveStatus = getPredictiveStatus(last24hReadings, refreshedCfg);
-    } catch (analysisError) {
-      console.error("Analise pos-leitura falhou:", analysisError);
-    }
-
     res.json({
       message: "OK",
       stored_reading: storedReading,
       current_updated: !isHistoricalBackfill,
       applied_config: getDeviceConfig({ config: finalConfig }),
       status: statusToApiLabel(telemetryStatus),
-      communication_health: communicationHealth,
-      predictive_status: predictiveStatus,
     });
   } catch (error) {
     console.error(`Erro em /api/temperature [${failureStage}]:`, error);

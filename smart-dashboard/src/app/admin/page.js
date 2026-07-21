@@ -404,7 +404,7 @@ export default function AdminPage() {
       hum_high: toInputValue(config.hum_high),
       hyst_c: toInputValue(config.hyst_c),
       hyst_hum: toInputValue(config.hyst_hum),
-      send_interval_s: toInputValue(config.send_interval_s),
+      send_interval_s: toInputValue((parseNumber(config.send_interval_s) ?? 60) / 60),
       offline_alert_after_min: toInputValue(config.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(config.display_standby_min),
       client_can_edit_technical: Boolean(config.client_can_edit_technical),
@@ -869,8 +869,8 @@ export default function AdminPage() {
       return;
     }
 
-    if (values.send_interval_s < 5) {
-      setMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+    if (values.send_interval_s < 1 || values.send_interval_s > 15) {
+      setMessage("O intervalo de envio deve estar entre 1 e 15 minutos.");
       setMessageType("error");
       return;
     }
@@ -901,7 +901,7 @@ export default function AdminPage() {
         hum_high: values.hum_high,
         hyst_c: values.hyst_c,
         hyst_hum: values.hyst_hum,
-        send_interval_s: values.send_interval_s,
+        send_interval_s: values.send_interval_s * 60,
         offline_alert_after_min: values.offline_alert_after_min,
         display_standby_min: values.display_standby_min,
         client_can_edit_technical: Boolean(deviceForm.client_can_edit_technical),
@@ -1914,7 +1914,7 @@ export default function AdminPage() {
                 </ConfigField>
 
                 <ConfigField
-                  label="Intervalo de envio (s)"
+                  label="Intervalo de envio (min)"
                   help="Tempo entre cada envio de leitura do dispositivo para o backend."
                 >
                   <input
@@ -1939,6 +1939,8 @@ export default function AdminPage() {
                   <input
                     type="number"
                     step="1"
+                    min="1"
+                    max="15"
                     placeholder="6"
                     value={deviceForm.offline_alert_after_min}
                     onChange={(e) =>

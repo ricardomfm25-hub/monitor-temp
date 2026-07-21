@@ -102,7 +102,7 @@ const I18N = {
     humHysteresis: "Humidity hysteresis (%)",
     deviceCadence: "Device cadence",
     deviceCadenceHint: "How often the device sends readings and manages the display",
-    sendInterval: "Send interval (s)",
+    sendInterval: "Send interval (min)",
     displayStandby: "Display standby (min)",
     saveSettings: "Save settings",
     saving: "Saving...",
@@ -206,7 +206,7 @@ const I18N = {
     humHysteresis: "Histerese humidade (%)",
     deviceCadence: "Cadencia do dispositivo",
     deviceCadenceHint: "Frequencia de envio das leituras e gestao do display",
-    sendInterval: "Intervalo de envio (s)",
+    sendInterval: "Intervalo de envio (min)",
     displayStandby: "Standby do display (min)",
     editable: "Configuração editável",
     readOnly: "Só leitura",
@@ -422,7 +422,12 @@ function getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin) {
       ? Number(offlineAlertAfterMin) * 60 * 1000
       : 6 * 60 * 1000;
 
-  return Math.max(configuredMs, 180 * 1000);
+  const cadenceGraceMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000 * 2.5
+      : 0;
+
+  return Math.max(configuredMs, cadenceGraceMs, 180 * 1000);
 }
 
 function getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin) {
@@ -2797,9 +2802,6 @@ function DeviceSidebar({
       }}
     >
       <nav style={{ ...styles.deviceNav, ...(isMobile ? styles.deviceNavMobile : {}) }}>
-        {!collapsed && !isMobile ? (
-          <div style={styles.deviceNavGroupLabel}>{t("monitoring")}</div>
-        ) : null}
         {monitoringItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2815,15 +2817,12 @@ function DeviceSidebar({
               }}
               title={t(item.key)}
             >
-              <Icon size={16} />
+              <span style={styles.deviceNavIconSlot}><Icon size={16} /></span>
               {!collapsed ? <span>{t(item.key)}</span> : null}
             </button>
           );
         })}
 
-        {!collapsed && !isMobile ? (
-          <div style={styles.deviceNavGroupLabel}>{t("system")}</div>
-        ) : null}
         {systemItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -2839,7 +2838,7 @@ function DeviceSidebar({
               }}
               title={t(item.key)}
             >
-              <Icon size={16} />
+              <span style={styles.deviceNavIconSlot}><Icon size={16} /></span>
               {!collapsed ? <span>{t(item.key)}</span> : null}
             </button>
           );
@@ -2955,9 +2954,12 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
                       {getLocationEmoji(sourceDevice)} {sourceDevice?.location || "Localização por definir"}
                     </span>
                     <span style={styles.notificationMessage}>
-                      {String(item?.type || "Alerta").replace(/^./, (letter) => letter.toUpperCase())}
+                      {item?.title || String(item?.type || "Alerta").replace(/^./, (letter) => letter.toUpperCase())}
                       {item?.state ? ` · ${item.state}` : ""}
                     </span>
+                    {item?.message ? (
+                      <span style={styles.notificationLocation}>{item.message}</span>
+                    ) : null}
                     <span style={styles.notificationTime}>{formatDateTime(item?.detected_at || item?.event_at || item?.created_at)}</span>
                   </div>
                 </div>
@@ -4110,7 +4112,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             hum_high: toInputValue(deviceConfig?.hum_high),
             hyst_c: toInputValue(deviceConfig?.hyst_c),
             hyst_hum: toInputValue(deviceConfig?.hyst_hum),
-            send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            send_interval_s: toInputValue((parseNumber(deviceConfig?.send_interval_s) ?? 60) / 60),
             offline_alert_after_min: toInputValue(deviceConfig?.offline_alert_after_min ?? 6),
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
@@ -4120,7 +4122,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             location: deviceData?.location || "",
             hyst_c: toInputValue(deviceConfig?.hyst_c),
             hyst_hum: toInputValue(deviceConfig?.hyst_hum),
-            send_interval_s: toInputValue(deviceConfig?.send_interval_s),
+            send_interval_s: toInputValue((parseNumber(deviceConfig?.send_interval_s) ?? 60) / 60),
             offline_alert_after_min: toInputValue(deviceConfig?.offline_alert_after_min ?? 6),
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
           });
@@ -4222,6 +4224,29 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       supabase.removeChannel(channel);
     };
   }, [selectedDeviceId, loadData, supabase]);
+
+  useEffect(() => {
+    if (!initialLoaded || !profile?.id || !devices.length || selectedDeviceId) return;
+
+    const channel = supabase
+      .channel(`sts-global-alerts-${profile.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "alerts",
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [devices.length, initialLoaded, loadData, profile?.id, selectedDeviceId, supabase]);
 
   const config = useMemo(() => device?.config ?? {}, [device?.config]);
   const hardwareDiagnostics =
@@ -4433,6 +4458,57 @@ const communicationHealth = useMemo(
     [device, config, communicationHealth, predictiveStatus]
   );
 
+  const dashboardNotifications = useMemo(() => {
+    const supplemental = [];
+
+    for (const item of devices) {
+      if (getDeviceEffectiveStatus(item) === "OFFLINE") {
+        const configuredThreshold = getOfflineLimitMs(
+          item?.config?.send_interval_s,
+          item?.config?.offline_alert_after_min
+        );
+        const offlineSince = item?.last_seen
+          ? new Date(new Date(item.last_seen).getTime() + configuredThreshold).toISOString()
+          : item?.updated_at || new Date(0).toISOString();
+        supplemental.push({
+          id: `offline-${item.device_id}-${offlineSince}`,
+          device_id: item.device_id,
+          type: "communication",
+          level: "alarm",
+          title: "Falha de comunicação",
+          message: "O dispositivo ultrapassou o limite configurado sem comunicar.",
+          created_at: offlineSince,
+        });
+      }
+    }
+
+    if (device?.device_id && ["medium", "high", "critical"].includes(String(predictiveStatus?.level))) {
+      supplemental.push({
+        id: `prediction-${device.device_id}-${predictiveStatus.level}`,
+        device_id: device.device_id,
+        type: "prediction",
+        level: predictiveStatus.level === "medium" ? "alert" : "alarm",
+        title: predictiveStatus.title || "Aviso de predição",
+        message: predictiveStatus.detail || predictiveStatus.cause || "Tendência que requer acompanhamento.",
+        created_at: device.last_seen || device.updated_at,
+      });
+    }
+
+    if (device?.device_id && hardwareSummary?.tone === "bad") {
+      supplemental.push({
+        id: `hardware-${device.device_id}-${hardwareSummary.label}`,
+        device_id: device.device_id,
+        type: "hardware",
+        level: "alarm",
+        title: "Falha de hardware",
+        message: hardwareSummary.label,
+        created_at: device.updated_at || device.last_seen,
+      });
+    }
+
+    return [...globalAlerts, ...supplemental];
+  }, [device, devices, globalAlerts, hardwareSummary?.label, hardwareSummary?.tone, predictiveStatus]);
+
   const currentTempTone =
     effectiveStatus === "OFFLINE"
       ? "neutral"
@@ -4577,8 +4653,8 @@ const communicationHealth = useMemo(
       return;
     }
 
-    if (canEditTechnicalConfig && newSendInterval < 5) {
-      setClientMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+    if (canEditTechnicalConfig && (newSendInterval < 1 || newSendInterval > 15)) {
+      setClientMessage("O intervalo de envio deve estar entre 1 e 15 minutos.");
       setSavingClient(false);
       return;
     }
@@ -4607,7 +4683,7 @@ const communicationHealth = useMemo(
       Object.assign(payload, {
         hyst_c: newHyst,
         hyst_hum: newHystHum,
-        send_interval_s: newSendInterval,
+        send_interval_s: newSendInterval * 60,
         offline_alert_after_min: newOfflineAlertAfter,
         display_standby_min: newDisplayStandby,
       });
@@ -4654,7 +4730,7 @@ const communicationHealth = useMemo(
       hum_high: toInputValue(refreshedConfig?.hum_high),
       hyst_c: toInputValue(refreshedConfig?.hyst_c),
       hyst_hum: toInputValue(refreshedConfig?.hyst_hum),
-      send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      send_interval_s: toInputValue((parseNumber(refreshedConfig?.send_interval_s) ?? 60) / 60),
       offline_alert_after_min: toInputValue(refreshedConfig?.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
@@ -4747,8 +4823,8 @@ const communicationHealth = useMemo(
       return;
     }
 
-    if (newSendInterval < 5) {
-      setAdminMessage("O intervalo de envio deve ser pelo menos 5 segundos.");
+    if (newSendInterval < 1 || newSendInterval > 15) {
+      setAdminMessage("O intervalo de envio deve estar entre 1 e 15 minutos.");
       setSavingAdmin(false);
       return;
     }
@@ -4769,7 +4845,7 @@ const communicationHealth = useMemo(
           location: adminForm.location.trim() || "Localização por definir",
           hyst_c: newHyst,
           hyst_hum: newHystHum,
-          send_interval_s: newSendInterval,
+          send_interval_s: newSendInterval * 60,
           offline_alert_after_min: newOfflineAlertAfter,
           display_standby_min: newDisplayStandby,
         }),
@@ -4808,7 +4884,7 @@ const communicationHealth = useMemo(
       location: nextDevice?.location || "",
       hyst_c: toInputValue(refreshedConfig?.hyst_c),
       hyst_hum: toInputValue(refreshedConfig?.hyst_hum),
-      send_interval_s: toInputValue(refreshedConfig?.send_interval_s),
+      send_interval_s: toInputValue((parseNumber(refreshedConfig?.send_interval_s) ?? 60) / 60),
       offline_alert_after_min: toInputValue(refreshedConfig?.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
     });
@@ -4914,7 +4990,7 @@ async function downloadPdfReport() {
             </div>
 
             <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
-              <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
+              <NotificationCenter alerts={dashboardNotifications} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
               {isSuperAdmin ? (
                 <button
                   onClick={() => router.push("/admin")}
@@ -5011,7 +5087,7 @@ async function downloadPdfReport() {
           </div>
 
           <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
-            <NotificationCenter alerts={globalAlerts} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
+            <NotificationCenter alerts={dashboardNotifications} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
             {isSuperAdmin ? (
               <button
                 onClick={() => router.push("/admin")}
@@ -6096,6 +6172,8 @@ async function downloadPdfReport() {
                 <input
                   type="number"
                   step="1"
+                  min="1"
+                  max="15"
                   value={clientForm.send_interval_s}
                   onChange={(e) =>
                     setClientForm((prev) => ({
@@ -7060,6 +7138,7 @@ const styles = {
     alignItems: "start",
     width: "100%",
     minWidth: 0,
+    transition: "grid-template-columns 200ms cubic-bezier(0.22, 1, 0.36, 1)",
   },
 
   deviceSwitchOverlay: {
@@ -7142,7 +7221,7 @@ const styles = {
   },
 
   appSidebarCollapsed: {
-    padding: "12px",
+    padding: "14px",
     borderRadius: "22px",
     overflowX: "hidden",
     minHeight: "calc(100vh - 96px)",
@@ -7390,9 +7469,19 @@ const styles = {
   },
 
   deviceNavItemCollapsed: {
-    justifyContent: "center",
-    padding: "10px",
+    justifyContent: "flex-start",
+    padding: "11px 12px",
     gap: 0,
+  },
+
+  deviceNavIconSlot: {
+    width: "28px",
+    minWidth: "28px",
+    height: "24px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
 
   deviceNavItemMobile: {

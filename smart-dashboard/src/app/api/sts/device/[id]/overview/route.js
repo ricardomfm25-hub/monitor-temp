@@ -114,7 +114,12 @@ function getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin) {
       ? Number(offlineAlertAfterMin) * 60 * 1000
       : 6 * 60 * 1000;
 
-  return Math.max(configuredMs, 180 * 1000);
+  const cadenceGraceMs =
+    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
+      ? Number(sendIntervalS) * 1000 * 2.5
+      : 0;
+
+  return Math.max(configuredMs, cadenceGraceMs, 180 * 1000);
 }
 
 function getStatus({ online, temperature, humidity, config }) {
