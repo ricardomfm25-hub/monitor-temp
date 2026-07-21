@@ -8,6 +8,7 @@ import { FirmwareVersionBadge } from "./components/FirmwareVersionBadge";
 import {
   BarChart3,
   Bell,
+  Building2,
   CheckCircle2,
   Clock,
   Cpu,
@@ -442,7 +443,29 @@ function getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin) {
     return "OFFLINE";
   }
 
-  return device?.status || "SEM DADOS";
+  const rawStatus = String(device?.status || "").toUpperCase();
+  if (rawStatus.includes("ALARM") || rawStatus.includes("CRITICAL")) {
+    return rawStatus;
+  }
+
+  const config = device?.config || {};
+  const temperature = parseNumber(device?.last_temperature ?? device?.temperature);
+  const humidity = parseNumber(device?.last_humidity ?? device?.humidity);
+  const tempLow = parseNumber(config?.temp_low_c);
+  const tempHigh = parseNumber(config?.temp_high_c);
+  const humLow = parseNumber(config?.hum_low);
+  const humHigh = parseNumber(config?.hum_high);
+  const temperatureOutside =
+    temperature !== null &&
+    ((tempLow !== null && temperature < tempLow) ||
+      (tempHigh !== null && temperature > tempHigh));
+  const humidityOutside =
+    humidity !== null &&
+    ((humLow !== null && humidity < humLow) ||
+      (humHigh !== null && humidity > humHigh));
+
+  if (temperatureOutside || humidityOutside) return "ALERT";
+  return rawStatus || "SEM DADOS";
 }
 
 function getDeviceEffectiveStatus(device) {
@@ -2890,6 +2913,7 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
   const [open, setOpen] = useState(false);
   const [seenAt, setSeenAt] = useState(0);
   const [clearedAt, setClearedAt] = useState(0);
+  const [notificationNow, setNotificationNow] = useState(() => Date.now());
   const wrapRef = useRef(null);
   const deviceMap = useMemo(
     () => new Map((devices || []).map((item) => [item.device_id, item])),
@@ -2942,6 +2966,11 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
     }
     document.addEventListener("mousedown", closeOnOutsideClick);
     return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNotificationNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   return (
@@ -2998,7 +3027,14 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
                     {item?.message ? (
                       <span style={styles.notificationLocation}>{item.message}</span>
                     ) : null}
-                    <span style={styles.notificationTime}>{formatDateTime(item?.detected_at || item?.event_at || item?.created_at)}</span>
+                    <span
+                      style={styles.notificationTime}
+                      title={formatDateTime(item?.detected_at || item?.event_at || item?.created_at)}
+                    >
+                      {notificationNow - getAlertTimestamp(item) < 24 * 60 * 60 * 1000
+                        ? formatRelativeTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)
+                        : formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)}
+                    </span>
                   </div>
                 </div>
               );
@@ -3038,7 +3074,7 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                 <div key={`${company.name}-${building.name}-${room.name}`} style={styles.entryCompany}>
                   <div style={styles.entryCompanyTitle}>
                     <span style={styles.entryLocationIcon}>
-                      <MapPin size={17} />
+                      <Building2 size={17} />
                     </span>
                     <div>
                       <span style={styles.entryLocationLabel}>{t("location")}</span>
@@ -4279,6 +4315,28 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           loadData({ silent: true, syncForms: false });
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "devices",
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "readings",
+        },
+        () => {
+          loadData({ silent: true, syncForms: false });
+        }
+      )
       .subscribe();
 
     return () => {
@@ -5346,7 +5404,15 @@ async function downloadPdfReport() {
                     : t("noActiveAlerts")
                 }
                 icon={Gauge}
-                tone={effectiveStatus === "OFFLINE" ? "neutral" : activeAlerts.length ? "bad" : "good"}
+                tone={
+                  effectiveStatus === "OFFLINE"
+                    ? "neutral"
+                    : String(effectiveStatus).toLowerCase().match(/alarm|critical/)
+                    ? "bad"
+                    : String(effectiveStatus).toLowerCase().includes("alert")
+                    ? "warn"
+                    : "good"
+                }
                 emphasis
               />
               <ExecutiveStatCard
