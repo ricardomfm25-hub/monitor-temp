@@ -226,7 +226,7 @@ export async function POST(request, context) {
       !currentConfig.client_can_edit_technical
     ) {
       return Response.json(
-        { error: "ConfiguraÃ§Ã£o tÃ©cnica reservada ao administrador." },
+        { error: "Configuração técnica reservada ao administrador." },
         { status: 403 }
       );
     }

@@ -2626,7 +2626,7 @@ function DeviceSelector({
         <div>
           <div style={styles.cardTitle}>Dispositivos monitorizados</div>
           <div style={styles.cardHint}>
-            Sele??o do equipamento em monitoriza??o
+            Seleção do equipamento em monitorização
           </div>
         </div>
 
@@ -3280,7 +3280,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Predi??o suspensa at? voltar online.
+          Predição suspensa até voltar online.
         </div>
       ) : null}
     </section>
@@ -3294,7 +3294,7 @@ function OperationalInsightCard({ items, theme = "dark" }) {
         <div>
           <div style={styles.cardTitle}>Leitura operacional</div>
           <div style={styles.cardHint}>
-            Leitura simples para decidir rapidamente o que precisa de aten??o
+            Leitura simples para decidir rapidamente o que precisa de atenção
           </div>
         </div>
       </div>
@@ -3456,7 +3456,7 @@ function DataChart({
           ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
-              Dispositivo offline ? hist?rico preservado at? ? ?ltima leitura v?lida
+              Dispositivo offline · histórico preservado até à última leitura válida
             </div>
           ) : null}
         </div>
@@ -5187,7 +5187,7 @@ async function downloadPdfReport() {
                 value={isDeviceOffline ? "-" : currentTempValue}
                 hint={
                   tempLow !== null && tempHigh !== null
-                    ? `${t("limits")}: ${formatValue(tempLow, " Â°C")} - ${formatValue(tempHigh, " Â°C")}`
+                    ? `${t("limits")}: ${formatValue(tempLow, " °C")} - ${formatValue(tempHigh, " °C")}`
                     : currentTempAccentLabel
                 }
                 icon={Thermometer}
@@ -5215,7 +5215,7 @@ async function downloadPdfReport() {
               />
               <ExecutiveStatCard
                 label={t("outdoorTemperature")}
-                value={formatValue(outdoorTemperature, " Â°C")}
+                value={formatValue(outdoorTemperature, " °C")}
                 hint={t("externalReference")}
                 icon={Snowflake}
               />
@@ -5227,7 +5227,7 @@ async function downloadPdfReport() {
               />
               <ExecutiveStatCard
                 label={t("temperatureDelta")}
-                value={formatValue(deltaTemperature, " Â°C")}
+                value={formatValue(deltaTemperature, " °C")}
                 hint={t("interiorMinusExterior")}
                 icon={Gauge}
               />
@@ -5248,7 +5248,7 @@ async function downloadPdfReport() {
               <ExecutiveStatCard
                 label={t("summary24h")}
                 value={`${summary24h.totalReadings ?? 0}`}
-                hint={`${formatValue(summary24h.tempAvg, " Â°C")} ${t("avgTemp")} | ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
+                hint={`${formatValue(summary24h.tempAvg, " °C")} ${t("avgTemp")} | ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
                 icon={Timer}
               />
             </div>
@@ -5367,7 +5367,7 @@ async function downloadPdfReport() {
             <ExecutiveStatCard
               label={t("indoorTemperature")}
               value={isDeviceOffline ? "-" : currentTempValue}
-              hint={`${t("minMax")}: ${formatValue(summary24h.tempMin, " Â°C")} / ${formatValue(summary24h.tempMax, " Â°C")}`}
+              hint={`${t("minMax")}: ${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
               icon={Thermometer}
               tone={currentTempTone}
             />
@@ -5409,7 +5409,7 @@ async function downloadPdfReport() {
                     {formatDateTime(item.created_at || item.timestamp)}
                   </span>
                   <span style={styles.readingValue}>
-                    {formatValue(item.temperature, " Â°C")}
+                    {formatValue(item.temperature, " °C")}
                   </span>
                   <span style={styles.readingValue}>
                     {formatValue(item.humidity, " %", 0)}
@@ -6162,7 +6162,7 @@ async function downloadPdfReport() {
 
         {!loading && initialLoaded && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
-            Ainda n?o existem leituras hist?ricas dispon?veis para os ?ltimos 7 dias.
+            Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
           </div>
         ) : null}
           </div>
