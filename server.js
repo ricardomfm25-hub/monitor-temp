@@ -3279,12 +3279,21 @@ app.post("/api/temperature", async (req, res) => {
     let deviceUpdateError = null;
 
     if (existingDeviceRow) {
-      const { device_id: _deviceId, name: _name, location: _location, config: _config, config_version: _configVersion, ...updatePayload } =
+      const { device_id: _deviceId, name: _name, location: _location, config: nextConfig, config_version: _configVersion, ...updatePayload } =
         upsertPayload;
       const updateAttempts = [
         updatePayload,
-        { ...updatePayload, firmware_version: undefined },
-        { ...updatePayload, firmware_version: undefined, status: undefined },
+        {
+          ...updatePayload,
+          firmware_version: undefined,
+          ...(incomingFirmwareVersion ? { config: nextConfig } : {}),
+        },
+        {
+          ...updatePayload,
+          firmware_version: undefined,
+          status: undefined,
+          ...(incomingFirmwareVersion ? { config: nextConfig } : {}),
+        },
         {
           last_seen: currentNowIso,
           updated_at: currentNowIso,
