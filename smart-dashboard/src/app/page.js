@@ -4836,7 +4836,8 @@ const communicationHealth = useMemo(
   }
 
   async function sendRemoteAck() {
-    if (!selectedDeviceId || !canEditSelectedDevice || sendingRemoteAck || !activeAlerts.length) return;
+    const ackableStatus = /alarm|alert|critical/i.test(String(effectiveStatus || ""));
+    if (!selectedDeviceId || !canEditSelectedDevice || sendingRemoteAck || (!activeAlerts.length && !ackableStatus)) return;
 
     const confirmed = window.confirm(
       "Enviar um ACK remoto para o alarme ativo deste dispositivo?"
@@ -5982,17 +5983,17 @@ async function downloadPdfReport() {
         <button
           type="button"
           onClick={sendRemoteAck}
-          disabled={sendingRemoteAck || !activeAlerts.length || isDeviceOffline}
+          disabled={sendingRemoteAck || (!activeAlerts.length && !/alarm|alert|critical/i.test(String(effectiveStatus || ""))) || isDeviceOffline}
           title={
             isDeviceOffline
               ? "O dispositivo precisa de estar online para receber o ACK."
-              : !activeAlerts.length
+              : !activeAlerts.length && !/alarm|alert|critical/i.test(String(effectiveStatus || ""))
               ? "Não existem alertas ativos."
               : "Enviar confirmação do alarme ao dispositivo."
           }
           style={{
             ...styles.collapseButton,
-            ...(sendingRemoteAck || !activeAlerts.length || isDeviceOffline
+            ...(sendingRemoteAck || (!activeAlerts.length && !/alarm|alert|critical/i.test(String(effectiveStatus || ""))) || isDeviceOffline
               ? styles.disabledButton
               : {}),
           }}

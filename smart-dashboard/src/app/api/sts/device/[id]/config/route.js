@@ -220,8 +220,20 @@ export async function POST(request, context) {
 
     if (remoteAckRequested) {
       const alertState = currentConfig.alert_state || {};
+      const currentTemperature = parseNumber(device.last_temperature);
+      const currentHumidity = parseNumber(device.last_humidity);
+      const temperatureOutsideLimits =
+        currentTemperature !== null &&
+        (currentTemperature < currentConfig.temp_low_c ||
+          currentTemperature > currentConfig.temp_high_c);
+      const humidityOutsideLimits =
+        currentHumidity !== null &&
+        (currentHumidity < currentConfig.hum_low ||
+          currentHumidity > currentConfig.hum_high);
       const hasActiveAlarm =
         Boolean(alertState.temp_active || alertState.hum_active || alertState.offline_active) ||
+        temperatureOutsideLimits ||
+        humidityOutsideLimits ||
         /alarm|alert|critical/i.test(String(device.status || ""));
 
       if (!hasActiveAlarm) {
