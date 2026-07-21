@@ -17,12 +17,15 @@ import {
   Home,
   Info,
   LayoutDashboard,
+  Languages,
   ListChecks,
   MapPin,
+  Moon,
   Power,
   Radio,
   Settings,
   Snowflake,
+  Sun,
   Thermometer,
   Timer,
   Wrench,
@@ -5108,16 +5111,52 @@ async function downloadPdfReport() {
               >
                 {deviceSwitchLoading ? t("updating") : statusInfo.label}
               </div>
-              <div
-                title={communicationHealth.summary}
-                style={{
-                  ...styles.statusPillLarge,
-                  ...styles.communicationStatusPill,
-                }}
-              >
-                <Wifi size={15} />
-                <span>{communicationHealth.label}</span>
-              </div>
+              {!deviceSwitchLoading && communicationHealth.tone !== "good" ? (
+                <button
+                  type="button"
+                  title={`${communicationHealth.summary} · Abrir diagnóstico`}
+                  onClick={() => setActiveDeviceSection("diagnostics")}
+                  style={{
+                    ...styles.statusPillLarge,
+                    ...styles.communicationStatusPill,
+                    ...styles.headerIssueButton,
+                    ...(communicationHealth.tone === "bad" ? styles.headerIssueBad : styles.headerIssueWarn),
+                  }}
+                >
+                  <Wifi size={15} />
+                  <span>{communicationHealth.label}</span>
+                </button>
+              ) : null}
+              {!deviceSwitchLoading && ["medium", "high", "critical"].includes(String(predictiveStatus?.level)) ? (
+                <button
+                  type="button"
+                  title="Abrir análise preditiva"
+                  onClick={() => setActiveDeviceSection("overview")}
+                  style={{
+                    ...styles.statusPillLarge,
+                    ...styles.headerIssueButton,
+                    ...styles.headerIssueWarn,
+                  }}
+                >
+                  <Gauge size={15} />
+                  <span>{predictiveStatus?.chip || "Predição"}</span>
+                </button>
+              ) : null}
+              {!deviceSwitchLoading && hardwareSummary?.tone === "bad" ? (
+                <button
+                  type="button"
+                  title="Abrir diagnóstico do dispositivo"
+                  onClick={() => setActiveDeviceSection("diagnostics")}
+                  style={{
+                    ...styles.statusPillLarge,
+                    ...styles.headerIssueButton,
+                    ...styles.headerIssueBad,
+                  }}
+                >
+                  <Cpu size={15} />
+                  <span>{hardwareSummary.label || "Falha do dispositivo"}</span>
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -6025,7 +6064,6 @@ async function downloadPdfReport() {
             <div style={styles.settingsSectionHeader}>
               <div style={styles.settingsSectionIcon}><LayoutDashboard size={18} /></div>
               <div>
-                <div style={styles.settingsSectionEyebrow}>01 · Dashboard</div>
                 <div style={styles.settingsSectionTitle}>{t("technicalGeneral")}</div>
                 <div style={styles.cardHint}>{t("interfaceHint")}</div>
               </div>
@@ -6036,27 +6074,35 @@ async function downloadPdfReport() {
                 gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
               }}
             >
-              <div style={styles.field}>
-                <label style={styles.label}>{t("language")}</label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  style={styles.configInput}
-                >
-                  <option value="en">English</option>
-                  <option value="pt">Português</option>
-                </select>
+              <div style={styles.choiceField}>
+                <div style={styles.choiceFieldHeader}><Languages size={16} /><span>{t("language")}</span></div>
+                <div style={styles.segmentedControl}>
+                  {[
+                    { value: "pt", label: "Português", mark: "PT" },
+                    { value: "en", label: "English", mark: "EN" },
+                  ].map((option) => (
+                    <button key={option.value} type="button" onClick={() => setLanguage(option.value)} style={{ ...styles.segmentedOption, ...(language === option.value ? styles.segmentedOptionActive : {}) }}>
+                      <span style={{ ...styles.segmentedMark, ...(language === option.value ? styles.segmentedMarkActive : {}) }}>{option.mark}</span>
+                      <span>{option.label}</span>
+                      <span style={{ ...styles.choiceDot, ...(language === option.value ? styles.choiceDotActive : {}) }} />
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>{t("theme")}</label>
-                <select
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value)}
-                  style={styles.configInput}
-                >
-                  <option value="dark">{t("darkTheme")}</option>
-                  <option value="light">{t("lightTheme")}</option>
-                </select>
+              <div style={styles.choiceField}>
+                <div style={styles.choiceFieldHeader}><Sun size={16} /><span>{t("theme")}</span></div>
+                <div style={styles.segmentedControl}>
+                  {[
+                    { value: "dark", label: t("darkTheme"), Icon: Moon },
+                    { value: "light", label: t("lightTheme"), Icon: Sun },
+                  ].map(({ value, label, Icon }) => (
+                    <button key={value} type="button" onClick={() => setTheme(value)} style={{ ...styles.segmentedOption, ...(theme === value ? styles.segmentedOptionActive : {}) }}>
+                      <span style={{ ...styles.segmentedMark, ...(theme === value ? styles.segmentedMarkActive : {}) }}><Icon size={15} /></span>
+                      <span>{label}</span>
+                      <span style={{ ...styles.choiceDot, ...(theme === value ? styles.choiceDotActive : {}) }} />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -6065,7 +6111,6 @@ async function downloadPdfReport() {
             <div style={styles.settingsSectionHeader}>
               <div style={styles.settingsSectionIcon}><Gauge size={18} /></div>
               <div>
-                <div style={styles.settingsSectionEyebrow}>02 · Limites operacionais</div>
                 <div style={styles.settingsSectionTitle}>{t("technicalSensors")}</div>
                 <div style={styles.cardHint}>Defina a janela segura para cada grandeza monitorizada.</div>
               </div>
@@ -6123,7 +6168,6 @@ async function downloadPdfReport() {
             <div style={styles.settingsSectionHeader}>
               <div style={styles.settingsSectionIcon}><Bell size={18} /></div>
               <div>
-                <div style={styles.settingsSectionEyebrow}>03 · Alertas</div>
                 <div style={styles.settingsSectionTitle}>{t("technicalAlerts")}</div>
                 <div style={styles.cardHint}>{t("stabilityHint")}</div>
               </div>
@@ -6174,7 +6218,6 @@ async function downloadPdfReport() {
             <div style={styles.settingsSectionHeader}>
               <div style={styles.settingsSectionIcon}><Radio size={18} /></div>
               <div>
-                <div style={styles.settingsSectionEyebrow}>04 · Dispositivo</div>
                 <div style={styles.settingsSectionTitle}>{t("technicalCommunicationDisplay")}</div>
                 <div style={styles.cardHint}>{t("deviceCadenceHint")}</div>
               </div>
@@ -8416,6 +8459,24 @@ const styles = {
     borderColor: "rgba(94, 234, 212, 0.22)",
   },
 
+  headerIssueButton: {
+    fontFamily: "inherit",
+    cursor: "pointer",
+    transition: "transform 160ms ease, border-color 160ms ease, background 160ms ease",
+  },
+
+  headerIssueWarn: {
+    color: "#fbbf24",
+    borderColor: "rgba(245, 158, 11, 0.34)",
+    background: "rgba(245, 158, 11, 0.10)",
+  },
+
+  headerIssueBad: {
+    color: "#fb7185",
+    borderColor: "rgba(244, 63, 94, 0.34)",
+    background: "rgba(244, 63, 94, 0.10)",
+  },
+
   metricsRow: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -9009,13 +9070,91 @@ collapseButton: {
     background: "color-mix(in srgb, var(--sts-accent) 10%, var(--sts-surface))",
   },
 
-  settingsSectionEyebrow: {
-    marginBottom: "3px",
+  choiceField: {
+    minWidth: 0,
+    padding: "13px",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "15px",
+    background: "var(--sts-surface)",
+  },
+
+  choiceFieldHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "11px",
+    color: "var(--sts-text)",
+    fontSize: "12px",
+    fontWeight: 850,
+  },
+
+  segmentedControl: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "7px",
+    padding: "5px",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "13px",
+    background: "var(--sts-input-bg)",
+  },
+
+  segmentedOption: {
+    minWidth: 0,
+    height: "43px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "8px",
+    padding: "0 10px",
+    border: "1px solid transparent",
+    borderRadius: "10px",
+    background: "transparent",
+    color: "var(--sts-muted)",
+    fontFamily: "inherit",
+    fontSize: "12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
+  },
+
+  segmentedOptionActive: {
+    borderColor: "color-mix(in srgb, var(--sts-accent) 35%, var(--sts-border))",
+    background: "color-mix(in srgb, var(--sts-accent) 11%, var(--sts-surface-strong))",
+    color: "var(--sts-text)",
+    boxShadow: "0 5px 16px rgba(0,0,0,0.13), inset 0 1px 0 rgba(255,255,255,0.05)",
+  },
+
+  segmentedMark: {
+    width: "27px",
+    height: "27px",
+    flex: "0 0 27px",
+    display: "grid",
+    placeItems: "center",
+    borderRadius: "8px",
+    color: "var(--sts-muted)",
+    background: "var(--sts-surface-soft)",
+    fontSize: "9px",
+    fontWeight: 950,
+    letterSpacing: "0.04em",
+  },
+
+  segmentedMarkActive: {
     color: "var(--sts-accent)",
-    fontSize: "10px",
-    fontWeight: 900,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
+    background: "color-mix(in srgb, var(--sts-accent) 14%, var(--sts-surface))",
+  },
+
+  choiceDot: {
+    width: "7px",
+    height: "7px",
+    marginLeft: "auto",
+    flex: "0 0 7px",
+    borderRadius: "50%",
+    background: "var(--sts-border-strong)",
+  },
+
+  choiceDotActive: {
+    background: "var(--sts-accent)",
+    boxShadow: "0 0 0 3px color-mix(in srgb, var(--sts-accent) 14%, transparent)",
   },
 
   settingsMetricGrid: {
