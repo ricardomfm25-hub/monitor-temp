@@ -216,6 +216,26 @@ export async function POST(request, context) {
 
     const currentConfig = normalizeConfig(device.config || {});
     const nextConfig = { ...currentConfig };
+    const remoteAckRequested = body.action === "remote_ack";
+
+    if (remoteAckRequested) {
+      const alertState = currentConfig.alert_state || {};
+      const hasActiveAlarm =
+        Boolean(alertState.temp_active || alertState.hum_active || alertState.offline_active) ||
+        /alarm|alert|critical/i.test(String(device.status || ""));
+
+      if (!hasActiveAlarm) {
+        return Response.json(
+          { error: "Não existe nenhum alarme ativo para confirmar." },
+          { status: 409 }
+        );
+      }
+
+      const requestedAt = new Date().toISOString();
+      nextConfig.remote_ack_token = `${Date.now()}-${crypto.randomUUID()}`;
+      nextConfig.remote_ack_requested_at = requestedAt;
+      nextConfig.remote_ack_requested_by = access.user.id;
+    }
 
     const requestedTechnicalField = TECHNICAL_FIELDS.some(
       (field) => body[field] !== undefined
@@ -276,13 +296,16 @@ export async function POST(request, context) {
     if (updateError) throw updateError;
 
     return Response.json({
-      message: "Configuração atualizada com sucesso.",
+      message: remoteAckRequested
+        ? "Pedido de ACK remoto enviado ao dispositivo."
+        : "Configuração atualizada com sucesso.",
       device_id: updated.device_id,
       name: updated.name || deviceId,
       location: updated.location || "Localização por definir",
       config: normalizeConfig(updated.config || {}),
       config_version: updated.config_version,
       updated_at: updated.updated_at,
+      remote_ack_requested: remoteAckRequested,
     });
   } catch (error) {
     console.error("Erro na API config POST:", error);

@@ -165,6 +165,11 @@ const I18N = {
     alarmTime: "Alarm time",
     sinceMostRecentActiveAlert: "Since the most recent active alert",
     noActiveAlarm: "No active alarm",
+    recentAlertsFirst: "Most recent alerts from the last {hours}h first",
+    ackExplanation: "Confirmation without deleting the alert",
+    readingsCount: "{count} readings",
+    remoteAck: "Remote ACK",
+    sendingRemoteAck: "Sending ACK...",
   },
   pt: {
     overview: "Visão geral",
@@ -275,6 +280,11 @@ const I18N = {
     alarmTime: "Tempo em alarme",
     sinceMostRecentActiveAlert: "Desde o alerta ativo mais recente",
     noActiveAlarm: "Sem alarme ativo",
+    recentAlertsFirst: "Alertas mais recentes das últimas {hours}h primeiro",
+    ackExplanation: "Confirmação sem eliminar o alerta",
+    readingsCount: "{count} leituras",
+    remoteAck: "ACK remoto",
+    sendingRemoteAck: "A enviar ACK...",
   },
 };
 
@@ -2754,8 +2764,7 @@ function DeviceSelector({
 }
 
 const DEVICE_NAV_SECTIONS = [
-  { key: "overview", label: "Overview", group: "main", icon: LayoutDashboard },
-  { key: "readings", label: "Readings", group: "Monitoring", icon: ListChecks },
+  { key: "overview", label: "Overview", group: "Monitoring", icon: LayoutDashboard },
   { key: "charts", label: "Charts", group: "Monitoring", icon: BarChart3 },
   { key: "alerts", label: "Alerts", group: "Monitoring", icon: Bell },
   { key: "diagnostics", label: "Diagnostics", group: "System", icon: HeartPulse },
@@ -2776,8 +2785,6 @@ function DeviceSidebar({
     (item) => item.group === "Monitoring"
   );
   const systemItems = DEVICE_NAV_SECTIONS.filter((item) => item.group === "System");
-  const overviewItem = DEVICE_NAV_SECTIONS.find((item) => item.key === "overview");
-  const OverviewIcon = overviewItem.icon;
 
   return (
     <aside
@@ -2790,21 +2797,6 @@ function DeviceSidebar({
       }}
     >
       <nav style={{ ...styles.deviceNav, ...(isMobile ? styles.deviceNavMobile : {}) }}>
-        <button
-          type="button"
-          onClick={() => onSectionChange(overviewItem.key)}
-          style={{
-            ...styles.deviceNavItem,
-            ...(collapsed ? styles.deviceNavItemCollapsed : {}),
-            ...(isMobile ? styles.deviceNavItemMobile : {}),
-            ...(activeSection === overviewItem.key ? styles.deviceNavItemActive : {}),
-          }}
-          title={t(overviewItem.key)}
-        >
-          <OverviewIcon size={16} />
-          {!collapsed ? <span>{t(overviewItem.key)}</span> : null}
-        </button>
-
         {!collapsed && !isMobile ? (
           <div style={styles.deviceNavGroupLabel}>{t("monitoring")}</div>
         ) : null}
@@ -3656,6 +3648,7 @@ const [reportPeriod, setReportPeriod] = useState("24h");
   const [savingClient, setSavingClient] = useState(false);
   const [savingAdmin, setSavingAdmin] = useState(false);
   const [clearingAlerts, setClearingAlerts] = useState(false);
+  const [sendingRemoteAck, setSendingRemoteAck] = useState(false);
   const [deviceOverview, setDeviceOverview] = useState(null);
 const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
@@ -4670,6 +4663,32 @@ const communicationHealth = useMemo(
     setSavingClient(false);
   }
 
+  async function sendRemoteAck() {
+    if (!selectedDeviceId || !canEditSelectedDevice || sendingRemoteAck || !activeAlerts.length) return;
+
+    const confirmed = window.confirm(
+      "Enviar um ACK remoto para o alarme ativo deste dispositivo?"
+    );
+    if (!confirmed) return;
+
+    setSendingRemoteAck(true);
+    setAlertActionMessage("");
+
+    try {
+      const data = await fetchJsonOrThrow(`/api/sts/device/${selectedDeviceId}/config`, {
+        method: "POST",
+        body: JSON.stringify({ action: "remote_ack" }),
+      });
+
+      setAlertActionMessage(data?.message || "Pedido de ACK remoto enviado.");
+      await loadData({ silent: true, syncForms: false });
+    } catch (error) {
+      setAlertActionMessage(error?.message || "Erro ao enviar o ACK remoto.");
+    } finally {
+      setSendingRemoteAck(false);
+    }
+  }
+
   async function clearActiveAlerts() {
     if (!selectedDeviceId || !canEditSelectedDevice || clearingAlerts) return;
 
@@ -5232,6 +5251,12 @@ async function downloadPdfReport() {
                 icon={Gauge}
               />
               <ExecutiveStatCard
+                label={t("summary24h")}
+                value={t("readingsCount").replace("{count}", summary24h.totalReadings ?? 0)}
+                hint={`${formatValue(summary24h.tempAvg, " °C")} ${t("avgTemp")} | ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
+                icon={Timer}
+              />
+              <ExecutiveStatCard
                 label={t("lastCommunication")}
                 value={formatRelativeTime(device?.last_seen)}
                 hint={formatDateTime(device?.last_seen)}
@@ -5244,12 +5269,6 @@ async function downloadPdfReport() {
                 hint={communicationHealth.summary}
                 icon={Wifi}
                 tone={communicationHealth.tone}
-              />
-              <ExecutiveStatCard
-                label={t("summary24h")}
-                value={`${summary24h.totalReadings ?? 0}`}
-                hint={`${formatValue(summary24h.tempAvg, " °C")} ${t("avgTemp")} | ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
-                icon={Timer}
               />
             </div>
           </section>
@@ -5740,11 +5759,35 @@ async function downloadPdfReport() {
       <div style={styles.cardHint}>
         {alertsCollapsed
           ? `Histórico completo disponível (${alerts.length})`
-          : `Alertas das últimas ${ALERT_RECENT_HOURS}h primeiro`}
+          : t("recentAlertsFirst").replace("{hours}", ALERT_RECENT_HOURS)}
       </div>
     </div>
 
     <div style={styles.alertHeaderActions}>
+      {canEditSelectedDevice ? (
+        <button
+          type="button"
+          onClick={sendRemoteAck}
+          disabled={sendingRemoteAck || !activeAlerts.length || isDeviceOffline}
+          title={
+            isDeviceOffline
+              ? "O dispositivo precisa de estar online para receber o ACK."
+              : !activeAlerts.length
+              ? "Não existem alertas ativos."
+              : "Enviar confirmação do alarme ao dispositivo."
+          }
+          style={{
+            ...styles.collapseButton,
+            ...(sendingRemoteAck || !activeAlerts.length || isDeviceOffline
+              ? styles.disabledButton
+              : {}),
+          }}
+        >
+          <CheckCircle2 size={15} />
+          {sendingRemoteAck ? t("sendingRemoteAck") : t("remoteAck")}
+        </button>
+      ) : null}
+
       {canEditSelectedDevice && alerts.length ? (
         <button
           type="button"
@@ -5799,13 +5842,13 @@ async function downloadPdfReport() {
     <ExecutiveStatCard
       label={t("alertHistory")}
       value={alerts.length}
-      hint={`Last ${ALERT_RECENT_HOURS}h first`}
+      hint={t("recentAlertsFirst").replace("{hours}", ALERT_RECENT_HOURS)}
       icon={ListChecks}
     />
     <ExecutiveStatCard
       label="ACK"
       value={ackAlerts.length}
-      hint="Confirmation without deleting the alert"
+      hint={t("ackExplanation")}
       icon={CheckCircle2}
       tone={ackAlerts.length ? "good" : "neutral"}
     />
@@ -8714,6 +8757,10 @@ const styles = {
   },
 
 collapseButton: {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "7px",
   border: "1px solid var(--sts-border-strong)",
   background: "var(--sts-surface-soft)",
   color: "var(--sts-text)",
