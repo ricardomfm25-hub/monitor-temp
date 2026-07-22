@@ -83,6 +83,28 @@ function getHardwareComponentRows(device) {
   }));
 }
 
+function getCommunicationDiagnostics(device) {
+  return (
+    device?.config?.communication_diagnostics ||
+    device?.communication_diagnostics ||
+    {}
+  );
+}
+
+function getWifiQuality(rssi) {
+  const value = Number(rssi);
+  if (!Number.isFinite(value)) return { label: "Sem dados", color: "#94a3b8" };
+  if (value >= -55) return { label: "Excelente", color: "#22c55e" };
+  if (value >= -67) return { label: "Boa", color: "#84cc16" };
+  if (value >= -75) return { label: "Razoável", color: "#f59e0b" };
+  return { label: "Fraca", color: "#ef4444" };
+}
+
+function formatCounter(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toLocaleString("pt-PT") : "-";
+}
+
 function FieldHelp({ children }) {
   return <div style={styles.fieldHelp}>{children}</div>;
 }
@@ -373,6 +395,36 @@ export default function AdminPage() {
   useEffect(() => {
     loadData({ showLoader: true });
   }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedDevice) return;
+    const channel = supabase
+      .channel(`sts-admin-device-${selectedDevice}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "devices",
+          filter: `device_id=eq.${selectedDevice}`,
+        },
+        (payload) => {
+          if (!payload?.new) return;
+          setDevices((current) =>
+            current.map((item) =>
+              item.device_id === payload.new.device_id
+                ? { ...item, ...payload.new }
+                : item
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedDevice, supabase]);
 
   useEffect(() => {
     if (!selectedDeviceData) {
@@ -2056,6 +2108,57 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {(() => {
+              const diagnostics = getCommunicationDiagnostics(selectedDeviceData);
+              const quality = getWifiQuality(diagnostics.wifi_rssi);
+              const okCount = Number(diagnostics.post_ok_count);
+              const failCount = Number(diagnostics.post_fail_count);
+              const totalPosts =
+                (Number.isFinite(okCount) ? okCount : 0) +
+                (Number.isFinite(failCount) ? failCount : 0);
+              const successRate = totalPosts > 0 ? (okCount / totalPosts) * 100 : null;
+
+              return (
+                <div style={styles.communicationBox}>
+                  <div style={styles.communicationHeader}>
+                    <div>
+                      <div style={styles.configSectionTitle}>Qualidade da ligação</div>
+                      <div style={styles.cardHint}>
+                        Valores reportados diretamente pelo dispositivo na última telemetria.
+                      </div>
+                    </div>
+                    <div style={{ ...styles.wifiBadge, color: quality.color, borderColor: quality.color }}>
+                      {quality.label}
+                    </div>
+                  </div>
+                  <div style={styles.statsGrid}>
+                    <SmallStat
+                      label="Sinal Wi-Fi"
+                      value={
+                        Number.isFinite(Number(diagnostics.wifi_rssi))
+                          ? `${diagnostics.wifi_rssi} dBm`
+                          : "-"
+                      }
+                    />
+                    <SmallStat label="Envios OK" value={formatCounter(diagnostics.post_ok_count)} />
+                    <SmallStat label="Envios falhados" value={formatCounter(diagnostics.post_fail_count)} />
+                    <SmallStat
+                      label="Taxa de sucesso"
+                      value={successRate === null ? "-" : `${successRate.toFixed(1)}%`}
+                    />
+                    <SmallStat label="Buffer pendente" value={formatCounter(diagnostics.buffer_count)} />
+                    <SmallStat label="Descartadas do buffer" value={formatCounter(diagnostics.buffer_dropped_count)} />
+                    <SmallStat label="Reconexões Wi-Fi" value={formatCounter(diagnostics.wifi_reconnect_count)} />
+                    <SmallStat label="Último HTTP" value={formatCounter(diagnostics.last_http_status)} />
+                    <SmallStat label="Reinícios" value={formatCounter(diagnostics.boot_count)} />
+                    <SmallStat label="Motivo do reset" value={diagnostics.reset_reason || "-"} />
+                    <SmallStat label="Heap livre" value={formatValue(diagnostics.free_heap, " B", 0)} />
+                    <SmallStat label="Atualizado em" value={formatDateTime(diagnostics.updated_at)} />
+                  </div>
+                </div>
+              );
+            })()}
+
             <div style={styles.hardwareGrid}>
               {getHardwareComponentRows(selectedDeviceData).length ? (
                 getHardwareComponentRows(selectedDeviceData).map((component) => (
@@ -2419,6 +2522,31 @@ const styles = {
     justifyContent: "space-between",
     gap: "14px",
     flexWrap: "wrap",
+  },
+
+  communicationBox: {
+    marginTop: "16px",
+    border: "1px solid #243b63",
+    borderRadius: "16px",
+    padding: "16px",
+    background: "#0b1220",
+  },
+
+  communicationHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "14px",
+  },
+
+  wifiBadge: {
+    border: "1px solid",
+    borderRadius: "999px",
+    padding: "7px 11px",
+    fontSize: "12px",
+    fontWeight: 900,
   },
 
   hardwareGrid: {

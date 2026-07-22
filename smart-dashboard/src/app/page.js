@@ -46,7 +46,8 @@ import {
 } from "recharts";
 
 const DEFAULT_DEVICE_ID = "SmartTempSystems_01";
-const AUTO_REFRESH_MS = 15000;
+// Realtime trata as atualizações normais; o polling é apenas uma rede de segurança.
+const AUTO_REFRESH_MS = 60000;
 const MAX_HISTORY_HOURS = 24 * 7;
 const LANGUAGE_STORAGE_KEY = "sts_dashboard_language";
 const THEME_STORAGE_KEY = "sts_dashboard_theme";

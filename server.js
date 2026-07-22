@@ -600,6 +600,42 @@ function normalizeHardwareDiagnostics(value, fallback = {}) {
   };
 }
 
+function normalizeCommunicationDiagnostics(value, fallback = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const previous = fallback && typeof fallback === "object" ? fallback : {};
+  const numeric = (key) =>
+    source[key] === undefined ? previous[key] ?? null : toOptionalNumber(source[key]);
+
+  const wifiRssi = numeric("wifi_rssi");
+  let wifiQuality = "unknown";
+  if (wifiRssi !== null) {
+    if (wifiRssi >= -55) wifiQuality = "excellent";
+    else if (wifiRssi >= -67) wifiQuality = "good";
+    else if (wifiRssi >= -75) wifiQuality = "fair";
+    else wifiQuality = "weak";
+  }
+
+  return {
+    wifi_rssi: wifiRssi,
+    wifi_quality: wifiQuality,
+    post_ok_count: numeric("post_ok_count"),
+    post_fail_count: numeric("post_fail_count"),
+    buffer_count: numeric("buffer_count"),
+    buffer_dropped_count: numeric("buffer_dropped_count"),
+    wifi_reconnect_count: numeric("wifi_reconnect_count"),
+    last_http_status: numeric("last_http_status"),
+    boot_count: numeric("boot_count"),
+    reset_reason: source.reset_reason ?? previous.reset_reason ?? null,
+    clock_synced:
+      source.clock_synced === undefined
+        ? previous.clock_synced ?? null
+        : toBoolean(source.clock_synced),
+    clock_sync_age_s: numeric("clock_sync_age_s"),
+    free_heap: numeric("free_heap"),
+    updated_at: nowIso(),
+  };
+}
+
 function shouldStoreReading({ latestReading, cfg, incoming }) {
   const sampleAgeS = toOptionalNumber(incoming.sample_age_s);
   const sampleEpoch = toOptionalNumber(incoming.sample_epoch);
@@ -704,7 +740,13 @@ function isMissingReadingTelemetryColumnError(error) {
     /column .*sample_age_s/i.test(text) ||
     /column .*sample_epoch/i.test(text) ||
     /column .*delivery_attempts/i.test(text) ||
-    /column .*offline_captured/i.test(text)
+    /column .*offline_captured/i.test(text) ||
+    /column .*wifi_rssi/i.test(text) ||
+    /column .*post_ok_count/i.test(text) ||
+    /column .*post_fail_count/i.test(text) ||
+    /column .*buffer_count/i.test(text) ||
+    /column .*wifi_reconnect_count/i.test(text) ||
+    /column .*last_http_status/i.test(text)
   );
 }
 
@@ -3055,6 +3097,19 @@ app.post("/api/temperature", async (req, res) => {
       firmware,
       firmwareVersion,
       hardware_diagnostics,
+      communication_diagnostics,
+      wifi_rssi,
+      post_ok_count,
+      post_fail_count,
+      buffer_count,
+      buffer_dropped_count,
+      wifi_reconnect_count,
+      last_http_status,
+      boot_count,
+      reset_reason,
+      clock_synced,
+      clock_sync_age_s,
+      free_heap,
     } = req.body;
 
     const incomingFirmwareVersion =
@@ -3104,6 +3159,23 @@ app.post("/api/temperature", async (req, res) => {
       hardware_diagnostics,
       cfg.hardware_diagnostics
     );
+    const receivedCommunicationDiagnostics = normalizeCommunicationDiagnostics(
+      communication_diagnostics || {
+        wifi_rssi,
+        post_ok_count,
+        post_fail_count,
+        buffer_count,
+        buffer_dropped_count,
+        wifi_reconnect_count,
+        last_http_status,
+        boot_count,
+        reset_reason,
+        clock_synced,
+        clock_sync_age_s,
+        free_heap,
+      },
+      cfg.communication_diagnostics
+    );
     const readingCreatedAt = getIncomingReadingCreatedAt(sample_age_s, sample_epoch);
     const readingPayload = {
       device_id,
@@ -3149,6 +3221,12 @@ app.post("/api/temperature", async (req, res) => {
         incomingReadingMeta.captured_offline === null
           ? false
           : incomingReadingMeta.captured_offline,
+      wifi_rssi: receivedCommunicationDiagnostics.wifi_rssi,
+      post_ok_count: receivedCommunicationDiagnostics.post_ok_count,
+      post_fail_count: receivedCommunicationDiagnostics.post_fail_count,
+      buffer_count: receivedCommunicationDiagnostics.buffer_count,
+      wifi_reconnect_count: receivedCommunicationDiagnostics.wifi_reconnect_count,
+      last_http_status: receivedCommunicationDiagnostics.last_http_status,
     };
     const incomingCreatedTs = new Date(readingCreatedAt).getTime();
     const existingLastSeenTs = existingDeviceRow?.last_seen
@@ -3263,6 +3341,7 @@ app.post("/api/temperature", async (req, res) => {
         ...(receivedHardwareDiagnostics
           ? { hardware_diagnostics: receivedHardwareDiagnostics }
           : {}),
+        communication_diagnostics: receivedCommunicationDiagnostics,
       },
       config_version: baseDeviceRow.config_version || 1,
       firmware_version:

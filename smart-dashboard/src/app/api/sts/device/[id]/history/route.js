@@ -177,6 +177,30 @@ export async function GET(request, context) {
           row.delivery_attempts === null || row.delivery_attempts === undefined
             ? null
             : Number(row.delivery_attempts),
+        wifi_rssi:
+          row.wifi_rssi === null || row.wifi_rssi === undefined
+            ? null
+            : Number(row.wifi_rssi),
+        post_ok_count:
+          row.post_ok_count === null || row.post_ok_count === undefined
+            ? null
+            : Number(row.post_ok_count),
+        post_fail_count:
+          row.post_fail_count === null || row.post_fail_count === undefined
+            ? null
+            : Number(row.post_fail_count),
+        buffer_count:
+          row.buffer_count === null || row.buffer_count === undefined
+            ? null
+            : Number(row.buffer_count),
+        wifi_reconnect_count:
+          row.wifi_reconnect_count === null || row.wifi_reconnect_count === undefined
+            ? null
+            : Number(row.wifi_reconnect_count),
+        last_http_status:
+          row.last_http_status === null || row.last_http_status === undefined
+            ? null
+            : Number(row.last_http_status),
         offline_captured: toBoolean(row.offline_captured),
       }))
       .filter((row) => Number.isFinite(row.timestamp));

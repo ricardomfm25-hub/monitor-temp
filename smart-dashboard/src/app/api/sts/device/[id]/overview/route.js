@@ -122,6 +122,56 @@ function getOfflineLimitMs(sendIntervalS, offlineAlertAfterMin) {
   return Math.max(configuredMs, cadenceGraceMs, 180 * 1000);
 }
 
+function getCommunicationHealth(readings, config, lastSeen) {
+  const expectedIntervalMs = Math.max(1, Number(config.send_interval_s || 60)) * 1000;
+  const expectedReadings = Math.max(1, Math.round((24 * 60 * 60 * 1000) / expectedIntervalMs));
+  const timestamps = (readings || [])
+    .map((row) => new Date(row.created_at).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  const gaps = timestamps.slice(1).map((value, index) => value - timestamps[index]);
+  const offlineLimitMs = getOfflineLimitMs(
+    config.send_interval_s,
+    config.offline_alert_after_min
+  );
+  const maxGapMs = gaps.length ? Math.max(...gaps) : null;
+  const degradedGapCount = gaps.filter(
+    (gap) => gap >= Math.max(expectedIntervalMs * 3, 3 * 60 * 1000)
+  ).length;
+  const severeGapCount = gaps.filter((gap) => gap >= offlineLimitMs).length;
+  const deliveryPct = Math.min(100, Math.round((timestamps.length / expectedReadings) * 100));
+  const lastDelayMs = lastSeen ? Math.max(0, Date.now() - new Date(lastSeen).getTime()) : null;
+  const degraded =
+    severeGapCount > 0 ||
+    degradedGapCount >= 2 ||
+    (lastDelayMs !== null && lastDelayMs >= Math.min(5 * 60 * 1000, offlineLimitMs * 0.7));
+
+  return {
+    score: Math.max(0, Math.min(100, deliveryPct - degradedGapCount * 2 - severeGapCount * 8)),
+    label: lastDelayMs !== null && lastDelayMs > offlineLimitMs
+      ? "Offline"
+      : degraded
+      ? "Comunicação degradada"
+      : deliveryPct >= 98
+      ? "Excelente"
+      : "Estável",
+    tone: lastDelayMs !== null && lastDelayMs > offlineLimitMs
+      ? "bad"
+      : degraded
+      ? "warn"
+      : "good",
+    delivery_pct: deliveryPct,
+    expected_readings: expectedReadings,
+    received_readings: timestamps.length,
+    expected_interval_ms: expectedIntervalMs,
+    offline_threshold_ms: offlineLimitMs,
+    last_delay_ms: lastDelayMs,
+    max_gap_ms: maxGapMs,
+    relevant_gap_count: degradedGapCount,
+    severe_gap_count: severeGapCount,
+  };
+}
+
 function getStatus({ online, temperature, humidity, config }) {
   if (!online) return "offline";
 
@@ -199,6 +249,7 @@ function getDiagnostics(device, config) {
     ...(device?.telemetry || {}),
   };
 
+  const communicationDiagnostics = config.communication_diagnostics || {};
   return {
     api_contract: device?.api_contract || config.api_contract || API_CONTRACT,
     firmware_version:
@@ -214,7 +265,6 @@ function getDiagnostics(device, config) {
       null,
     sensor_status:
       device?.sensor_status || diagnostics.sensor_status || config.sensor_status || null,
-    wifi_rssi: device?.wifi_rssi ?? diagnostics.wifi_rssi ?? null,
     uptime_s: device?.uptime_s ?? diagnostics.uptime_s ?? null,
     power_state: device?.power_state ?? diagnostics.power_state ?? null,
     battery_pct:
@@ -230,6 +280,20 @@ function getDiagnostics(device, config) {
       config.hardware_diagnostics ||
       null,
     maintenance_active: isMaintenanceActive(config),
+    communication_diagnostics: communicationDiagnostics,
+    wifi_rssi:
+      communicationDiagnostics.wifi_rssi ??
+      device?.wifi_rssi ??
+      diagnostics.wifi_rssi ??
+      null,
+    buffer_count: communicationDiagnostics.buffer_count ?? null,
+    post_ok_count: communicationDiagnostics.post_ok_count ?? null,
+    post_fail_count: communicationDiagnostics.post_fail_count ?? null,
+    wifi_reconnect_count: communicationDiagnostics.wifi_reconnect_count ?? null,
+    last_http_status: communicationDiagnostics.last_http_status ?? null,
+    boot_count: communicationDiagnostics.boot_count ?? null,
+    reset_reason: communicationDiagnostics.reset_reason ?? null,
+    free_heap: communicationDiagnostics.free_heap ?? null,
   };
 }
 
@@ -264,6 +328,7 @@ export async function GET(_request, context) {
       { data: latestReading, error: latestError },
       { count: alerts24h, error: alertsError },
       { count: readings24h, error: readingsError },
+      { data: communicationRows, error: communicationRowsError },
     ] = await Promise.all([
       supabase
         .from("readings")
@@ -282,11 +347,19 @@ export async function GET(_request, context) {
         .select("*", { count: "exact", head: true })
         .eq("device_id", deviceId)
         .gte("created_at", since24hIso),
+      supabase
+        .from("readings")
+        .select("created_at")
+        .eq("device_id", deviceId)
+        .gte("created_at", since24hIso)
+        .order("created_at", { ascending: true })
+        .limit(2500),
     ]);
 
     if (latestError) throw latestError;
     if (alertsError) throw alertsError;
     if (readingsError) throw readingsError;
+    if (communicationRowsError) throw communicationRowsError;
 
     const config = normalizeConfig(device.config || {});
     const contactTimes = [
@@ -333,6 +406,11 @@ export async function GET(_request, context) {
       computedStatus,
     });
     const diagnostics = getDiagnostics(device, config);
+    const communicationHealth = getCommunicationHealth(
+      communicationRows,
+      config,
+      lastSeen
+    );
 
     return Response.json({
       device_id: deviceId,
@@ -353,7 +431,7 @@ export async function GET(_request, context) {
       backend_status: "connected",
       updated_at: device.updated_at || lastSeen,
       predictive_status: device.predictive_status || null,
-      communication_health: device.communication_health || null,
+      communication_health: communicationHealth,
       ...diagnostics,
     });
   } catch (error) {
