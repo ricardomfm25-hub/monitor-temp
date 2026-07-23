@@ -4648,18 +4648,21 @@ const communicationHealth = useMemo(
 
   const currentTempValue = formatValue(device?.last_temperature, " °C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
-  const outdoorTemperature =
-    parseNumber(device?.exterior_temperature) ??
-    parseNumber(device?.last_external_temperature) ??
-    parseNumber(device?.external_temperature) ??
-    parseNumber(device?.outdoor_temperature) ??
-    parseNumber(device?.temperature_external);
-  const outdoorHumidity =
-    parseNumber(device?.exterior_humidity) ??
-    parseNumber(device?.last_external_humidity) ??
-    parseNumber(device?.external_humidity) ??
-    parseNumber(device?.outdoor_humidity) ??
-    parseNumber(device?.humidity_external);
+  const exteriorSensorAvailable = device?.exterior_sensor_ok !== false;
+  const outdoorTemperature = exteriorSensorAvailable
+    ? parseNumber(device?.exterior_temperature) ??
+      parseNumber(device?.last_external_temperature) ??
+      parseNumber(device?.external_temperature) ??
+      parseNumber(device?.outdoor_temperature) ??
+      parseNumber(device?.temperature_external)
+    : null;
+  const outdoorHumidity = exteriorSensorAvailable
+    ? parseNumber(device?.exterior_humidity) ??
+      parseNumber(device?.last_external_humidity) ??
+      parseNumber(device?.external_humidity) ??
+      parseNumber(device?.outdoor_humidity) ??
+      parseNumber(device?.humidity_external)
+    : null;
   const currentTemperatureNumber = parseNumber(device?.last_temperature);
   const deltaTemperature =
     currentTemperatureNumber !== null && outdoorTemperature !== null
