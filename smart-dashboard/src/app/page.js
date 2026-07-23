@@ -2507,15 +2507,19 @@ function ExecutiveStatCard({
   icon: Icon,
   tone = "neutral",
   emphasis = false,
+  iconToneOnly = false,
 }) {
   const toneStyles = getHealthToneStyles(tone);
+  const cardToneStyles = iconToneOnly
+    ? getHealthToneStyles("neutral")
+    : toneStyles;
 
   return (
     <div
       style={{
         ...styles.executiveStatCard,
         ...(emphasis ? styles.executiveStatCardEmphasis : {}),
-        borderColor: toneStyles.badgeBorder,
+        borderColor: cardToneStyles.badgeBorder,
       }}
     >
       <div style={styles.executiveStatTop}>
@@ -2532,7 +2536,9 @@ function ExecutiveStatCard({
         <span style={styles.executiveStatLabel}>{label}</span>
       </div>
 
-      <div style={{ ...styles.executiveStatValue, color: toneStyles.valueColor }}>
+      <div
+        style={{ ...styles.executiveStatValue, color: cardToneStyles.valueColor }}
+      >
         {value}
       </div>
 
@@ -5446,7 +5452,7 @@ async function downloadPdfReport() {
                 }
                 icon={Thermometer}
                 tone={currentTempTone}
-                emphasis
+                iconToneOnly
               />
               <ExecutiveStatCard
                 label={t("indoorHumidity")}
@@ -5458,7 +5464,7 @@ async function downloadPdfReport() {
                 }
                 icon={Droplets}
                 tone={currentHumTone}
-                emphasis
+                iconToneOnly
               />
               <ExecutiveStatCard
                 label={t("activeAlerts")}
@@ -5624,6 +5630,7 @@ async function downloadPdfReport() {
               hint={`${t("minMax")}: ${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
               icon={Thermometer}
               tone={currentTempTone}
+              iconToneOnly
             />
             <ExecutiveStatCard
               label={t("indoorHumidity")}
@@ -5631,6 +5638,7 @@ async function downloadPdfReport() {
               hint={`${t("minMax")}: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
               icon={Droplets}
               tone={currentHumTone}
+              iconToneOnly
             />
             <ExecutiveStatCard
               label={t("summary24h")}
