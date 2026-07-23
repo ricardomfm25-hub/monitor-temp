@@ -2508,6 +2508,7 @@ function ExecutiveStatCard({
   tone = "neutral",
   emphasis = false,
   iconToneOnly = false,
+  toneBackground = false,
 }) {
   const toneStyles = getHealthToneStyles(tone);
   const cardToneStyles = iconToneOnly
@@ -2520,6 +2521,7 @@ function ExecutiveStatCard({
         ...styles.executiveStatCard,
         ...(emphasis ? styles.executiveStatCardEmphasis : {}),
         borderColor: cardToneStyles.badgeBorder,
+        ...(toneBackground ? { background: toneStyles.badgeBg } : {}),
       }}
     >
       <div style={styles.executiveStatTop}>
@@ -4654,6 +4656,31 @@ const communicationHealth = useMemo(
 
   const currentTempValue = formatValue(device?.last_temperature, " °C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
+  const currentWifiRssi =
+    parseNumber(deviceOverview?.wifi_rssi) ??
+    parseNumber(device?.wifi_rssi) ??
+    parseNumber(deviceOverview?.communication_diagnostics?.wifi_rssi);
+  const currentWifiTone = isDeviceOffline || currentWifiRssi === null
+    ? "neutral"
+    : currentWifiRssi >= -67
+    ? "good"
+    : currentWifiRssi >= -75
+    ? "warn"
+    : "bad";
+  const currentWifiLabel = isDeviceOffline
+    ? "-"
+    : currentWifiRssi === null
+    ? "-"
+    : `${currentWifiRssi} dBm`;
+  const currentWifiHint = isDeviceOffline
+    ? t("offline")
+    : currentWifiRssi === null
+    ? "RSSI indisponível"
+    : currentWifiRssi >= -67
+    ? "Sinal forte"
+    : currentWifiRssi >= -75
+    ? "Sinal aceitável"
+    : "Sinal fraco";
   const exteriorSensorAvailable = device?.exterior_sensor_ok !== false;
   const outdoorTemperature = exteriorSensorAvailable
     ? parseNumber(device?.exterior_temperature) ??
@@ -5453,6 +5480,7 @@ async function downloadPdfReport() {
                 icon={Thermometer}
                 tone={currentTempTone}
                 iconToneOnly
+                toneBackground
               />
               <ExecutiveStatCard
                 label={t("indoorHumidity")}
@@ -5475,10 +5503,10 @@ async function downloadPdfReport() {
               />
               <ExecutiveStatCard
                 label="Wi-Fi"
-                value={communicationHealth.label}
-                hint={communicationHealth.summary}
+                value={currentWifiLabel}
+                hint={currentWifiHint}
                 icon={Wifi}
-                tone={communicationHealth.tone}
+                tone={currentWifiTone}
               />
               <ExecutiveStatCard
                 label={t("outdoorTemperature")}
@@ -5497,19 +5525,6 @@ async function downloadPdfReport() {
                 value={formatValue(deltaTemperature, " °C")}
                 hint={t("interiorMinusExterior")}
                 icon={Gauge}
-              />
-              <ExecutiveStatCard
-                label={t("summary24h")}
-                value={t("readingsCount").replace("{count}", summary24h.totalReadings ?? 0)}
-                hint={`${formatValue(summary24h.tempAvg, " °C")} ${t("avgTemp")} | ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
-                icon={Timer}
-              />
-              <ExecutiveStatCard
-                label={t("lastCommunication")}
-                value={formatRelativeTime(device?.last_seen)}
-                hint={formatDateTime(device?.last_seen)}
-                icon={Radio}
-                tone={lastCommunicationTone}
               />
             </div>
           </section>
@@ -5631,6 +5646,7 @@ async function downloadPdfReport() {
               icon={Thermometer}
               tone={currentTempTone}
               iconToneOnly
+              toneBackground
             />
             <ExecutiveStatCard
               label={t("indoorHumidity")}
@@ -5731,7 +5747,7 @@ async function downloadPdfReport() {
               ...styles.healthGrid,
               gridTemplateColumns: isMobile
                 ? "1fr"
-                : "repeat(4, minmax(0, 1fr))",
+                : "repeat(3, minmax(0, 1fr))",
             }}
           >
             <HealthStatCard
@@ -5780,6 +5796,25 @@ async function downloadPdfReport() {
               tone={communicationHealth.tone}
               badge={communicationHealth.label}
             />
+
+            <HealthStatCard
+              label={t("summary24h")}
+              value={t("readingsCount").replace(
+                "{count}",
+                summary24h.totalReadings ?? 0
+              )}
+              hint={`${formatValue(summary24h.tempAvg, " °C")} ${t(
+                "avgTemp"
+              )} · ${formatValue(summary24h.humAvg, " %", 0)} ${t("avgHum")}`}
+              tone="neutral"
+            />
+
+            <HealthStatCard
+              label={t("lastCommunication")}
+              value={formatRelativeTime(device?.last_seen)}
+              hint={formatDateTime(device?.last_seen)}
+              tone={lastCommunicationTone}
+            />
           </div>
 
           <div
@@ -5809,8 +5844,8 @@ async function downloadPdfReport() {
             />
             <InfoItem
               label="Wi-Fi"
-              value={communicationHealth.label}
-              valueColor={communicationHealth.tone === "bad" ? "#ef4444" : communicationHealth.tone === "warn" ? "#f59e0b" : "#22c55e"}
+              value={currentWifiLabel}
+              valueColor={currentWifiTone === "bad" ? "#ef4444" : currentWifiTone === "warn" ? "#f59e0b" : currentWifiTone === "good" ? "#22c55e" : "#94a3b8"}
               icon={Wifi}
             />
             <InfoItem
