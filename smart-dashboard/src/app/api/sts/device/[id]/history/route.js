@@ -136,6 +136,15 @@ export async function GET(request, context) {
           row.humidity === null || row.humidity === undefined
             ? null
             : Number(row.humidity),
+        exterior_temperature:
+          row.exterior_temperature === null || row.exterior_temperature === undefined
+            ? null
+            : Number(row.exterior_temperature),
+        exterior_humidity:
+          row.exterior_humidity === null || row.exterior_humidity === undefined
+            ? null
+            : Number(row.exterior_humidity),
+        exterior_sensor_ok: toBoolean(row.exterior_sensor_ok),
         device_status: row.device_status,
         alarm_ack: row.alarm_ack,
         alarm_ack_count:

@@ -332,7 +332,7 @@ export async function GET(_request, context) {
     ] = await Promise.all([
       supabase
         .from("readings")
-        .select("temperature, humidity, created_at, device_status, alarm_ack, alarm_mask")
+        .select("temperature, humidity, exterior_temperature, exterior_humidity, exterior_sensor_ok, created_at, device_status, alarm_ack, alarm_mask")
         .eq("device_id", deviceId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -422,6 +422,16 @@ export async function GET(_request, context) {
       humidity,
       last_temperature: temperature,
       last_humidity: humidity,
+      exterior_temperature:
+        parseNumber(latestReading?.exterior_temperature) ??
+        parseNumber(config?.exterior_environment?.temperature),
+      exterior_humidity:
+        parseNumber(latestReading?.exterior_humidity) ??
+        parseNumber(config?.exterior_environment?.humidity),
+      exterior_sensor_ok:
+        latestReading?.exterior_sensor_ok ??
+        config?.exterior_environment?.sensor_ok ??
+        false,
       status,
       online,
       last_seen: lastSeen,

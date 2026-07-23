@@ -747,6 +747,9 @@ function isMissingReadingTelemetryColumnError(error) {
     /column .*buffer_count/i.test(text) ||
     /column .*wifi_reconnect_count/i.test(text) ||
     /column .*last_http_status/i.test(text)
+    || /column .*exterior_temperature/i.test(text)
+    || /column .*exterior_humidity/i.test(text)
+    || /column .*exterior_sensor_ok/i.test(text)
   );
 }
 
@@ -3074,6 +3077,9 @@ app.post("/api/temperature", async (req, res) => {
       device_id,
       temperature,
       humidity,
+      exterior_temperature,
+      exterior_humidity,
+      exterior_sensor_ok,
       device_status,
       alarm_ack,
       alarm_ack_count,
@@ -3123,6 +3129,12 @@ app.post("/api/temperature", async (req, res) => {
 
     const numericTemperature = Number(temperature);
     const numericHumidity = Number(humidity);
+    const numericExteriorTemperature = toOptionalNumber(exterior_temperature);
+    const numericExteriorHumidity = toOptionalNumber(exterior_humidity);
+    const exteriorSensorOk =
+      toBoolean(exterior_sensor_ok) &&
+      numericExteriorTemperature !== null &&
+      numericExteriorHumidity !== null;
 
     if (
       !Number.isFinite(numericTemperature) ||
@@ -3193,6 +3205,9 @@ app.post("/api/temperature", async (req, res) => {
         toOptionalNumber(alarm_event_age_s) ?? toOptionalNumber(alarm_started_age_s),
       alarm_mask: toOptionalNumber(alarm_mask) || 0,
       alarm_reason: alarm_reason || null,
+      exterior_temperature: exteriorSensorOk ? numericExteriorTemperature : null,
+      exterior_humidity: exteriorSensorOk ? numericExteriorHumidity : null,
+      exterior_sensor_ok: exteriorSensorOk,
     };
     const incomingReadingMeta = {
       telemetry_seq: toOptionalNumber(telemetry_seq),
@@ -3342,6 +3357,16 @@ app.post("/api/temperature", async (req, res) => {
           ? { hardware_diagnostics: receivedHardwareDiagnostics }
           : {}),
         communication_diagnostics: receivedCommunicationDiagnostics,
+        ...(isHistoricalBackfill
+          ? {}
+          : {
+              exterior_environment: {
+                temperature: exteriorSensorOk ? numericExteriorTemperature : null,
+                humidity: exteriorSensorOk ? numericExteriorHumidity : null,
+                sensor_ok: exteriorSensorOk,
+                updated_at: nowIso(),
+              },
+            }),
       },
       config_version: baseDeviceRow.config_version || 1,
       firmware_version:

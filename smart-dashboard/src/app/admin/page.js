@@ -91,6 +91,10 @@ function getCommunicationDiagnostics(device) {
   );
 }
 
+function getExteriorEnvironment(device) {
+  return device?.config?.exterior_environment || {};
+}
+
 function getWifiQuality(rssi) {
   const value = Number(rssi);
   if (!Number.isFinite(value)) return { label: "Sem dados", color: "#94a3b8" };
@@ -2071,6 +2075,22 @@ export default function AdminPage() {
               <SmallStat
                 label="Última hum."
                 value={formatValue(selectedDeviceData.last_humidity, " %")}
+              />
+              <SmallStat
+                label="Exterior temp."
+                value={
+                  getExteriorEnvironment(selectedDeviceData).sensor_ok
+                    ? formatValue(getExteriorEnvironment(selectedDeviceData).temperature, " °C")
+                    : "Sensor indisponível"
+                }
+              />
+              <SmallStat
+                label="Exterior hum."
+                value={
+                  getExteriorEnvironment(selectedDeviceData).sensor_ok
+                    ? formatValue(getExteriorEnvironment(selectedDeviceData).humidity, " %")
+                    : "Sensor indisponível"
+                }
               />
               <SmallStat
                 label="Modo manutenção"

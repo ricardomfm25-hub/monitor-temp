@@ -4041,6 +4041,20 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
               last_humidity:
                 overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+              exterior_temperature:
+                overviewData?.exterior_temperature ??
+                baseDeviceData?.exterior_temperature ??
+                baseDeviceData?.config?.exterior_environment?.temperature ??
+                null,
+              exterior_humidity:
+                overviewData?.exterior_humidity ??
+                baseDeviceData?.exterior_humidity ??
+                baseDeviceData?.config?.exterior_environment?.humidity ??
+                null,
+              exterior_sensor_ok:
+                overviewData?.exterior_sensor_ok ??
+                baseDeviceData?.config?.exterior_environment?.sensor_ok ??
+                false,
               status:
                 overviewData?.status
                   ? String(overviewData.status).toUpperCase()
@@ -4635,11 +4649,13 @@ const communicationHealth = useMemo(
   const currentTempValue = formatValue(device?.last_temperature, " °C");
   const currentHumValue = formatValue(device?.last_humidity, " %");
   const outdoorTemperature =
+    parseNumber(device?.exterior_temperature) ??
     parseNumber(device?.last_external_temperature) ??
     parseNumber(device?.external_temperature) ??
     parseNumber(device?.outdoor_temperature) ??
     parseNumber(device?.temperature_external);
   const outdoorHumidity =
+    parseNumber(device?.exterior_humidity) ??
     parseNumber(device?.last_external_humidity) ??
     parseNumber(device?.external_humidity) ??
     parseNumber(device?.outdoor_humidity) ??
