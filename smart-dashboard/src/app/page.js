@@ -31,6 +31,7 @@ import {
   Thermometer,
   Timer,
   Volume2,
+  VolumeX,
   Wrench,
   Wifi,
   X,
@@ -3887,18 +3888,24 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     const remotePreferences = profile.dashboard_preferences || {};
     const localLanguage = window.localStorage.getItem(profileLanguageStorageKey);
     const localTheme = window.localStorage.getItem(profileThemeStorageKey);
+    const fallbackLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    const fallbackTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
     const nextLanguage =
       remotePreferences.language === "en" || remotePreferences.language === "pt"
         ? remotePreferences.language
         : localLanguage === "en" || localLanguage === "pt"
         ? localLanguage
-        : language;
+        : fallbackLanguage === "en" || fallbackLanguage === "pt"
+        ? fallbackLanguage
+        : "en";
     const nextTheme =
       remotePreferences.theme === "dark" || remotePreferences.theme === "light"
         ? remotePreferences.theme
         : localTheme === "dark" || localTheme === "light"
         ? localTheme
-        : theme;
+        : fallbackTheme === "dark" || fallbackTheme === "light"
+        ? fallbackTheme
+        : "dark";
 
     preferencesHydratedProfileRef.current = profile.id;
     setLanguage(nextLanguage);
@@ -6610,48 +6617,72 @@ function downloadPdfReport() {
               </div>
             </div>
 
-            <button
-              type="button"
-              role="switch"
-              aria-checked={clientForm.buzzer_enabled !== false}
-              onClick={() =>
-                setClientForm((prev) => ({
-                  ...prev,
-                  buzzer_enabled: prev.buzzer_enabled === false,
-                }))
-              }
-              disabled={!canEditSelectedDevice}
-              style={{
-                ...styles.settingsToggleRow,
-                ...(!canEditSelectedDevice ? styles.disabledButton : {}),
-              }}
-            >
-              <span>
-                <strong style={styles.settingsToggleTitle}>
-                  Buzzer {clientForm.buzzer_enabled !== false ? "ligado" : "desligado"}
-                </strong>
-                <span style={styles.settingsToggleHint}>
-                  Os alertas visuais, registos e notificações continuam sempre ativos.
-                </span>
-              </span>
-              <span
-                style={{
-                  ...styles.settingsToggle,
-                  ...(clientForm.buzzer_enabled !== false
-                    ? styles.settingsToggleActive
-                    : {}),
-                }}
-              >
-                <span
-                  style={{
-                    ...styles.settingsToggleKnob,
-                    ...(clientForm.buzzer_enabled !== false
-                      ? styles.settingsToggleKnobActive
-                      : {}),
-                  }}
-                />
-              </span>
-            </button>
+            <div style={styles.buzzerChoiceWrap}>
+              <div style={styles.segmentedControl}>
+                {[
+                  {
+                    value: true,
+                    label: "Ligado",
+                    hint: "Alarme sonoro ativo",
+                    Icon: Volume2,
+                  },
+                  {
+                    value: false,
+                    label: "Desligado",
+                    hint: "Apenas alertas visuais",
+                    Icon: VolumeX,
+                  },
+                ].map(({ value, label, hint, Icon }) => {
+                  const selected =
+                    (clientForm.buzzer_enabled !== false) === value;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() =>
+                        setClientForm((prev) => ({
+                          ...prev,
+                          buzzer_enabled: value,
+                        }))
+                      }
+                      disabled={!canEditSelectedDevice}
+                      style={{
+                        ...styles.segmentedOption,
+                        ...styles.buzzerSegmentedOption,
+                        ...(selected ? styles.segmentedOptionActive : {}),
+                        ...(!canEditSelectedDevice
+                          ? styles.disabledButton
+                          : {}),
+                      }}
+                    >
+                      <span
+                        style={{
+                          ...styles.segmentedMark,
+                          ...(selected ? styles.segmentedMarkActive : {}),
+                        }}
+                      >
+                        <Icon size={15} />
+                      </span>
+                      <span style={styles.buzzerOptionText}>
+                        <strong>{label}</strong>
+                        <small style={styles.buzzerOptionHint}>{hint}</small>
+                      </span>
+                      <span
+                        style={{
+                          ...styles.choiceDot,
+                          ...(selected ? styles.choiceDotActive : {}),
+                        }}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={styles.cardHint}>
+                Os registos, notificações e alertas visuais permanecem ativos em
+                ambas as opções.
+              </div>
+            </div>
           </div>
 
           {canEditTechnicalConfig ? (
@@ -9681,6 +9712,31 @@ collapseButton: {
     border: "1px solid color-mix(in srgb, var(--sts-accent) 38%, var(--sts-border))",
     borderRadius: "13px",
     background: "var(--sts-input-bg)",
+  },
+
+  buzzerChoiceWrap: {
+    width: "100%",
+    maxWidth: "620px",
+    display: "grid",
+    gap: "9px",
+  },
+
+  buzzerSegmentedOption: {
+    height: "58px",
+    padding: "0 12px",
+  },
+
+  buzzerOptionText: {
+    minWidth: 0,
+    display: "grid",
+    gap: "2px",
+    textAlign: "left",
+  },
+
+  buzzerOptionHint: {
+    color: "var(--sts-muted)",
+    fontSize: "10px",
+    fontWeight: 700,
   },
 
   segmentedOption: {
