@@ -6125,93 +6125,19 @@ function downloadPdfReport() {
             />
           </div>
 
-          <div
-            style={{
-              ...styles.diagnosticsDetailGrid,
-              gridTemplateColumns: isMobile
-                ? "1fr"
-                : "repeat(3, minmax(0, 1fr))",
-            }}
-          >
-            <InfoItem
-              label="Hardware"
-              value={hardwareSummary.label}
-              valueColor={hardwareSummary.color}
-              icon={Cpu}
-            />
-            <InfoItem
-              label="Modo manutenção"
-              value={maintenanceActive ? "Ativo" : "Inativo"}
-              valueColor={maintenanceActive ? "#f59e0b" : "#94a3b8"}
-              icon={Settings}
-            />
-            <InfoItem
-              label="Sensor"
-              value={deviceOverview?.sensor_status || device?.sensor_status || "OK / sem detalhe"}
-              icon={HeartPulse}
-            />
-            <InfoItem
-              label="Wi-Fi"
-              value={currentWifiLabel}
-              valueColor={currentWifiTone === "bad" ? "#ef4444" : currentWifiTone === "warn" ? "#f59e0b" : currentWifiTone === "good" ? "#22c55e" : "#94a3b8"}
-              icon={Wifi}
-            />
-            <InfoItem
-              label="Firmware"
-              value={
-                <FirmwareVersionBadge
-                  value={firmwareVersion}
-                />
-              }
-              icon={Cpu}
-            />
-            <InfoItem
-              label="Memoria"
-              value={
-                device?.free_heap ||
-                deviceOverview?.diagnostics?.free_heap ||
-                device?.memory_free ||
-                "-"
-              }
-              icon={Cpu}
-            />
-            <InfoItem
-              label="Uptime"
-              value={
-                parseNumber(device?.uptime_s || deviceOverview?.uptime_s)
-                  ? formatDurationCompact(parseNumber(device?.uptime_s || deviceOverview?.uptime_s) * 1000)
-                  : "-"
-              }
-              icon={Timer}
-            />
-            <InfoItem
-              label="Reinicios"
-              value={device?.boot_count ?? deviceOverview?.boot_count ?? "-"}
-              icon={Power}
-            />
-            <InfoItem
-              label="Latencia"
-              value={
-                device?.latency_ms || deviceOverview?.latency_ms
-                  ? `${device?.latency_ms || deviceOverview?.latency_ms} ms`
-                  : "-"
-              }
-              icon={Radio}
-            />
-            <InfoItem
-              label="Pacotes perdidos"
-              value={Math.max(
-                0,
-                (communicationHealth.expected_readings || 0) -
-                  (communicationHealth.received_readings || 0)
-              )}
-              icon={ListChecks}
-            />
-            <InfoItem
-              label="Alimentacao"
-              value={device?.power_state || deviceOverview?.power_state || "-"}
-              icon={Power}
-            />
+          <div style={styles.automatedHealthNotice}>
+            <span style={styles.automatedHealthNoticeIcon}>
+              <Bell size={16} />
+            </span>
+            <span>
+              <strong style={styles.automatedHealthNoticeTitle}>
+                Monitorização automática ativa
+              </strong>
+              <small style={styles.automatedHealthNoticeText}>
+                Falhas de hardware, sensores, comunicação ou risco preditivo
+                relevante são apresentadas nas notificações.
+              </small>
+            </span>
           </div>
         </section>
 
@@ -9395,10 +9321,43 @@ const styles = {
     gap: "14px",
   },
 
-  diagnosticsDetailGrid: {
-    display: "grid",
-    gap: "12px",
-    marginTop: "14px",
+  automatedHealthNotice: {
+    marginTop: "16px",
+    padding: "13px 14px",
+    border: "1px solid color-mix(in srgb, var(--sts-accent) 24%, var(--sts-border))",
+    borderRadius: "13px",
+    background: "color-mix(in srgb, var(--sts-accent) 6%, var(--sts-surface-soft))",
+    color: "var(--sts-text)",
+    display: "flex",
+    alignItems: "center",
+    gap: "11px",
+    lineHeight: 1.35,
+  },
+
+  automatedHealthNoticeIcon: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "11px",
+    flex: "0 0 34px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--sts-accent)",
+    background: "color-mix(in srgb, var(--sts-accent) 12%, transparent)",
+  },
+
+  automatedHealthNoticeTitle: {
+    display: "block",
+    fontSize: "12px",
+    fontWeight: 900,
+  },
+
+  automatedHealthNoticeText: {
+    display: "block",
+    marginTop: "3px",
+    color: "var(--sts-muted-strong)",
+    fontSize: "11px",
+    fontWeight: 700,
   },
 
   healthCard: {
