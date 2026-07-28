@@ -958,8 +958,8 @@ function resolveTelemetryStatus({
     normalizedComputed === "alarm" || normalizedComputed === "alert";
 
   if (
-    normalizedIncoming === "alarm_ack" ||
-    (toBoolean(alarmAck) && (hasActiveAlarmMask || computedHasBreach))
+    (normalizedIncoming === "alarm_ack" || toBoolean(alarmAck)) &&
+    (hasActiveAlarmMask || computedHasBreach)
   ) {
     return "alarm_ack";
   }

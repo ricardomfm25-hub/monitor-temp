@@ -2470,13 +2470,18 @@ function InfoItem({ label, value, valueColor, icon: Icon }) {
 
 function getHardwareSummary(diagnostics) {
   const components = diagnostics?.components || {};
-  const entries = Object.values(components);
+  // Communication and software/runtime health have their own diagnostics.
+  // Ignore legacy entries that older firmware stored under hardware.
+  const nonHardwareKeys = new Set(["wifi", "offline_queue", "memory"]);
+  const entries = Object.entries(components)
+    .filter(([key]) => !nonHardwareKeys.has(key))
+    .map(([, item]) => item);
   if (!diagnostics || entries.length === 0) {
     return { label: "Sem detalhe", tone: "neutral", color: "#94a3b8" };
   }
 
   const failing = entries.filter((item) => item?.ok === false);
-  if (diagnostics?.overall_ok === false || failing.length > 0) {
+  if (failing.length > 0) {
     return {
       label: failing.length ? `${failing.length} componente(s) com atenção` : "Atenção",
       tone: "bad",
