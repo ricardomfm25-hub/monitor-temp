@@ -3057,13 +3057,7 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
   );
 }
 
-function DeviceEntryPicker({
-  devices,
-  profile,
-  onSelectDevice,
-  onDownloadReport,
-  t,
-}) {
+function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
   const hierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
     [devices, profile]
@@ -3103,12 +3097,12 @@ function DeviceEntryPicker({
                       const info = getStatusInfo(getDeviceEffectiveStatus(item));
 
                       return (
-                        <div key={item.device_id} style={styles.entryDeviceRow}>
-                          <button
-                            type="button"
-                            onClick={() => onSelectDevice(item.device_id)}
-                            style={styles.entryDeviceButton}
-                          >
+                        <button
+                          key={item.device_id}
+                          type="button"
+                          onClick={() => onSelectDevice(item.device_id)}
+                          style={styles.entryDeviceButton}
+                        >
                             <span style={styles.entryDeviceIcon}>
                               <Snowflake size={17} />
                             </span>
@@ -3129,18 +3123,7 @@ function DeviceEntryPicker({
                               </span>
                               <span style={styles.entryDeviceId}>{item.device_id}</span>
                             </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDownloadReport(item.device_id)}
-                            style={styles.entryReportButton}
-                            title={`Descarregar relatório PDF de ${item?.name || item?.device_id} (24H)`}
-                            aria-label={`Descarregar relatório PDF de ${item?.name || item?.device_id}`}
-                          >
-                            <FileDown size={17} />
-                            <span>PDF</span>
-                          </button>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -3744,6 +3727,9 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState("24h");
   const [diagnosticsPeriod, setDiagnosticsPeriod] = useState("24h");
 const [reportPeriod, setReportPeriod] = useState("24h");
+  const [reportPickerOpen, setReportPickerOpen] = useState(false);
+  const [reportDeviceIds, setReportDeviceIds] = useState([]);
+  const [downloadingReports, setDownloadingReports] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
@@ -4481,6 +4467,20 @@ const communicationHealth = useMemo(
   [liveReadings, sendIntervalS, offlineAlertAfterMin, device?.last_seen, diagnosticsPeriod]
 );
 
+  // Estado operacional fixo: nunca depende dos seletores de gráficos/diagnóstico.
+  // Usa uma janela global recente de 24 h, dando prioridade ao último contacto.
+  const operationalCommunicationHealth = useMemo(
+    () =>
+      getCommunicationHealth({
+        rawReadings: liveReadings,
+        sendIntervalS,
+        offlineAlertAfterMin,
+        deviceLastSeen: device?.last_seen,
+        periodKey: "24h",
+      }),
+    [liveReadings, sendIntervalS, offlineAlertAfterMin, device?.last_seen]
+  );
+
   const recentAlerts = useMemo(() => {
     const cutoff = Date.now() - ALERT_RECENT_HOURS * 60 * 60 * 1000;
     return alerts.filter((item) => getAlertTimestamp(item) >= cutoff);
@@ -4554,6 +4554,27 @@ const communicationHealth = useMemo(
 
   const isDeviceOffline = effectiveStatus === "OFFLINE";
 
+  const predictiveReadings = useMemo(() => {
+    const recentCutoff = Date.now() - 3 * 60 * 60 * 1000;
+    return [...liveReadings]
+      .filter((item) => {
+        const timestamp = Number.isFinite(item?.timestamp)
+          ? item.timestamp
+          : new Date(item?.created_at).getTime();
+        return Number.isFinite(timestamp) && timestamp >= recentCutoff;
+      })
+      .sort((a, b) => {
+        const aTime = Number.isFinite(a?.timestamp)
+          ? a.timestamp
+          : new Date(a?.created_at).getTime();
+        const bTime = Number.isFinite(b?.timestamp)
+          ? b.timestamp
+          : new Date(b?.created_at).getTime();
+        return aTime - bTime;
+      })
+      .slice(-30);
+  }, [liveReadings]);
+
   const predictiveStatus = useMemo(
     () =>
       isDeviceOffline
@@ -4569,23 +4590,23 @@ const communicationHealth = useMemo(
             eta_minutes: null,
             score: 0,
           }
-        : device?.predictive_status || getPredictiveStatus(liveReadings, config),
-    [config, device?.predictive_status, isDeviceOffline, liveReadings]
+        : getPredictiveStatus(predictiveReadings, config),
+    [config, isDeviceOffline, predictiveReadings]
   );
 
   const effectiveLastDelayMs =
-    communicationHealth?.last_delay_ms !== null &&
-    communicationHealth?.last_delay_ms !== undefined
-      ? communicationHealth.last_delay_ms
+    operationalCommunicationHealth?.last_delay_ms !== null &&
+    operationalCommunicationHealth?.last_delay_ms !== undefined
+      ? operationalCommunicationHealth.last_delay_ms
       : device?.last_seen
       ? Date.now() - new Date(device.last_seen).getTime()
       : null;
   const lastCommunicationTone =
     effectiveLastDelayMs === null
       ? "neutral"
-      : effectiveLastDelayMs > communicationHealth.offline_threshold_ms
+      : effectiveLastDelayMs > operationalCommunicationHealth.offline_threshold_ms
       ? "bad"
-      : effectiveLastDelayMs > communicationHealth.offline_threshold_ms * 0.7
+      : effectiveLastDelayMs > operationalCommunicationHealth.offline_threshold_ms * 0.7
       ? "warn"
       : "neutral";
 
@@ -4594,10 +4615,10 @@ const communicationHealth = useMemo(
       getOperationalInsights({
         device,
         config,
-        communicationHealth,
+        communicationHealth: operationalCommunicationHealth,
         predictiveStatus,
       }),
-    [device, config, communicationHealth, predictiveStatus]
+    [device, config, operationalCommunicationHealth, predictiveStatus]
   );
 
   const dashboardNotifications = useMemo(() => {
@@ -5096,14 +5117,41 @@ async function downloadPdfReportForDevice(deviceId, periodKey = "24h") {
     a.remove();
 
     window.URL.revokeObjectURL(url);
+    return true;
   } catch (error) {
     setPageError(error?.message || "Erro ao descarregar relatório PDF.");
+    return false;
   }
 }
 
 function downloadPdfReport() {
   return downloadPdfReportForDevice(selectedDeviceId, reportPeriod);
 }
+
+  function toggleReportDevice(deviceId) {
+    setReportDeviceIds((current) =>
+      current.includes(deviceId)
+        ? current.filter((id) => id !== deviceId)
+        : [...current, deviceId]
+    );
+  }
+
+  async function downloadSelectedReports() {
+    if (!reportDeviceIds.length || downloadingReports) return;
+
+    setDownloadingReports(true);
+    setPageError("");
+    try {
+      let allSucceeded = true;
+      for (const deviceId of reportDeviceIds) {
+        const succeeded = await downloadPdfReportForDevice(deviceId, reportPeriod);
+        allSucceeded = succeeded && allSucceeded;
+      }
+      if (allSucceeded) setReportPickerOpen(false);
+    } finally {
+      setDownloadingReports(false);
+    }
+  }
 
   const hasDevices = devices.length > 0;
   const isSelectionMode = !selectedDeviceId && hasDevices;
@@ -5169,6 +5217,17 @@ function downloadPdfReport() {
             </div>
 
             <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
+              <button
+                type="button"
+                onClick={() => setReportPickerOpen((open) => !open)}
+                style={{
+                  ...styles.refreshButton,
+                  ...(isMobile ? styles.refreshButtonMobile : {}),
+                }}
+              >
+                <FileDown size={16} />
+                Relatórios PDF
+              </button>
               <NotificationCenter alerts={dashboardNotifications} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
               {isSuperAdmin ? (
                 <button
@@ -5252,20 +5311,20 @@ function downloadPdfReport() {
               >
                 {deviceSwitchLoading ? t("updating") : statusInfo.label}
               </div>
-              {!deviceSwitchLoading && communicationHealth.tone !== "good" ? (
+              {!deviceSwitchLoading && operationalCommunicationHealth.tone !== "good" ? (
                 <button
                   type="button"
-                  title={`${communicationHealth.summary} · Abrir diagnóstico`}
+                  title={`${operationalCommunicationHealth.summary} · Abrir diagnóstico`}
                   onClick={() => setActiveDeviceSection("diagnostics")}
                   style={{
                     ...styles.statusPillLarge,
                     ...styles.communicationStatusPill,
                     ...styles.headerIssueButton,
-                    ...(communicationHealth.tone === "bad" ? styles.headerIssueBad : styles.headerIssueWarn),
+                    ...(operationalCommunicationHealth.tone === "bad" ? styles.headerIssueBad : styles.headerIssueWarn),
                   }}
                 >
                   <Wifi size={15} />
-                  <span>{communicationHealth.label}</span>
+                  <span>{operationalCommunicationHealth.label}</span>
                 </button>
               ) : null}
               {!deviceSwitchLoading && ["medium", "high", "critical"].includes(String(predictiveStatus?.level)) ? (
@@ -5337,6 +5396,115 @@ function downloadPdfReport() {
           </div>
         </div>
         )}
+        {isSelectionMode && reportPickerOpen ? (
+          <section style={styles.reportPickerPanel}>
+            <div style={styles.reportPickerHeader}>
+              <div>
+                <div style={styles.cardTitle}>Descarregar relatórios PDF</div>
+                <div style={styles.cardHint}>
+                  Seleciona um ou vários dispositivos e o período a incluir.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportPickerOpen(false)}
+                style={styles.reportPickerClose}
+                aria-label="Fechar seleção de relatórios"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div style={styles.reportPickerToolbar}>
+              <button
+                type="button"
+                onClick={() =>
+                  setReportDeviceIds(
+                    reportDeviceIds.length === devices.length
+                      ? []
+                      : devices.map((item) => item.device_id)
+                  )
+                }
+                style={styles.collapseButton}
+              >
+                {reportDeviceIds.length === devices.length
+                  ? "Limpar seleção"
+                  : "Selecionar todos"}
+              </button>
+              <span style={styles.cardHint}>
+                {reportDeviceIds.length} de {devices.length} selecionado(s)
+              </span>
+            </div>
+
+            <div style={styles.reportDeviceGrid}>
+              {devices.map((item) => {
+                const selected = reportDeviceIds.includes(item.device_id);
+                const info = getStatusInfo(getDeviceEffectiveStatus(item));
+                return (
+                  <button
+                    key={item.device_id}
+                    type="button"
+                    onClick={() => toggleReportDevice(item.device_id)}
+                    aria-pressed={selected}
+                    style={{
+                      ...styles.reportDeviceOption,
+                      ...(selected ? styles.reportDeviceOptionSelected : {}),
+                    }}
+                  >
+                    <span
+                      style={{
+                        ...styles.treeDeviceDot,
+                        background: info.dot,
+                      }}
+                    />
+                    <span style={styles.reportDeviceOptionText}>
+                      <strong>{item.name || item.device_id}</strong>
+                      <small>{item.location || item.device_id}</small>
+                    </span>
+                    <span style={styles.reportCheckbox}>
+                      {selected ? <CheckCircle2 size={17} /> : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={styles.reportPickerFooter}>
+              <div style={styles.reportPeriodField}>
+                <label style={styles.label}>{t("reportPeriod")}</label>
+                <select
+                  value={reportPeriod}
+                  onChange={(event) => setReportPeriod(event.target.value)}
+                  style={styles.configInput}
+                >
+                  <option value="1h">1H</option>
+                  <option value="6h">6H</option>
+                  <option value="12h">12H</option>
+                  <option value="24h">24H</option>
+                  <option value="7d">7D</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={downloadSelectedReports}
+                disabled={!reportDeviceIds.length || downloadingReports}
+                style={{
+                  ...styles.primaryButton,
+                  ...(!reportDeviceIds.length || downloadingReports
+                    ? styles.disabledButton
+                    : {}),
+                }}
+              >
+                <FileDown size={16} />
+                {downloadingReports
+                  ? "A preparar..."
+                  : `Descarregar ${reportDeviceIds.length || ""} PDF${
+                      reportDeviceIds.length === 1 ? "" : "s"
+                    }`}
+              </button>
+            </div>
+          </section>
+        ) : null}
         {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
         {lastRefreshError && initialLoaded ? (
           <div style={styles.softWarningBanner}>
@@ -5351,9 +5519,6 @@ function downloadPdfReport() {
             onSelectDevice={(deviceId) => {
               selectDevice(deviceId);
             }}
-            onDownloadReport={(deviceId) =>
-              downloadPdfReportForDevice(deviceId, "24h")
-            }
           />
         ) : null}
 
@@ -5698,10 +5863,10 @@ function downloadPdfReport() {
             />
             <ExecutiveStatCard
               label={t("communication")}
-              value={communicationHealth.label}
-              hint={communicationHealth.summary}
+              value={operationalCommunicationHealth.label}
+              hint={operationalCommunicationHealth.summary}
               icon={Radio}
-              tone={communicationHealth.tone}
+              tone={operationalCommunicationHealth.tone}
             />
           </div>
 
@@ -6118,7 +6283,9 @@ function downloadPdfReport() {
   <div
     style={{
       ...styles.alertOverviewGrid,
-      gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+      gridTemplateColumns: isMobile
+        ? "1fr"
+        : "repeat(auto-fit, minmax(210px, 1fr))",
     }}
   >
     <ExecutiveStatCard
@@ -6154,7 +6321,7 @@ function downloadPdfReport() {
     />
   </div>
 
-  <div style={styles.alertHeaderActions}>
+  <div style={{ ...styles.alertHeaderActions, ...styles.alertBelowActions }}>
     {hasOlderAlerts ? (
       <button
         type="button"
@@ -8410,6 +8577,11 @@ const styles = {
     color: "var(--sts-muted)",
     textAlign: "center",
     fontWeight: 700,
+    minHeight: "76px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflowWrap: "anywhere",
   },
 
   emptyChartState: {
@@ -9201,6 +9373,12 @@ const styles = {
     flexWrap: "wrap",
   },
 
+  alertBelowActions: {
+    width: "100%",
+    justifyContent: "flex-start",
+    margin: "2px 0 18px",
+  },
+
   alertListHint: {
     color: "#64748b",
     fontSize: "12px",
@@ -9608,6 +9786,106 @@ reportActionWrap: {
   display: "flex",
   alignItems: "end",
 },
+
+  reportPickerPanel: {
+    border: "1px solid var(--sts-border-strong)",
+    borderRadius: "18px",
+    background: "var(--sts-surface)",
+    padding: "20px",
+    boxShadow: "0 20px 48px rgba(2, 6, 23, 0.24)",
+    display: "grid",
+    gap: "18px",
+  },
+
+  reportPickerHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "16px",
+  },
+
+  reportPickerClose: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "10px",
+    border: "1px solid var(--sts-border-strong)",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-text)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+
+  reportPickerToolbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+
+  reportDeviceGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+    gap: "10px",
+  },
+
+  reportDeviceOption: {
+    width: "100%",
+    minWidth: 0,
+    border: "1px solid var(--sts-border)",
+    borderRadius: "13px",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-text)",
+    padding: "13px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+
+  reportDeviceOptionSelected: {
+    borderColor: "#0f766e",
+    background: "rgba(15, 118, 110, 0.12)",
+    boxShadow: "0 0 0 2px rgba(15, 118, 110, 0.10)",
+  },
+
+  reportDeviceOptionText: {
+    minWidth: 0,
+    flex: 1,
+    display: "grid",
+    gap: "3px",
+  },
+
+  reportCheckbox: {
+    width: "24px",
+    height: "24px",
+    borderRadius: "7px",
+    border: "1px solid var(--sts-border-strong)",
+    color: "#2dd4bf",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  reportPickerFooter: {
+    display: "flex",
+    alignItems: "end",
+    justifyContent: "space-between",
+    gap: "16px",
+    flexWrap: "wrap",
+    paddingTop: "4px",
+  },
+
+  reportPeriodField: {
+    width: "min(260px, 100%)",
+    display: "grid",
+    gap: "8px",
+  },
 
   primaryButton: {
     border: "1px solid #0f766e",
