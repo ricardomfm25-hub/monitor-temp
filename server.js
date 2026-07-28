@@ -533,6 +533,7 @@ function getDeviceConfig(deviceRow) {
     send_interval_s: toNumberOrDefault(cfg.send_interval_s, 60),
     offline_alert_after_min: toNumberOrDefault(cfg.offline_alert_after_min, 6),
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
+    buzzer_enabled: cfg.buzzer_enabled !== false,
     maintenance: {
       active_until: maintenance.active_until || null,
       started_at: maintenance.started_at || null,
@@ -4452,6 +4453,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       send_interval_s,
       offline_alert_after_min,
       display_standby_min,
+      buzzer_enabled,
       name,
       location,
     } = req.body;
@@ -4470,6 +4472,9 @@ app.post("/api/device/:id/config", async (req, res) => {
 
     if (validationErrors.length > 0) {
       return res.status(400).json({ error: validationErrors.join(" | ") });
+    }
+    if (buzzer_enabled !== undefined && typeof buzzer_enabled !== "boolean") {
+      return res.status(400).json({ error: "buzzer_enabled deve ser booleano" });
     }
 
     const { data: deviceRow, error: fetchError } = await supabase
@@ -4506,6 +4511,7 @@ app.post("/api/device/:id/config", async (req, res) => {
       ...(display_standby_min !== undefined
         ? { display_standby_min: Number(display_standby_min) }
         : {}),
+      ...(buzzer_enabled !== undefined ? { buzzer_enabled } : {}),
       alert_state: currentConfig.alert_state || {
         temp_active: false,
         hum_active: false,

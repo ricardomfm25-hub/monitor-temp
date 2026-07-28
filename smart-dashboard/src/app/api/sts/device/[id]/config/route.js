@@ -47,6 +47,7 @@ function normalizeConfig(config = {}) {
     ),
     offline_alert_after_min: Math.max(parseNumber(config.offline_alert_after_min) ?? 6, 1),
     display_standby_min: parseNumber(config.display_standby_min) ?? 10,
+    buzzer_enabled: config.buzzer_enabled !== false,
   };
 }
 
@@ -274,6 +275,16 @@ export async function POST(request, context) {
         }
         nextConfig[field] = numeric;
       }
+    }
+
+    if (body.buzzer_enabled !== undefined) {
+      if (typeof body.buzzer_enabled !== "boolean") {
+        return Response.json(
+          { error: "Valor inválido em buzzer_enabled." },
+          { status: 400 }
+        );
+      }
+      nextConfig.buzzer_enabled = body.buzzer_enabled;
     }
 
     const validationErrors = validateConfig(nextConfig);

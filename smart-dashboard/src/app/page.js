@@ -13,6 +13,7 @@ import {
   Clock,
   Cpu,
   Droplets,
+  FileDown,
   Gauge,
   HeartPulse,
   Home,
@@ -29,6 +30,7 @@ import {
   Sun,
   Thermometer,
   Timer,
+  Volume2,
   Wrench,
   Wifi,
   X,
@@ -3055,7 +3057,13 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
   );
 }
 
-function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
+function DeviceEntryPicker({
+  devices,
+  profile,
+  onSelectDevice,
+  onDownloadReport,
+  t,
+}) {
   const hierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
     [devices, profile]
@@ -3095,33 +3103,44 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
                       const info = getStatusInfo(getDeviceEffectiveStatus(item));
 
                       return (
-                        <button
-                          key={item.device_id}
-                          type="button"
-                          onClick={() => onSelectDevice(item.device_id)}
-                          style={styles.entryDeviceButton}
-                        >
-                          <span style={styles.entryDeviceIcon}>
-                            <Snowflake size={17} />
-                          </span>
-                          <span
-                            style={{
-                              ...styles.treeDeviceDot,
-                              background: info.dot,
-                              boxShadow: `0 0 12px ${info.dot}`,
-                            }}
-                          />
-                          <span style={styles.entryDeviceContent}>
-                            <span style={styles.entryDeviceTopline}>
-                              <strong>{item?.name || item?.device_id}</strong>
-                              <span style={{ color: info.color }}>{info.label}</span>
+                        <div key={item.device_id} style={styles.entryDeviceRow}>
+                          <button
+                            type="button"
+                            onClick={() => onSelectDevice(item.device_id)}
+                            style={styles.entryDeviceButton}
+                          >
+                            <span style={styles.entryDeviceIcon}>
+                              <Snowflake size={17} />
                             </span>
-                            <span style={styles.entryDeviceMetrics}>
-                              {formatValue(item?.last_temperature, " °C")} · {formatValue(item?.last_humidity, " %")} · {formatRelativeTime(item?.last_seen)}
+                            <span
+                              style={{
+                                ...styles.treeDeviceDot,
+                                background: info.dot,
+                                boxShadow: `0 0 12px ${info.dot}`,
+                              }}
+                            />
+                            <span style={styles.entryDeviceContent}>
+                              <span style={styles.entryDeviceTopline}>
+                                <strong>{item?.name || item?.device_id}</strong>
+                                <span style={{ color: info.color }}>{info.label}</span>
+                              </span>
+                              <span style={styles.entryDeviceMetrics}>
+                                {formatValue(item?.last_temperature, " °C")} · {formatValue(item?.last_humidity, " %")} · {formatRelativeTime(item?.last_seen)}
+                              </span>
+                              <span style={styles.entryDeviceId}>{item.device_id}</span>
                             </span>
-                            <span style={styles.entryDeviceId}>{item.device_id}</span>
-                          </span>
-                        </button>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDownloadReport(item.device_id)}
+                            style={styles.entryReportButton}
+                            title={`Descarregar relatório PDF de ${item?.name || item?.device_id} (24H)`}
+                            aria-label={`Descarregar relatório PDF de ${item?.name || item?.device_id}`}
+                          >
+                            <FileDown size={17} />
+                            <span>PDF</span>
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -3756,6 +3775,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     send_interval_s: "",
     offline_alert_after_min: "",
     display_standby_min: "",
+    buzzer_enabled: true,
   });
 
   const [adminForm, setAdminForm] = useState({
@@ -4007,7 +4027,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             : Promise.resolve(null),
 
           nextSelectedDeviceId
-            ? fetchJsonOrThrow(`/api/sts/device/${nextSelectedDeviceId}/history?limit=2000`)
+            ? fetchJsonOrThrow(
+                `/api/sts/device/${nextSelectedDeviceId}/history?hours=${MAX_HISTORY_HOURS}&limit=25000`
+              )
             : Promise.resolve([]),
 
           nextSelectedDeviceId
@@ -4212,6 +4234,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             send_interval_s: toInputValue((parseNumber(deviceConfig?.send_interval_s) ?? 60) / 60),
             offline_alert_after_min: toInputValue(deviceConfig?.offline_alert_after_min ?? 6),
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
+            buzzer_enabled: deviceConfig?.buzzer_enabled !== false,
           });
 
           setAdminForm({
@@ -4826,6 +4849,7 @@ const communicationHealth = useMemo(
       temp_high_c: newTempHigh,
       hum_low: newHumLow,
       hum_high: newHumHigh,
+      buzzer_enabled: clientForm.buzzer_enabled !== false,
     };
 
     if (canEditTechnicalConfig) {
@@ -4882,6 +4906,7 @@ const communicationHealth = useMemo(
       send_interval_s: toInputValue((parseNumber(refreshedConfig?.send_interval_s) ?? 60) / 60),
       offline_alert_after_min: toInputValue(refreshedConfig?.offline_alert_after_min ?? 6),
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
+      buzzer_enabled: refreshedConfig?.buzzer_enabled !== false,
     });
 
     setClientMessage("Configurações do cliente guardadas com sucesso.");
@@ -5043,12 +5068,12 @@ const communicationHealth = useMemo(
     setSavingAdmin(false);
   }
 
-async function downloadPdfReport() {
-  if (!selectedDeviceId) return;
+async function downloadPdfReportForDevice(deviceId, periodKey = "24h") {
+  if (!deviceId) return;
 
   try {
     const response = await fetch(
-      `/api/sts/device/${selectedDeviceId}/report?period=${reportPeriod}`,
+      `/api/sts/device/${encodeURIComponent(deviceId)}/report?period=${periodKey}`,
       {
         method: "GET",
         cache: "no-store",
@@ -5065,7 +5090,7 @@ async function downloadPdfReport() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${selectedDeviceId}_relatorio_${reportPeriod}.pdf`;
+    a.download = `${deviceId}_relatorio_${periodKey}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -5074,6 +5099,10 @@ async function downloadPdfReport() {
   } catch (error) {
     setPageError(error?.message || "Erro ao descarregar relatório PDF.");
   }
+}
+
+function downloadPdfReport() {
+  return downloadPdfReportForDevice(selectedDeviceId, reportPeriod);
 }
 
   const hasDevices = devices.length > 0;
@@ -5322,6 +5351,9 @@ async function downloadPdfReport() {
             onSelectDevice={(deviceId) => {
               selectDevice(deviceId);
             }}
+            onDownloadReport={(deviceId) =>
+              downloadPdfReportForDevice(deviceId, "24h")
+            }
           />
         ) : null}
 
@@ -5493,6 +5525,7 @@ async function downloadPdfReport() {
                 icon={Droplets}
                 tone={currentHumTone}
                 iconToneOnly
+                toneBackground
               />
               <ExecutiveStatCard
                 label={t("activeAlerts")}
@@ -5655,6 +5688,7 @@ async function downloadPdfReport() {
               icon={Droplets}
               tone={currentHumTone}
               iconToneOnly
+              toneBackground
             />
             <ExecutiveStatCard
               label={t("summary24h")}
@@ -5912,7 +5946,7 @@ async function downloadPdfReport() {
           style={{
             ...styles.card,
             order: 22,
-            display: activeDeviceSection === "settings" ? "block" : "none",
+            display: activeDeviceSection === "information" ? "block" : "none",
           }}
         >
           <div style={styles.cardHeader}>
@@ -6066,29 +6100,6 @@ async function downloadPdfReport() {
         </button>
       ) : null}
 
-      {canEditSelectedDevice && alerts.length ? (
-        <button
-          type="button"
-          onClick={clearActiveAlerts}
-          disabled={clearingAlerts}
-          style={{
-            ...styles.collapseButton,
-            ...(clearingAlerts ? styles.disabledButton : {}),
-          }}
-        >
-          {clearingAlerts ? "A regularizar..." : "Regularizar alertas"}
-        </button>
-      ) : null}
-
-      {hasOlderAlerts ? (
-        <button
-          type="button"
-          onClick={() => setAlertsCollapsed((prev) => !prev)}
-          style={styles.collapseButton}
-        >
-          {alertsCollapsed ? t("minimize") : t("showAll")}
-        </button>
-      ) : null}
     </div>
   </div>
 
@@ -6141,6 +6152,33 @@ async function downloadPdfReport() {
       icon={Clock}
       tone={activeAlerts.length ? "warn" : "good"}
     />
+  </div>
+
+  <div style={styles.alertHeaderActions}>
+    {hasOlderAlerts ? (
+      <button
+        type="button"
+        onClick={() => setAlertsCollapsed((prev) => !prev)}
+        style={styles.collapseButton}
+      >
+        {alertsCollapsed ? t("minimize") : t("showAll")}
+      </button>
+    ) : null}
+
+    {isSuperAdmin && alerts.length ? (
+      <button
+        type="button"
+        onClick={clearActiveAlerts}
+        disabled={clearingAlerts}
+        title="Ferramenta técnica para corrigir um estado de alerta incoerente. Não apaga o histórico."
+        style={{
+          ...styles.collapseButton,
+          ...(clearingAlerts ? styles.disabledButton : {}),
+        }}
+      >
+        {clearingAlerts ? "A regularizar..." : "Regularizar estado de alertas"}
+      </button>
+    ) : null}
   </div>
 
   {!alerts.length ? (
@@ -6290,6 +6328,61 @@ async function downloadPdfReport() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div style={styles.settingsSection}>
+            <div style={styles.settingsSectionHeader}>
+              <div style={styles.settingsSectionIcon}><Volume2 size={18} /></div>
+              <div>
+                <div style={styles.settingsSectionTitle}>Alarme auditivo</div>
+                <div style={styles.cardHint}>
+                  O buzzer toca por impulsos enquanto existir um alarme ativo sem ACK.
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={clientForm.buzzer_enabled !== false}
+              onClick={() =>
+                setClientForm((prev) => ({
+                  ...prev,
+                  buzzer_enabled: prev.buzzer_enabled === false,
+                }))
+              }
+              disabled={!canEditSelectedDevice}
+              style={{
+                ...styles.settingsToggleRow,
+                ...(!canEditSelectedDevice ? styles.disabledButton : {}),
+              }}
+            >
+              <span>
+                <strong style={styles.settingsToggleTitle}>
+                  Buzzer {clientForm.buzzer_enabled !== false ? "ligado" : "desligado"}
+                </strong>
+                <span style={styles.settingsToggleHint}>
+                  Os alertas visuais, registos e notificações continuam sempre ativos.
+                </span>
+              </span>
+              <span
+                style={{
+                  ...styles.settingsToggle,
+                  ...(clientForm.buzzer_enabled !== false
+                    ? styles.settingsToggleActive
+                    : {}),
+                }}
+              >
+                <span
+                  style={{
+                    ...styles.settingsToggleKnob,
+                    ...(clientForm.buzzer_enabled !== false
+                      ? styles.settingsToggleKnobActive
+                      : {}),
+                  }}
+                />
+              </span>
+            </button>
           </div>
 
           {canEditTechnicalConfig ? (
@@ -7907,6 +8000,13 @@ const styles = {
     flex: 1,
   },
 
+  entryDeviceRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: "8px",
+    alignItems: "stretch",
+  },
+
   entryDeviceButton: {
     border: "1px solid rgba(148, 163, 184, 0.18)",
     background: "rgba(8, 13, 23, 0.70)",
@@ -7924,6 +8024,23 @@ const styles = {
     minHeight: "82px",
     width: "100%",
     transition: "border-color 160ms ease, background 160ms ease, transform 160ms ease",
+  },
+
+  entryReportButton: {
+    minWidth: "58px",
+    border: "1px solid rgba(125, 211, 252, 0.24)",
+    background: "rgba(14, 165, 233, 0.10)",
+    color: "#7dd3fc",
+    borderRadius: "13px",
+    padding: "10px",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "5px",
+    cursor: "pointer",
+    fontSize: "10px",
+    fontWeight: 850,
   },
 
   entryDeviceIcon: {
@@ -9413,6 +9530,64 @@ collapseButton: {
     overflow: "hidden",
     appearance: "none",
     WebkitAppearance: "none",
+  },
+
+  settingsToggleRow: {
+    width: "100%",
+    border: "1px solid var(--sts-border-strong)",
+    borderRadius: "14px",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-text)",
+    padding: "15px 16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "18px",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+
+  settingsToggleTitle: {
+    display: "block",
+    fontSize: "14px",
+    marginBottom: "4px",
+  },
+
+  settingsToggleHint: {
+    display: "block",
+    color: "var(--sts-muted)",
+    fontSize: "12px",
+    lineHeight: 1.45,
+  },
+
+  settingsToggle: {
+    width: "46px",
+    height: "26px",
+    padding: "3px",
+    borderRadius: "999px",
+    background: "rgba(148, 163, 184, 0.35)",
+    border: "1px solid var(--sts-border-strong)",
+    flexShrink: 0,
+    transition: "background 180ms ease",
+  },
+
+  settingsToggleActive: {
+    background: "rgba(34, 197, 94, 0.75)",
+  },
+
+  settingsToggleKnob: {
+    display: "block",
+    width: "18px",
+    height: "18px",
+    borderRadius: "50%",
+    background: "#ffffff",
+    boxShadow: "0 2px 5px rgba(15, 23, 42, 0.35)",
+    transform: "translateX(0)",
+    transition: "transform 180ms ease",
+  },
+
+  settingsToggleKnobActive: {
+    transform: "translateX(20px)",
   },
 
   actionsRow: {

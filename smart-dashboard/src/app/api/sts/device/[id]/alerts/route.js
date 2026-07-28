@@ -168,6 +168,12 @@ export async function POST(request, context) {
   if (!access.ok) {
     return Response.json({ error: access.error }, { status: access.status });
   }
+  if (access.profile?.role !== "super_admin") {
+    return Response.json(
+      { error: "A regularização manual está reservada ao administrador técnico." },
+      { status: 403 }
+    );
+  }
 
   try {
     const body = await request.json().catch(() => ({}));
@@ -200,10 +206,23 @@ export async function POST(request, context) {
     };
 
     const insideLimits = isCurrentReadingInsideLimits(device, config);
+    const deviceOffline =
+      device.online === false ||
+      String(device.status || "").toUpperCase() === "OFFLINE";
+    if (!insideLimits || deviceOffline) {
+      return Response.json(
+        {
+          error:
+            "Não é seguro regularizar: o dispositivo deve estar online e as leituras atuais dentro dos limites.",
+        },
+        { status: 409 }
+      );
+    }
+
     const updatePayload = {
       config: nextConfig,
       updated_at: nowIso,
-      status: insideLimits ? "NORMAL" : "ALARM_ACK",
+      status: "NORMAL",
     };
 
     const { error: updateError } = await supabase
