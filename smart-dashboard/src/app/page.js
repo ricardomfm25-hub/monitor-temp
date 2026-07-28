@@ -2985,7 +2985,13 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
   }, []);
 
   return (
-    <div ref={wrapRef} style={styles.notificationWrap}>
+    <div
+      ref={wrapRef}
+      style={{
+        ...styles.notificationWrap,
+        ...(isMobile ? styles.notificationWrapMobile : {}),
+      }}
+    >
       <button
         type="button"
         aria-label={`Notificações por ver: ${unreadCount}`}
@@ -3008,7 +3014,16 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
               <span style={styles.notificationSubtitle}>Alertas de todos os equipamentos</span>
             </div>
             <div style={styles.notificationHeaderActions}>
-              <span style={styles.notificationHeaderCount}>{visibleAlerts.length}</span>
+              <span
+                style={{
+                  ...styles.notificationHeaderCount,
+                  ...(!visibleAlerts.length
+                    ? styles.notificationHeaderCountEmpty
+                    : {}),
+                }}
+              >
+                {visibleAlerts.length}
+              </span>
               {visibleAlerts.length ? (
                 <button type="button" onClick={clearNotifications} style={styles.notificationClearButton}>
                   Limpar
@@ -3057,15 +3072,25 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
   );
 }
 
-function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
+function DeviceEntryPicker({ devices, profile, onSelectDevice, isMobile, t }) {
   const hierarchy = useMemo(
     () => buildDeviceHierarchy(devices, profile),
     [devices, profile]
   );
 
   return (
-    <section style={styles.entryGate}>
-      <div style={styles.entryPanel}>
+    <section
+      style={{
+        ...styles.entryGate,
+        ...(isMobile ? styles.entryGateMobile : {}),
+      }}
+    >
+      <div
+        style={{
+          ...styles.entryPanel,
+          ...(isMobile ? styles.entryPanelMobile : {}),
+        }}
+      >
         <div style={styles.controlCenterIntro}>
           <div>
             <div style={styles.entryKicker}>Centro de controlo</div>
@@ -3078,11 +3103,22 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, t }) {
             <span><strong>{devices.filter((item) => getDeviceEffectiveStatus(item) === "OFFLINE").length}</strong> offline</span>
           </div>
         </div>
-        <div style={styles.entryTree}>
+        <div
+          style={{
+            ...styles.entryTree,
+            ...(isMobile ? styles.entryTreeMobile : {}),
+          }}
+        >
           {hierarchy.flatMap((company) =>
             company.buildings.flatMap((building) =>
               building.rooms.map((room) => (
-                <div key={`${company.name}-${building.name}-${room.name}`} style={styles.entryCompany}>
+                <div
+                  key={`${company.name}-${building.name}-${room.name}`}
+                  style={{
+                    ...styles.entryCompany,
+                    ...(isMobile ? styles.entryCompanyMobile : {}),
+                  }}
+                >
                   <div style={styles.entryCompanyTitle}>
                     <span style={styles.entryLocationIcon}>
                       <Building2 size={17} />
@@ -3799,8 +3835,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const requestInFlightRef = useRef(false);
   const requestSeqRef = useRef(0);
   const mountedRef = useRef(true);
-  const skipNextProfileLanguageSaveRef = useRef(false);
-  const skipNextProfileThemeSaveRef = useRef(false);
+  const preferencesHydratedProfileRef = useRef(null);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const isClientAdmin = profile?.role === "client_admin";
@@ -3818,7 +3853,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   useEffect(() => {
     function handleResize() {
-      setIsMobile(window.innerWidth <= 768);
+      const viewportWidth =
+        window.visualViewport?.width || window.innerWidth;
+      setIsMobile(viewportWidth <= 980);
     }
 
     handleResize();
@@ -3845,48 +3882,80 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!profileLanguageStorageKey) return;
-    const storedLanguage = window.localStorage.getItem(profileLanguageStorageKey);
-    if (storedLanguage === "en" || storedLanguage === "pt") {
-      skipNextProfileLanguageSaveRef.current = true;
-      setLanguage(storedLanguage);
-    }
-  }, [profileLanguageStorageKey]);
+    if (!profile?.id || !profileLanguageStorageKey || !profileThemeStorageKey) return;
+
+    const remotePreferences = profile.dashboard_preferences || {};
+    const localLanguage = window.localStorage.getItem(profileLanguageStorageKey);
+    const localTheme = window.localStorage.getItem(profileThemeStorageKey);
+    const nextLanguage =
+      remotePreferences.language === "en" || remotePreferences.language === "pt"
+        ? remotePreferences.language
+        : localLanguage === "en" || localLanguage === "pt"
+        ? localLanguage
+        : language;
+    const nextTheme =
+      remotePreferences.theme === "dark" || remotePreferences.theme === "light"
+        ? remotePreferences.theme
+        : localTheme === "dark" || localTheme === "light"
+        ? localTheme
+        : theme;
+
+    preferencesHydratedProfileRef.current = profile.id;
+    setLanguage(nextLanguage);
+    setTheme(nextTheme);
+  }, [
+    profile?.id,
+    profile?.dashboard_preferences,
+    profileLanguageStorageKey,
+    profileThemeStorageKey,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!profileThemeStorageKey) return;
-    const storedTheme = window.localStorage.getItem(profileThemeStorageKey);
-    if (storedTheme === "dark" || storedTheme === "light") {
-      skipNextProfileThemeSaveRef.current = true;
-      setTheme(storedTheme);
-    }
-  }, [profileThemeStorageKey]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-    if (profileLanguageStorageKey) {
-      if (skipNextProfileLanguageSaveRef.current) {
-        skipNextProfileLanguageSaveRef.current = false;
-      } else {
-        window.localStorage.setItem(profileLanguageStorageKey, language);
-      }
-    }
-  }, [language, profileLanguageStorageKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     window.document.documentElement.dataset.stsTheme = theme;
-    if (profileThemeStorageKey) {
-      if (skipNextProfileThemeSaveRef.current) {
-        skipNextProfileThemeSaveRef.current = false;
-      } else {
-        window.localStorage.setItem(profileThemeStorageKey, theme);
-      }
+
+    if (
+      !profile?.id ||
+      preferencesHydratedProfileRef.current !== profile.id ||
+      !profileLanguageStorageKey ||
+      !profileThemeStorageKey
+    ) {
+      return;
     }
-  }, [theme, profileThemeStorageKey]);
+
+    window.localStorage.setItem(profileLanguageStorageKey, language);
+    window.localStorage.setItem(profileThemeStorageKey, theme);
+
+    const timer = window.setTimeout(async () => {
+      const preferences = { language, theme };
+      const { error } = await supabase.auth.updateUser({
+        data: { sts_dashboard_preferences: preferences },
+      });
+
+      if (error) {
+        console.warn("dashboard preferences:", error.message);
+        return;
+      }
+
+      setProfile((current) =>
+        current
+          ? { ...current, dashboard_preferences: preferences }
+          : current
+      );
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    language,
+    profile?.id,
+    profileLanguageStorageKey,
+    profileThemeStorageKey,
+    supabase,
+    theme,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -3951,7 +4020,13 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
           throw new Error("Não foi possível carregar as permissões do utilizador.");
         }
 
-        const profileData = profileResponse.data || null;
+    const profileData = profileResponse.data
+      ? {
+          ...profileResponse.data,
+          dashboard_preferences:
+            user.user_metadata?.sts_dashboard_preferences || {},
+        }
+      : null;
         const permissionsData = permissionsResponse.data || [];
 
         if (!profileData) {
@@ -5188,8 +5263,19 @@ function downloadPdfReport() {
   }
 
   return (
-    <main style={{ ...styles.page, ...(themeOverrides.page || {}) }}>
-      <div style={styles.container}>
+    <main
+      style={{
+        ...styles.page,
+        ...(themeOverrides.page || {}),
+        ...(isMobile ? styles.pageMobile : {}),
+      }}
+    >
+      <div
+        style={{
+          ...styles.container,
+          ...(isMobile ? styles.containerMobile : {}),
+        }}
+      >
         {isSelectionMode ? (
           <div
             style={{
@@ -5200,7 +5286,12 @@ function downloadPdfReport() {
               ...(isMobile ? styles.topBarMobile : {}),
             }}
           >
-            <div style={styles.topLogoMark}>
+            <div
+              style={{
+                ...styles.topLogoMark,
+                ...(isMobile ? styles.topLogoMarkMobile : {}),
+              }}
+            >
               <Image
                 src={STS_LOGO_SRC}
                 alt="STS"
@@ -5265,7 +5356,12 @@ function downloadPdfReport() {
             ...(isMobile ? styles.topBarMobile : {}),
           }}
         >
-          <div style={styles.topLogoMark}>
+          <div
+            style={{
+              ...styles.topLogoMark,
+              ...(isMobile ? styles.topLogoMarkMobile : {}),
+            }}
+          >
             <Image
               src={STS_LOGO_SRC}
               alt="STS"
@@ -5300,7 +5396,12 @@ function downloadPdfReport() {
                 ) : null}
               </div>
             </div>
-            <div style={styles.headerStatusGroup}>
+            <div
+              style={{
+                ...styles.headerStatusGroup,
+                ...(isMobile ? styles.headerStatusGroupMobile : {}),
+              }}
+            >
               <div
                 style={{
                   ...styles.statusPillLarge,
@@ -5515,6 +5616,7 @@ function downloadPdfReport() {
           <DeviceEntryPicker
             devices={devices}
             profile={profile}
+            isMobile={isMobile}
             t={t}
             onSelectDevice={(deviceId) => {
               selectDevice(deviceId);
@@ -6839,6 +6941,7 @@ const styles = {
     "--sts-input-bg": "rgba(8, 13, 23, 0.62)",
     "--sts-shadow": "0 18px 42px rgba(0, 0, 0, 0.22)",
     "--sts-menu-bg": "rgba(9, 15, 26, 0.98)",
+    "--sts-accent": "#2dd4bf",
     "--sts-sidebar-bg": "linear-gradient(180deg, rgba(10, 18, 30, 0.96), rgba(7, 12, 20, 0.94))",
     background:
       "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.14) 0%, transparent 34%), linear-gradient(180deg, #071018 0%, #0a111b 44%, #070b12 100%)",
@@ -6860,10 +6963,16 @@ const styles = {
     "--sts-input-bg": "rgba(255, 255, 255, 0.95)",
     "--sts-shadow": "0 18px 42px rgba(15, 23, 42, 0.10)",
     "--sts-menu-bg": "rgba(255, 255, 255, 0.96)",
+    "--sts-accent": "#0f766e",
     "--sts-sidebar-bg": "linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 245, 249, 0.90))",
     background:
       "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.16) 0%, transparent 32%), linear-gradient(180deg, #eef7f6 0%, #f7fafc 46%, #e8eef5 100%)",
     color: "#102033",
+  },
+
+  pageMobile: {
+    padding:
+      "max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left))",
   },
 
   container: {
@@ -6876,6 +6985,10 @@ const styles = {
     overflowX: "hidden",
   },
 
+  containerMobile: {
+    gap: "10px",
+    overflowX: "visible",
+  },
 
   dashboardShell: {
     display: "grid",
@@ -6983,6 +7096,7 @@ const styles = {
   },
 
   topBarMobile: {
+    flexDirection: "column",
     alignItems: "stretch",
     gap: "12px",
     padding: "12px",
@@ -6998,6 +7112,14 @@ const styles = {
     borderRight: "1px solid rgba(148, 163, 184, 0.14)",
     paddingRight: "14px",
     flexShrink: 0,
+  },
+
+  topLogoMarkMobile: {
+    width: "92px",
+    height: "42px",
+    paddingRight: "10px",
+    borderRight: 0,
+    justifyContent: "flex-start",
   },
 
   topLogoImage: {
@@ -7086,6 +7208,11 @@ const styles = {
     gap: "8px",
     flexWrap: "wrap",
     flexShrink: 0,
+  },
+
+  headerStatusGroupMobile: {
+    width: "100%",
+    justifyContent: "flex-start",
   },
 
   deviceHeaderKicker: {
@@ -7267,6 +7394,11 @@ const styles = {
     zIndex: 9300,
   },
 
+  notificationWrapMobile: {
+    width: "100%",
+    flex: "1 1 100%",
+  },
+
   notificationButton: {
     position: "relative",
     minHeight: "38px",
@@ -7362,6 +7494,11 @@ const styles = {
     color: "#f87171",
     fontSize: "12px",
     fontWeight: 950,
+  },
+
+  notificationHeaderCountEmpty: {
+    background: "rgba(148, 163, 184, 0.12)",
+    color: "var(--sts-muted-strong)",
   },
 
   notificationHeaderActions: {
@@ -7696,6 +7833,8 @@ const styles = {
     overflowY: "hidden",
     padding: "8px",
     borderRadius: "15px",
+    minHeight: "auto",
+    width: "100%",
   },
 
   sidebarBrandBlock: {
@@ -7996,6 +8135,11 @@ const styles = {
     padding: "14px 0 24px",
   },
 
+  entryGateMobile: {
+    minHeight: 0,
+    padding: "0 0 10px",
+  },
+
   entryPanel: {
     width: "100%",
     maxWidth: "1180px",
@@ -8005,6 +8149,11 @@ const styles = {
     padding: "22px",
     boxShadow: "0 28px 64px rgba(0, 0, 0, 0.26)",
     backdropFilter: "blur(18px)",
+  },
+
+  entryPanelMobile: {
+    padding: "13px",
+    borderRadius: "15px",
   },
 
   entryLogo: {
@@ -8045,6 +8194,12 @@ const styles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))",
     gap: "16px",
     marginTop: "20px",
+  },
+
+  entryTreeMobile: {
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: "10px",
+    marginTop: "12px",
   },
 
   controlCenterIntro: {
@@ -8089,6 +8244,11 @@ const styles = {
     minHeight: "220px",
     display: "flex",
     flexDirection: "column",
+  },
+
+  entryCompanyMobile: {
+    minHeight: 0,
+    padding: "12px",
   },
 
   entryCompanyTitle: {
@@ -9518,7 +9678,7 @@ collapseButton: {
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "7px",
     padding: "5px",
-    border: "1px solid var(--sts-border)",
+    border: "1px solid color-mix(in srgb, var(--sts-accent) 38%, var(--sts-border))",
     borderRadius: "13px",
     background: "var(--sts-input-bg)",
   },
@@ -9543,10 +9703,10 @@ collapseButton: {
   },
 
   segmentedOptionActive: {
-    borderColor: "color-mix(in srgb, var(--sts-accent) 35%, var(--sts-border))",
-    background: "color-mix(in srgb, var(--sts-accent) 11%, var(--sts-surface-strong))",
+    borderColor: "color-mix(in srgb, var(--sts-accent) 72%, var(--sts-border))",
+    background: "color-mix(in srgb, var(--sts-accent) 13%, var(--sts-surface-strong))",
     color: "var(--sts-text)",
-    boxShadow: "0 5px 16px rgba(0,0,0,0.13), inset 0 1px 0 rgba(255,255,255,0.05)",
+    boxShadow: "0 0 0 1px color-mix(in srgb, var(--sts-accent) 16%, transparent), 0 6px 18px rgba(0,0,0,0.14)",
   },
 
   segmentedMark: {
