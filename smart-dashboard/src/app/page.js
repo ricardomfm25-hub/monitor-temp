@@ -6757,11 +6757,13 @@ function downloadPdfReport() {
 
               {clientMessage ? (
                 <span
-                  style={
-                    clientMessage.toLowerCase().includes("sucesso")
+                  style={{
+                    ...(clientMessage.toLowerCase().includes("sucesso")
                       ? styles.successText
-                      : styles.errorTextInline
-                  }
+                      : styles.errorTextInline),
+                    ...styles.settingsSaveMessage,
+                    ...(isMobile ? styles.settingsSaveMessageMobile : {}),
+                  }}
                 >
                   {clientMessage}
                 </span>
@@ -9841,6 +9843,24 @@ collapseButton: {
     border: "1px solid color-mix(in srgb, var(--sts-accent) 28%, var(--sts-border))",
     background: "color-mix(in srgb, var(--sts-accent) 7%, var(--sts-surface))",
     borderRadius: "16px",
+    position: "relative",
+  },
+
+  settingsSaveMessage: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: "min(46%, 520px)",
+    textAlign: "center",
+    transform: "translate(-50%, -50%)",
+    pointerEvents: "none",
+  },
+
+  settingsSaveMessageMobile: {
+    position: "static",
+    width: "100%",
+    transform: "none",
+    textAlign: "center",
   },
 
   settingsSaveTitle: {
