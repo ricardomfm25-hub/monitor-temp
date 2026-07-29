@@ -179,6 +179,111 @@ const I18N = {
     readingsCount: "{count} readings",
     remoteAck: "Remote ACK",
     sendingRemoteAck: "Sending ACK...",
+    device: "Device",
+    noDeviceAvailable: "No device available",
+    monitoredDevices: "Monitored devices",
+    selectDevice: "Select device",
+    undefinedLocation: "Location not defined",
+    notifications: "Notifications",
+    unreadNotifications: "{count} unread notifications",
+    notificationsHint: "Notifications from all devices",
+    notificationCenter: "Notification center",
+    allDeviceAlerts: "Alerts from all devices",
+    clear: "Clear",
+    openDeviceAlerts: "Open this device's alerts",
+    openAlerts: "Open alerts →",
+    controlCenter: "Control center",
+    controlledColdLocations: "Controlled cold-storage locations",
+    controlCenterText: "Check the overall status and open the device you want to monitor.",
+    locations: "locations",
+    devicesLabel: "devices",
+    autoDetected: "Detected automatically",
+    deviceTime: "Device time",
+    source: "Source",
+    operatorDevice: "Operator / device",
+    event: "Event",
+    connection: "Connection",
+    aboveLimit: "above the limit",
+    belowLimit: "below the limit",
+    ackConfirmed: "ACK confirmed",
+    predictiveAnalysis: "Predictive analysis",
+    riskTrend: "Risk trend",
+    predictionInfo: "Predictive summary of recent behavior.",
+    probableCause: "Probable cause",
+    suggestedAction: "Suggested action",
+    predictionSuspended: "Prediction suspended until the device is back online.",
+    noData: "No data",
+    predictionUnavailable: "Prediction unavailable",
+    noRecentPrediction: "Not enough recent data to predict a trend.",
+    lowPeak: "Low",
+    highPeak: "High",
+    displayedInterval: "Displayed range",
+    offlineReadingsLine: "Red line: readings captured offline",
+    offlineHistoryPreserved: "Device offline · history preserved up to the latest valid reading",
+    noReadingsPeriod: "No readings in this period.",
+    pdfReports: "PDF reports",
+    downloadPdfReports: "Download PDF reports",
+    reportPickerHint: "Select one or more devices and the period to include.",
+    closeReportSelection: "Close report selection",
+    clearSelection: "Clear selection",
+    selectAll: "Select all",
+    selectedCount: "{selected} of {total} selected",
+    preparing: "Preparing...",
+    downloadReports: "Download {count} PDF{suffix}",
+    syncingDevice: "Synchronizing device",
+    loadingLatestData: "Loading the latest data...",
+    systemStatus: "System status",
+    readings24h: "24h readings",
+    avgTemperature: "Avg. temp.",
+    avgHumidity: "Avg. humidity",
+    openDiagnostics: "Open diagnostics",
+    openPredictiveAnalysis: "Open predictive analysis",
+    deviceFailure: "Device fault",
+    back: "Back",
+    backgroundRefreshFailed: "Background update failed. The latest valid data is still displayed.",
+    safeWindowHint: "Define the safe operating range for each monitored metric.",
+    audibleAlarm: "Audible alarm",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    communicationFailureMin: "Communication failure (min)",
+    applyConfiguration: "Apply configuration",
+    configurationSyncHint: "Changes will be synchronized with this device.",
+    activeMonitoring: "Automatic monitoring active",
+    activeMonitoringHint: "Hardware, sensor, communication and relevant predictive issues appear in notifications.",
+    lastReadingDelay: "Last reading delay",
+    expectedInterval: "Expected interval",
+    readingCoverage: "Reading coverage",
+    relevantFailures: "Relevant failures",
+    severeGaps: "Severe gaps",
+    largestGap: "Largest gap",
+    alertsLastHours: "No alerts in the last {hours}h.",
+    olderAlerts: "There are {count} more alerts in the history.",
+    openAlertsAction: "Open alerts →",
+    noReadingsAvailable: "No readings available.",
+    saveClientSuccess: "Client settings saved successfully.",
+    saveClientError: "Unable to save client settings.",
+    remoteAckError: "Unable to send the remote ACK.",
+    regularizeSuccess: "Alerts normalized successfully.",
+    regularizeError: "Unable to normalize alerts.",
+    pdfError: "Unable to download the PDF report.",
+    timeSinceLastReading: "Time since the latest reading was received",
+    basedOnCurrentConfig: "Based on the device's current configuration",
+    alertCorrectionTool: "Technical tool to correct an inconsistent alert state. It does not delete history.",
+    application: "Application",
+    buzzerBehavior: "The buzzer sounds in pulses while there is an active alarm without ACK.",
+    soundAlarmActive: "Audible alarm active",
+    visualAlertsOnly: "Visual alerts only",
+    buzzerRecordsHint: "Logs, notifications and visual alerts remain active in both options.",
+    rssiUnavailable: "RSSI unavailable",
+    strongSignal: "Strong signal",
+    acceptableSignal: "Acceptable signal",
+    weakSignal: "Weak signal",
+    readingsExpected: "{received} of {expected} expected readings",
+    noHistoricalReadings7d: "No historical readings are available for the last 7 days yet.",
+    noReadingInterval: "No reading in this interval",
+    valueLabel: "Value",
+    offlineCapturedReading: "Reading captured offline",
+    notes: "Notes",
   },
   pt: {
     overview: "Visão geral",
@@ -206,15 +311,15 @@ const I18N = {
     settingsTitle: "Configurações operacionais",
     settingsHint: "Limites operacionais por dispositivo",
     chooseLanguage: "Idioma usado em toda a dashboard deste cliente",
-    chooseTheme: "Conforto visual para a sala de operacao",
-    english: "Ingles",
-    portuguese: "Portugues",
+    chooseTheme: "Conforto visual para a sala de operação",
+    english: "Inglês",
+    portuguese: "Português",
     stability: "Estabilidade",
     stabilityHint: "Ajuste fino usado para evitar alertas repetidos junto ao limite",
     tempHysteresis: "Histerese temperatura (C)",
     humHysteresis: "Histerese humidade (%)",
-    deviceCadence: "Cadencia do dispositivo",
-    deviceCadenceHint: "Frequencia de envio das leituras e gestao do display",
+    deviceCadence: "Cadência do dispositivo",
+    deviceCadenceHint: "Frequência de envio das leituras e gestão do display",
     sendInterval: "Intervalo de envio (min)",
     displayStandby: "Standby do display (min)",
     editable: "Configuração editável",
@@ -270,22 +375,22 @@ const I18N = {
     outdoorTemperature: "Temperatura exterior",
     outdoorHumidity: "Humidade exterior",
     temperatureDelta: "Delta temperatura",
-    lastCommunication: "Ultima comunicacao",
-    externalReference: "Referencia exterior",
+    lastCommunication: "Última comunicação",
+    externalReference: "Referência exterior",
     interiorMinusExterior: "Interior menos exterior",
-    avgTemp: "media temp.",
-    avgHum: "media hum.",
+    avgTemp: "média temp.",
+    avgHum: "média hum.",
     ackRegistered: "ACK registado",
     noAckPending: "Sem ACK pendente",
-    communication: "Comunicacao",
+    communication: "Comunicação",
     validatedReadings: "Leituras validadas",
     technicalGeneral: "Geral",
     technicalSensors: "Sensores",
     technicalAlerts: "Alertas",
-    technicalCommunicationDisplay: "Comunicacao e display",
+    technicalCommunicationDisplay: "Comunicação e display",
     activeAlertSingular: "alerta ativo",
     activeAlertPlural: "alertas ativos",
-    requiresOperationalAttention: "Requer atencao operacional",
+    requiresOperationalAttention: "Requer atenção operacional",
     alarmTime: "Tempo em alarme",
     sinceMostRecentActiveAlert: "Desde o alerta ativo mais recente",
     noActiveAlarm: "Sem alarme ativo",
@@ -294,8 +399,327 @@ const I18N = {
     readingsCount: "{count} leituras",
     remoteAck: "ACK remoto",
     sendingRemoteAck: "A enviar ACK...",
+    diagnosticsPeriod: "Período do diagnóstico",
+    device: "Dispositivo",
+    noDeviceAvailable: "Nenhum dispositivo disponível",
+    monitoredDevices: "Dispositivos monitorizados",
+    selectDevice: "Selecionar dispositivo",
+    undefinedLocation: "Localização por definir",
+    notifications: "Notificações",
+    unreadNotifications: "{count} notificações por ver",
+    notificationsHint: "Notificações de todos os dispositivos",
+    notificationCenter: "Centro de notificações",
+    allDeviceAlerts: "Alertas de todos os equipamentos",
+    clear: "Limpar",
+    openDeviceAlerts: "Abrir alertas deste dispositivo",
+    openAlerts: "Abrir alertas →",
+    controlCenter: "Centro de controlo",
+    controlledColdLocations: "Locais de frio controlado",
+    controlCenterText: "Consulta o estado geral e entra no equipamento que pretendes monitorizar.",
+    locations: "locais",
+    devicesLabel: "dispositivos",
+    autoDetected: "Detetado automaticamente",
+    deviceTime: "Hora do dispositivo",
+    source: "Origem",
+    operatorDevice: "Operador / dispositivo",
+    event: "Evento",
+    connection: "Ligação",
+    aboveLimit: "acima do limite",
+    belowLimit: "abaixo do limite",
+    ackConfirmed: "ACK confirmado",
+    predictiveAnalysis: "Análise preditiva",
+    riskTrend: "Tendência de risco",
+    predictionInfo: "Resumo preditivo do comportamento recente.",
+    probableCause: "Causa provável",
+    suggestedAction: "Ação sugerida",
+    predictionSuspended: "Predição suspensa até o dispositivo voltar a ficar online.",
+    noData: "Sem dados",
+    predictionUnavailable: "Predição indisponível",
+    noRecentPrediction: "Sem dados recentes suficientes para prever uma tendência.",
+    lowPeak: "Mínimo",
+    highPeak: "Máximo",
+    displayedInterval: "Intervalo apresentado",
+    offlineReadingsLine: "Linha vermelha: leituras captadas offline",
+    offlineHistoryPreserved: "Dispositivo offline · histórico preservado até à última leitura válida",
+    noReadingsPeriod: "Sem leituras neste período.",
+    pdfReports: "Relatórios PDF",
+    downloadPdfReports: "Descarregar relatórios PDF",
+    reportPickerHint: "Seleciona um ou vários dispositivos e o período a incluir.",
+    closeReportSelection: "Fechar seleção de relatórios",
+    clearSelection: "Limpar seleção",
+    selectAll: "Selecionar todos",
+    selectedCount: "{selected} de {total} selecionado(s)",
+    preparing: "A preparar...",
+    downloadReports: "Descarregar {count} PDF{suffix}",
+    syncingDevice: "A sincronizar dispositivo",
+    loadingLatestData: "A carregar os dados mais recentes...",
+    systemStatus: "Estado do sistema",
+    readings24h: "Leituras 24h",
+    avgTemperature: "Média temp.",
+    avgHumidity: "Média hum.",
+    openDiagnostics: "Abrir diagnóstico",
+    openPredictiveAnalysis: "Abrir análise preditiva",
+    deviceFailure: "Falha do dispositivo",
+    back: "Voltar",
+    backgroundRefreshFailed: "A atualização em segundo plano falhou. Mantêm-se os últimos dados válidos.",
+    safeWindowHint: "Define a janela segura para cada grandeza monitorizada.",
+    audibleAlarm: "Alarme auditivo",
+    enabled: "Ligado",
+    disabled: "Desligado",
+    communicationFailureMin: "Falha de comunicação (min)",
+    applyConfiguration: "Aplicar configuração",
+    configurationSyncHint: "As alterações serão sincronizadas com este dispositivo.",
+    activeMonitoring: "Monitorização automática ativa",
+    activeMonitoringHint: "Falhas de hardware, sensores, comunicação ou risco preditivo relevante aparecem nas notificações.",
+    lastReadingDelay: "Atraso da última leitura",
+    expectedInterval: "Intervalo esperado",
+    readingCoverage: "Cobertura de leituras",
+    relevantFailures: "Falhas relevantes",
+    severeGaps: "Falhas graves",
+    largestGap: "Maior falha",
+    alertsLastHours: "Sem alertas nas últimas {hours}h.",
+    olderAlerts: "Existem mais {count} alertas no histórico.",
+    openAlertsAction: "Abrir alertas →",
+    noReadingsAvailable: "Sem leituras disponíveis.",
+    saveClientSuccess: "Configurações do cliente guardadas com sucesso.",
+    saveClientError: "Erro ao guardar as configurações do cliente.",
+    remoteAckError: "Erro ao enviar o ACK remoto.",
+    regularizeSuccess: "Alertas regularizados com sucesso.",
+    regularizeError: "Erro ao regularizar alertas.",
+    pdfError: "Erro ao descarregar o relatório PDF.",
+    timeSinceLastReading: "Tempo desde a última leitura recebida",
+    basedOnCurrentConfig: "Com base na configuração atual do dispositivo",
+    alertCorrectionTool: "Ferramenta técnica para corrigir um estado de alerta incoerente. Não apaga o histórico.",
+    application: "Aplicação",
+    buzzerBehavior: "O buzzer toca por impulsos enquanto existir um alarme ativo sem ACK.",
+    soundAlarmActive: "Alarme sonoro ativo",
+    visualAlertsOnly: "Apenas alertas visuais",
+    buzzerRecordsHint: "Os registos, notificações e alertas visuais permanecem ativos em ambas as opções.",
+    rssiUnavailable: "RSSI indisponível",
+    strongSignal: "Sinal forte",
+    acceptableSignal: "Sinal aceitável",
+    weakSignal: "Sinal fraco",
+    readingsExpected: "{received} de {expected} leituras esperadas",
+    noHistoricalReadings7d: "Ainda não existem leituras históricas disponíveis para os últimos 7 dias.",
+    noReadingInterval: "Sem leitura neste intervalo",
+    valueLabel: "Valor",
+    offlineCapturedReading: "Leitura captada offline",
+    notes: "Obs.",
   },
 };
+
+const EN_OPERATIONAL_TEXT = {
+  "SEM DADOS": "NO DATA",
+  "ALARME": "ALARM",
+  "ALERTA": "ALERT",
+  "NORMALIZADO": "NORMALIZED",
+  "Sem dados": "No data",
+  "Sem detalhe": "No details",
+  "Risco baixo": "Low risk",
+  "Risco ligeiro": "Slight risk",
+  "Risco moderado": "Moderate risk",
+  "Risco elevado": "High risk",
+  "Moderado": "Moderate",
+  "Predição indisponível": "Prediction unavailable",
+  "Comunicação interrompida": "Communication interrupted",
+  "Comunicação instável": "Unstable communication",
+  "Temperatura acima do limite": "Temperature above the limit",
+  "Temperatura abaixo do limite": "Temperature below the limit",
+  "Humidade acima do limite": "Humidity above the limit",
+  "Humidade abaixo do limite": "Humidity below the limit",
+  "Risco preditivo elevado": "High predictive risk",
+  "Risco preditivo moderado": "Moderate predictive risk",
+  "Dispositivo offline": "Device offline",
+  "Falha de comunicação": "Communication failure",
+  "Falha de hardware": "Hardware fault",
+  "Temperatura fora do limite": "Temperature outside the limit",
+  "Temperatura normalizada": "Temperature normalized",
+  "Humidade fora do limite": "Humidity outside the limit",
+  "Humidade normalizada": "Humidity normalized",
+  "Dispositivo novamente online": "Device back online",
+  "Hardware OK": "Hardware OK",
+  "Localização por definir": "Location not defined",
+  "Localização": "Location",
+  "Por definir": "Not defined",
+  "Dispositivos": "Devices",
+  "Atenção": "Attention",
+  "Excelente": "Excellent",
+  "Estável": "Stable",
+  "Com falhas": "With issues",
+  "Instável": "Unstable",
+  "Boa cobertura com apenas pequenas falhas pontuais.": "Good coverage with only minor occasional issues.",
+  "Cobertura muito alta e comunicação muito consistente.": "Very high coverage and highly consistent communication.",
+  "Existem falhas pontuais, mas a comunicação continua aceitável.": "There are occasional issues, but communication remains acceptable.",
+  "Perdas ou gaps relevantes na comunicação.": "Relevant losses or gaps in communication.",
+  "Sem comunicação recente do dispositivo.": "No recent communication from the device.",
+  "Sem leituras suficientes para avaliar.": "Not enough readings to evaluate.",
+  "Sem leituras suficientes para avaliar tendência.": "Not enough readings to evaluate the trend.",
+  "Sem tendência relevante": "No relevant trend",
+  "Sem tendência relevante nas últimas leituras recentes.": "No relevant trend in the latest readings.",
+  "Sem leituras recentes suficientes para calcular tendência.": "Not enough recent readings to calculate a trend.",
+  "Sem dados recentes para prever tendência.": "Not enough recent data to predict a trend.",
+  "Últimos valores disponíveis apenas como histórico.": "Latest values are available as history only.",
+  "Sem desvios críticos detetados neste momento.": "No critical deviations detected at this time.",
+  "Dados dentro do comportamento esperado.": "Data is within the expected behavior.",
+  "Valores dentro do comportamento esperado.": "Values are within the expected behavior.",
+  "Valores dentro do comportamento esperado face aos limites definidos.": "Values are within the expected behavior for the configured limits.",
+  "Valores estáveis face aos limites definidos.": "Values are stable relative to the configured limits.",
+  "Valores sem direção consistente.": "Values do not show a consistent direction.",
+  "Manter monitorização normal.": "Continue normal monitoring.",
+  "Sem dados recentes": "No recent data",
+  "Sem variável crítica": "No critical variable",
+  "Sem comunicação recente com o equipamento.": "No recent communication with the device.",
+  "Tempo real suspenso": "Live monitoring suspended",
+  "Pequenas falhas de comunicação": "Minor communication issues",
+  "Operação dentro do esperado": "Operation within expected parameters",
+  "Existem perdas relevantes nas leituras.": "There are relevant losses in the readings.",
+  "A comunicação continua aceitável.": "Communication remains acceptable.",
+  "Tendência com potencial de alerta em breve.": "The trend may trigger an alert soon.",
+  "A variável aproxima-se do limite.": "The variable is approaching the limit.",
+  "A amostra recente ainda é curta.": "The recent sample is still too small.",
+  "Intervalos de leitura insuficientes para cálculo fiável.": "Reading intervals are insufficient for a reliable calculation.",
+  "Aguardar novas leituras antes de concluir.": "Wait for more readings before drawing a conclusion.",
+  "Limites de referência incompletos.": "Reference limits are incomplete.",
+  "A configuração de limites não está completa.": "The limit configuration is incomplete.",
+  "Confirmar limites definidos para o dispositivo.": "Check the limits configured for the device.",
+  "Limite atingido.": "Limit reached.",
+  "Verificar o equipamento e reduzir fatores de instabilidade.": "Check the device and reduce sources of instability.",
+  "Cálculo de aproximação inconclusivo.": "Limit-approach calculation is inconclusive.",
+  "Valor ainda dentro do intervalo, mas com margem curta face ao limite configurado.": "The value is still within range, but close to the configured limit.",
+  "Confirmar porta, carga e estabilidade da refrigeração antes de atingir o limite.": "Check the door, load and refrigeration stability before the limit is reached.",
+  "Confirmar porta, condensação e circulação de ar antes de atingir o limite.": "Check the door, condensation and airflow before the limit is reached.",
+  "Confirmar condições do equipamento e acompanhar a próxima leitura.": "Check the device conditions and monitor the next reading.",
+  "A dashboard ainda não recebeu dados suficientes.": "The dashboard has not received enough data yet.",
+  "Confirmar comunicação e aguardar novas leituras.": "Check communication and wait for more readings.",
+  "Subida gradual compatível com abertura prolongada, carga recente ou refrigeração insuficiente.": "A gradual rise consistent with prolonged opening, a recent load or insufficient refrigeration.",
+  "Valor acima do limite sem subida forte; pode ser exposição curta ou recuperação lenta.": "The value is above the limit without a sharp rise; this may be brief exposure or slow recovery.",
+  "Verificar porta, ventilação e carga; reduzir aberturas até normalizar.": "Check the door, ventilation and load; minimize openings until values return to normal.",
+  "Confirmar fecho da porta e aguardar a próxima leitura.": "Confirm that the door is closed and wait for the next reading.",
+  "Descida gradual compatível com regulação demasiado baixa ou zona fria.": "A gradual fall consistent with a setpoint that is too low or a cold zone.",
+  "Valor abaixo do limite sem tendência forte; pode ser oscilação curta.": "The value is below the limit without a strong trend; this may be a brief fluctuation.",
+  "Confirmar setpoint e posição do sensor; ajustar refrigeração se necessário.": "Check the setpoint and sensor position; adjust refrigeration if necessary.",
+  "Acompanhar a próxima leitura antes de alterar configuração.": "Monitor the next reading before changing the configuration.",
+  "Humidade a subir, compatível com entrada de ar húmido, porta aberta ou condensação.": "Humidity is rising, consistent with humid air entering, an open door or condensation.",
+  "Humidade acima do limite, possivelmente por condensação ou ventilação reduzida.": "Humidity is above the limit, possibly due to condensation or reduced ventilation.",
+  "Verificar vedação, condensação e tempo de porta aberta.": "Check the seal, condensation and how long the door remains open.",
+  "Confirmar fecho e observar se baixa nas próximas leituras.": "Confirm closure and check whether it falls over the next readings.",
+  "Humidade a descer, compatível com secagem excessiva ou circulação intensa.": "Humidity is falling, consistent with excessive drying or strong airflow.",
+  "Humidade abaixo do limite sem tendência forte; pode ser variação pontual.": "Humidity is below the limit without a strong trend; this may be a brief variation.",
+  "Rever ventilação e exposição do produto; confirmar posição do sensor.": "Review ventilation and product exposure; check the sensor position.",
+  "Acompanhar sem intervenção imediata se recuperar.": "Continue monitoring without immediate intervention if it recovers.",
+  "Reduzir aberturas e confirmar se a refrigeração está estável.": "Minimize openings and confirm that refrigeration is stable.",
+  "Confirmar porta, condensação e circulação de ar.": "Check the door, condensation and airflow.",
+  "O dispositivo ultrapassou o limite configurado sem comunicar.": "The device exceeded the configured communication limit.",
+  "Aviso de predição": "Prediction notice",
+  "Tendência que requer acompanhamento.": "A trend that requires monitoring.",
+  "Preenche todos os campos do cliente com valores válidos.": "Complete all client fields with valid values.",
+  "O intervalo de envio deve estar entre 1 e 15 minutos.": "The send interval must be between 1 and 15 minutes.",
+  "A falha de comunicacao deve ser pelo menos 1 minuto.": "The communication failure threshold must be at least 1 minute.",
+  "A temperatura mínima deve ser inferior à máxima.": "The minimum temperature must be lower than the maximum.",
+  "A humidade mínima deve ser inferior à máxima.": "The minimum humidity must be lower than the maximum.",
+  "A histerese nao pode ser negativa.": "Hysteresis cannot be negative.",
+  "O standby do display nao pode ser negativo.": "Display standby cannot be negative.",
+  "Não existem alterações por guardar.": "There are no changes to save.",
+  "Pedido de ACK remoto enviado.": "Remote ACK request sent.",
+  "Regularizacao manual: estado atual verificado como operacional.": "Manual normalization: current state verified as operational.",
+  "Confirmar alimentação, Wi-Fi e comunicação.": "Check power, Wi-Fi and communication.",
+  "Dispositivo offline.": "Device offline.",
+  "O dispositivo voltou a comunicar com o backend.": "The device has resumed communication with the backend.",
+  "Configurações do cliente guardadas com sucesso.": "Client settings saved successfully.",
+  "Alertas regularizados com sucesso.": "Alerts normalized successfully.",
+  "Erro ao guardar configurações do cliente.": "Unable to save client settings.",
+  "Erro ao enviar o ACK remoto.": "Unable to send the remote ACK.",
+  "Erro ao regularizar alertas.": "Unable to normalize alerts.",
+  "Erro ao descarregar relatório PDF.": "Unable to download the PDF report.",
+  "Não foi possível carregar o perfil do utilizador.": "Unable to load the user profile.",
+  "Não foi possível carregar as permissões do utilizador.": "Unable to load the user permissions.",
+  "O utilizador autenticado não tem perfil criado em public.profiles.": "The signed-in user does not have a profile.",
+  "O teu utilizador está inativo.": "Your user account is inactive.",
+  "Não foi possível carregar a lista de dispositivos.": "Unable to load the device list.",
+  "Não foi possível carregar o dispositivo selecionado.": "Unable to load the selected device.",
+  "Não foi possível gerar o PDF.": "Unable to generate the PDF.",
+};
+
+function localizeOperationalText(value, language) {
+  if (value === null || value === undefined || language !== "en") return value;
+  const text = String(value);
+  if (EN_OPERATIONAL_TEXT[text]) return EN_OPERATIONAL_TEXT[text];
+
+  return text
+    .replace(/^Sem comunicação há (\d+) dias\.$/, "No communication for $1 days.")
+    .replace(/^(\d+) componente\(s\) com atenção$/, "$1 component(s) requiring attention")
+    .replace(/^Variável crítica: Temperatura$/, "Critical variable: Temperature")
+    .replace(/^Variável crítica: Humidade$/, "Critical variable: Humidity")
+    .replace(/^Temperatura a subir de forma consistente$/, "Temperature rising consistently")
+    .replace(/^Temperatura a descer de forma consistente$/, "Temperature falling consistently")
+    .replace(/^Humidade a subir de forma consistente$/, "Humidity rising consistently")
+    .replace(/^Humidade a descer de forma consistente$/, "Humidity falling consistently")
+    .replace(
+      /^(Temperatura|Humidade) (acima|abaixo) do limite, mas ainda por curta duração\.$/,
+      (_, metric, direction) =>
+        `${metric === "Temperatura" ? "Temperature" : "Humidity"} ${direction === "acima" ? "above" : "below"} the limit, but only for a short time.`
+    )
+    .replace(
+      /^(Temperatura|Humidade) (acima|abaixo) do limite há ~(\d+) min\.$/,
+      (_, metric, direction, minutes) =>
+        `${metric === "Temperatura" ? "Temperature" : "Humidity"} ${direction === "acima" ? "above" : "below"} the limit for ~${minutes} min.`
+    )
+    .replace(
+      /^(Temperatura|Humidade) (acima|abaixo) do limite na leitura atual\.$/,
+      (_, metric, direction) =>
+        `${metric === "Temperatura" ? "Temperature" : "Humidity"} ${direction === "acima" ? "above" : "below"} the limit in the current reading.`
+    )
+    .replace(
+      /^(Temperatura|Humidade) (acima|abaixo) do limite com desvio (ligeiro|moderado|grave)\.$/,
+      (_, metric, direction, band) =>
+        `${metric === "Temperatura" ? "Temperature" : "Humidity"} ${direction === "acima" ? "above" : "below"} the limit with a ${band === "ligeiro" ? "slight" : band === "moderado" ? "moderate" : "severe"} deviation.`
+    )
+    .replace(/^(Temperatura|Humidade) fora do limite definido\.$/, (_, metric) =>
+      `${metric === "Temperatura" ? "Temperature" : "Humidity"} is outside the configured limit.`
+    )
+    .replace(
+      /^(Temperatura|Humidade) aproxima-se do limite; possível alerta em ~(\d+) min\.$/,
+      (_, metric, minutes) =>
+        `${metric === "Temperatura" ? "Temperature" : "Humidity"} is approaching the limit; a possible alert may occur in ~${minutes} min.`
+    )
+    .replace(
+      /^(Temperatura|Humidade) muito próxima do limite (máximo|mínimo) \((.+)\)\.$/,
+      (_, metric, limitType, limitValue) =>
+        `${metric === "Temperatura" ? "Temperature" : "Humidity"} is very close to the ${limitType === "máximo" ? "maximum" : "minimum"} limit (${limitValue}).`
+    )
+    .replace(
+      /^Valor atual (.+) face ao (máximo|mínimo) configurado de (.+)\.$/,
+      (_, currentValue, limitType, limitValue) =>
+        `Current value ${currentValue} versus the configured ${limitType === "máximo" ? "maximum" : "minimum"} of ${limitValue}.`
+    )
+    .replace(
+      /^(temperatura|humidade) a (subir|descer) de forma consistente; ainda dentro do limite, mas com aproximação consistente\.$/i,
+      (_, metric, direction) =>
+        `${metric.toLowerCase() === "temperatura" ? "Temperature" : "Humidity"} is ${direction === "subir" ? "rising" : "falling"} consistently; it is still within the limit but steadily approaching it.`
+    )
+    .replace(
+      /^Temperatura (acima|abaixo) do limite\. Valor atual: (.+) °C\.$/,
+      (_, direction, currentValue) =>
+        `Temperature ${direction === "acima" ? "above" : "below"} the limit. Current value: ${currentValue} °C.`
+    )
+    .replace(
+      /^Humidade (acima|abaixo) do limite\. Valor atual: (.+) %\.$/,
+      (_, direction, currentValue) =>
+        `Humidity ${direction === "acima" ? "above" : "below"} the limit. Current value: ${currentValue} %.`
+    )
+    .replace(
+      /^Temperatura voltou ao intervalo normal\. Valor atual: (.+) °C\.$/,
+      "Temperature returned to the normal range. Current value: $1 °C."
+    )
+    .replace(
+      /^Humidade voltou ao intervalo normal\. Valor atual: (.+) %\.$/,
+      "Humidity returned to the normal range. Current value: $1 %."
+    )
+    .replace(
+      /^O dispositivo deixou de comunicar há mais de (\d+) segundos\.$/,
+      "The device has not communicated for more than $1 seconds."
+    );
+}
 
 const STS_STATES = {
   ONLINE: "ONLINE",
@@ -320,12 +744,12 @@ const PERIODS = [
 const ALERT_RECENT_HOURS = 24;
 const ALERT_HISTORY_HOURS = 24 * 30;
 
-function formatDateTime(value) {
+function formatDateTime(value, language = "pt") {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
 
-  return d.toLocaleString("pt-PT", {
+  return d.toLocaleString(language === "en" ? "en-GB" : "pt-PT", {
     timeZone: "Europe/Lisbon",
     day: "2-digit",
     month: "2-digit",
@@ -336,20 +760,20 @@ function formatDateTime(value) {
   });
 }
 
-function formatShortTime(value, periodKey = "24h") {
+function formatShortTime(value, periodKey = "24h", language = "pt") {
   if (value === null || value === undefined) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
 
   if (periodKey === "7d") {
-    return d.toLocaleDateString("pt-PT", {
+    return d.toLocaleDateString(language === "en" ? "en-GB" : "pt-PT", {
       timeZone: "Europe/Lisbon",
       day: "2-digit",
       month: "2-digit",
     });
   }
 
-  return d.toLocaleTimeString("pt-PT", {
+  return d.toLocaleTimeString(language === "en" ? "en-GB" : "pt-PT", {
     timeZone: "Europe/Lisbon",
     hour: "2-digit",
     minute: "2-digit",
@@ -363,26 +787,26 @@ function formatValue(value, suffix = "", digits = 1) {
   return `${Number(value).toFixed(digits)}${suffix}`;
 }
 
-function formatRelativeTime(value) {
+function formatRelativeTime(value, language = "pt") {
   if (!value) return "-";
   const ts = new Date(value).getTime();
   if (!Number.isFinite(ts)) return "-";
 
   const diff = Date.now() - ts;
-  if (diff < 0) return "agora";
+  if (diff < 0) return language === "en" ? "now" : "agora";
 
   const seconds = Math.floor(diff / 1000);
-  if (seconds < 10) return "agora";
-  if (seconds < 60) return `há ${seconds}s`;
+  if (seconds < 10) return language === "en" ? "now" : "agora";
+  if (seconds < 60) return language === "en" ? `${seconds}s ago` : `há ${seconds}s`;
 
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `há ${minutes} min`;
+  if (minutes < 60) return language === "en" ? `${minutes} min ago` : `há ${minutes} min`;
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `há ${hours} h`;
+  if (hours < 24) return language === "en" ? `${hours}h ago` : `há ${hours} h`;
 
   const days = Math.floor(hours / 24);
-  return `há ${days} d`;
+  return language === "en" ? `${days}d ago` : `há ${days} d`;
 }
 
 function formatDurationCompact(ms) {
@@ -2249,12 +2673,12 @@ function getDeviceCompany(device, profile) {
   );
 }
 
-function getLocationParts(device) {
+function getLocationParts(device, language = "pt") {
   const raw = String(device?.location || "").trim();
   if (!raw || raw === "Localização por definir") {
     return {
-      building: "Localização",
-      room: "Por definir",
+      building: language === "en" ? "Location" : "Localização",
+      room: language === "en" ? "Not defined" : "Por definir",
     };
   }
 
@@ -2264,8 +2688,8 @@ function getLocationParts(device) {
     .filter(Boolean);
 
   return {
-    building: device?.building || device?.site || parts[0] || "Localização",
-    room: device?.room || device?.division || device?.area || parts[1] || parts[0] || "Dispositivos",
+    building: device?.building || device?.site || parts[0] || (language === "en" ? "Location" : "Localização"),
+    room: device?.room || device?.division || device?.area || parts[1] || parts[0] || (language === "en" ? "Devices" : "Dispositivos"),
   };
 }
 
@@ -2290,12 +2714,12 @@ function getLocationEmoji(device) {
   );
 }
 
-function buildDeviceHierarchy(devices, profile) {
+function buildDeviceHierarchy(devices, profile, language = "pt") {
   const companies = new Map();
 
   for (const item of sortDevices(devices)) {
     const companyName = getDeviceCompany(item, profile);
-    const { building, room } = getLocationParts(item);
+    const { building, room } = getLocationParts(item, language);
 
     if (!companies.has(companyName)) {
       companies.set(companyName, {
@@ -2349,7 +2773,7 @@ function getBestInitialDeviceId(devices, currentSelectedId) {
   return null;
 }
 
-function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
+function CustomTooltip({ active, payload, label, unit, digits = 1, t, language }) {
   if (!active || !payload || !payload.length) return null;
 
   const visiblePayload =
@@ -2362,20 +2786,20 @@ function CustomTooltip({ active, payload, label, unit, digits = 1 }) {
   return (
     <div style={styles.tooltip}>
       <div style={styles.tooltipTitle}>
-        {formatDateTime(point?.created_at || label)}
+        {formatDateTime(point?.created_at || label, language)}
       </div>
       <div style={styles.tooltipValue}>
         {value === null || value === undefined
-          ? "Sem leitura neste intervalo"
+          ? t("noReadingInterval")
           : (
             <>
-              {isOfflineSeries ? "Offline" : "Valor"}: <strong>{formatValue(value, unit, digits)}</strong>
+              {isOfflineSeries ? t("offline") : t("valueLabel")}: <strong>{formatValue(value, unit, digits)}</strong>
             </>
           )}
       </div>
       {isOfflineSeries ? (
         <div style={styles.tooltipMeta}>
-          Leitura captada offline{point.offline_count > 1 ? ` (${point.offline_count})` : ""}
+          {t("offlineCapturedReading")}{point.offline_count > 1 ? ` (${point.offline_count})` : ""}
         </div>
       ) : null}
     </div>
@@ -2957,7 +3381,15 @@ function DeviceSidebar({
   );
 }
 
-function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDeviceAlerts }) {
+function NotificationCenter({
+  alerts,
+  devices,
+  isMobile,
+  storageKey,
+  onOpenDeviceAlerts,
+  t,
+  language,
+}) {
   const [open, setOpen] = useState(false);
   const [seenAt, setSeenAt] = useState(0);
   const [clearedAt, setClearedAt] = useState(0);
@@ -3031,13 +3463,13 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDevic
     >
       <button
         type="button"
-        aria-label={`Notificações por ver: ${unreadCount}`}
-        title="Notificações de todos os dispositivos"
+        aria-label={t("unreadNotifications").replace("{count}", unreadCount)}
+        title={t("notificationsHint")}
         onClick={toggleNotifications}
         style={{ ...styles.notificationButton, ...(isMobile ? styles.notificationButtonMobile : {}) }}
       >
         <Bell size={17} />
-        <span>Notificações</span>
+        <span>{t("notifications")}</span>
         {unreadCount ? (
           <span style={styles.notificationCount}>{unreadCount > 99 ? "99+" : unreadCount}</span>
         ) : null}
@@ -3047,8 +3479,8 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDevic
         <div style={{ ...styles.notificationPanel, ...(isMobile ? styles.notificationPanelMobile : {}) }}>
           <div style={styles.notificationHeader}>
             <div>
-              <strong style={styles.notificationTitle}>Centro de notificações</strong>
-              <span style={styles.notificationSubtitle}>Alertas de todos os equipamentos</span>
+              <strong style={styles.notificationTitle}>{t("notificationCenter")}</strong>
+              <span style={styles.notificationSubtitle}>{t("allDeviceAlerts")}</span>
             </div>
             <div style={styles.notificationHeaderActions}>
               <span
@@ -3063,7 +3495,7 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDevic
               </span>
               {visibleAlerts.length ? (
                 <button type="button" onClick={clearNotifications} style={styles.notificationClearButton}>
-                  Limpar
+                  {t("clear")}
                 </button>
               ) : null}
             </div>
@@ -3076,7 +3508,7 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDevic
                 <button
                   key={item.id || `${item.device_id}-${getAlertTimestamp(item)}-${index}`}
                   type="button"
-                  title="Abrir alertas deste dispositivo"
+                  title={t("openDeviceAlerts")}
                   onClick={() => {
                     setOpen(false);
                     onOpenDeviceAlerts?.(item.device_id);
@@ -3089,32 +3521,46 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDevic
                   <span style={{ ...styles.notificationDot, background: level.color }} />
                   <div style={styles.notificationItemBody}>
                     <div style={styles.notificationItemTop}>
-                      <strong>{sourceDevice?.name || item.device_id || "Dispositivo"}</strong>
-                      <span style={{ color: level.color }}>{level.label}</span>
+                      <strong>{sourceDevice?.name || item.device_id || t("device")}</strong>
+                      <span style={{ color: level.color }}>
+                        {localizeOperationalText(level.label, language)}
+                      </span>
                     </div>
                     <span style={styles.notificationLocation}>
-                      {getLocationEmoji(sourceDevice)} {sourceDevice?.location || "Localização por definir"}
+                      {getLocationEmoji(sourceDevice)} {localizeOperationalText(
+                        sourceDevice?.location || t("undefinedLocation"),
+                        language
+                      )}
                     </span>
                     <span style={styles.notificationMessage}>
-                      {item?.title || String(item?.type || "Alerta").replace(/^./, (letter) => letter.toUpperCase())}
+                      {localizeOperationalText(
+                        item?.title ||
+                          String(item?.type || t("alerts")).replace(
+                            /^./,
+                            (letter) => letter.toUpperCase()
+                          ),
+                        language
+                      )}
                       {item?.state ? ` · ${item.state}` : ""}
                     </span>
                     {item?.message ? (
-                      <span style={styles.notificationLocation}>{item.message}</span>
+                      <span style={styles.notificationLocation}>
+                        {localizeOperationalText(item.message, language)}
+                      </span>
                     ) : null}
                     <span
                       style={styles.notificationTime}
-                      title={formatDateTime(item?.detected_at || item?.event_at || item?.created_at)}
+                      title={formatDateTime(item?.detected_at || item?.event_at || item?.created_at, language)}
                     >
                       {notificationNow - getAlertTimestamp(item) < 24 * 60 * 60 * 1000
-                        ? formatRelativeTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)
-                        : formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)}
+                        ? formatRelativeTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at, language)
+                        : formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at, language)}
                     </span>
-                    <span style={styles.notificationOpenLink}>Abrir alertas →</span>
+                    <span style={styles.notificationOpenLink}>{t("openAlerts")}</span>
                   </div>
                 </button>
               );
-            }) : <div style={styles.notificationEmpty}>Sem alertas registados.</div>}
+            }) : <div style={styles.notificationEmpty}>{t("noAlerts")}</div>}
           </div>
         </div>
       ) : null}
@@ -3122,10 +3568,10 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDevic
   );
 }
 
-function DeviceEntryPicker({ devices, profile, onSelectDevice, isMobile, t }) {
+function DeviceEntryPicker({ devices, profile, onSelectDevice, isMobile, t, language }) {
   const hierarchy = useMemo(
-    () => buildDeviceHierarchy(devices, profile),
-    [devices, profile]
+    () => buildDeviceHierarchy(devices, profile, language),
+    [devices, profile, language]
   );
 
   return (
@@ -3143,13 +3589,13 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, isMobile, t }) {
       >
         <div style={styles.controlCenterIntro}>
           <div>
-            <div style={styles.entryKicker}>Centro de controlo</div>
-            <h2 style={styles.controlCenterTitle}>Locais de frio controlado</h2>
-            <p style={styles.controlCenterText}>Consulta o estado geral e entra no equipamento que pretendes monitorizar.</p>
+            <div style={styles.entryKicker}>{t("controlCenter")}</div>
+            <h2 style={styles.controlCenterTitle}>{t("controlledColdLocations")}</h2>
+            <p style={styles.controlCenterText}>{t("controlCenterText")}</p>
           </div>
           <div style={styles.controlCenterStats}>
-            <span><strong>{hierarchy.reduce((total, company) => total + company.buildings.reduce((sum, building) => sum + building.rooms.length, 0), 0)}</strong> locais</span>
-            <span><strong>{devices.length}</strong> dispositivos</span>
+            <span><strong>{hierarchy.reduce((total, company) => total + company.buildings.reduce((sum, building) => sum + building.rooms.length, 0), 0)}</strong> {t("locations")}</span>
+            <span><strong>{devices.length}</strong> {t("devicesLabel")}</span>
             <span><strong>{devices.filter((item) => getDeviceEffectiveStatus(item) === "OFFLINE").length}</strong> offline</span>
           </div>
         </div>
@@ -3202,10 +3648,12 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, isMobile, t }) {
                             <span style={styles.entryDeviceContent}>
                               <span style={styles.entryDeviceTopline}>
                                 <strong>{item?.name || item?.device_id}</strong>
-                                <span style={{ color: info.color }}>{info.label}</span>
+                                <span style={{ color: info.color }}>
+                                  {localizeOperationalText(info.label, language)}
+                                </span>
                               </span>
                               <span style={styles.entryDeviceMetrics}>
-                                {formatValue(item?.last_temperature, " °C")} · {formatValue(item?.last_humidity, " %")} · {formatRelativeTime(item?.last_seen)}
+                                {formatValue(item?.last_temperature, " °C")} · {formatValue(item?.last_humidity, " %")} · {formatRelativeTime(item?.last_seen, language)}
                               </span>
                               <span style={styles.entryDeviceId}>{item.device_id}</span>
                             </span>
@@ -3223,8 +3671,20 @@ function DeviceEntryPicker({ devices, profile, onSelectDevice, isMobile, t }) {
   );
 }
 
-function AlertRow({ item }) {
+function AlertRow({ item, t, language, theme }) {
   const levelInfo = getAlertLevelInfo(item?.level);
+  const isLightTheme = theme === "light";
+  const lightBadgeColor = levelInfo.label === "ACK"
+    ? "#2563eb"
+    : levelInfo.label === "ALARME"
+    ? "#dc2626"
+    : levelInfo.label === "ALERTA"
+    ? "#b45309"
+    : "#15803d";
+  const badgeColor = isLightTheme ? lightBadgeColor : levelInfo.color;
+  const rowBackground = isLightTheme
+    ? `radial-gradient(ellipse at 4% 50%, color-mix(in srgb, ${badgeColor} 11%, transparent) 0%, transparent 62%), linear-gradient(110deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94))`
+    : `linear-gradient(90deg, ${levelInfo.bg}66 0%, rgba(15,23,42,0.72) 100%)`;
   const isAck = String(item?.level || "").toLowerCase().includes("ack");
   const deviceTime = item?.device_time || item?.deviceTime;
   const acknowledgedBy =
@@ -3232,21 +3692,21 @@ function AlertRow({ item }) {
   const note = item?.note || item?.notes || item?.observation || item?.alarm_reason;
 
   const typeMap = {
-    temperature: "Temperatura",
-    humidity: "Humidade",
-    offline: "Ligação",
-    system: "Sistema",
+    temperature: t("temperature"),
+    humidity: t("humidity"),
+    offline: t("connection"),
+    system: t("system"),
   };
 
-  const typeLabel = typeMap[String(item?.type || "").toLowerCase()] || "Evento";
+  const typeLabel = typeMap[String(item?.type || "").toLowerCase()] || t("event");
   const stateLabel =
     item?.state === "high"
-      ? "acima do limite"
+      ? t("aboveLimit")
       : item?.state === "low"
-      ? "abaixo do limite"
+      ? t("belowLimit")
       : "";
   const eventType = isAck
-    ? "ACK confirmado"
+    ? t("ackConfirmed")
     : stateLabel
     ? `${typeLabel} ${stateLabel}`
     : typeLabel;
@@ -3255,8 +3715,13 @@ function AlertRow({ item }) {
     <div
       style={{
         ...styles.alertRow,
-        background: `linear-gradient(90deg, ${levelInfo.bg}66 0%, rgba(15,23,42,0.72) 100%)`,
-        borderColor: levelInfo.border,
+        background: rowBackground,
+        borderColor: isLightTheme
+          ? `color-mix(in srgb, ${badgeColor} 24%, var(--sts-border))`
+          : levelInfo.border,
+        boxShadow: isLightTheme
+          ? "0 8px 22px rgba(15, 23, 42, 0.045)"
+          : "none",
       }}
     >
       <div style={styles.alertRowTop}>
@@ -3264,17 +3729,21 @@ function AlertRow({ item }) {
         <span
           style={{
             ...styles.alertBadge,
-            color: levelInfo.color,
-            background: levelInfo.bg,
-            borderColor: "transparent",
+            color: badgeColor,
+            background: isLightTheme
+              ? `color-mix(in srgb, ${badgeColor} 11%, #ffffff)`
+              : levelInfo.bg,
+            borderColor: isLightTheme
+              ? `color-mix(in srgb, ${badgeColor} 20%, transparent)`
+              : "transparent",
           }}
         >
-          {levelInfo.label}
+          {localizeOperationalText(levelInfo.label, language)}
         </span>
       </div>
 
       <div style={styles.alertRowMeta}>
-        <span>{formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)}</span>
+        <span>{formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at, language)}</span>
 
         {item?.temperature !== null && item?.temperature !== undefined ? (
           <span>Temp: {formatValue(item.temperature, " °C")}</span>
@@ -3284,19 +3753,23 @@ function AlertRow({ item }) {
           <span>Hum: {formatValue(item.humidity, " %", 0)}</span>
         ) : null}
 
-        {item?.derived ? <span>Detetado automaticamente</span> : null}
-        {deviceTime ? <span>Hora dispositivo: {formatDateTime(deviceTime)}</span> : null}
-        {item?.source ? <span>Origem: {item.source}</span> : null}
+        {item?.derived ? <span>{t("autoDetected")}</span> : null}
+        {deviceTime ? <span>{t("deviceTime")}: {formatDateTime(deviceTime, language)}</span> : null}
+        {item?.source ? <span>{t("source")}: {item.source}</span> : null}
         {isAck ? (
-          <span>ACK: {acknowledgedBy || "Operador / dispositivo"}</span>
+          <span>ACK: {acknowledgedBy || t("operatorDevice")}</span>
         ) : null}
-        {note ? <span>Obs: {note}</span> : null}
+        {note ? (
+          <span>
+            {t("notes")}: {localizeOperationalText(note, language)}
+          </span>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
+function UnifiedPredictionCard({ prediction, isOffline, theme = "dark", t, language }) {
   const darkToneMap = {
     unknown: {
       border: "rgba(148, 163, 184, 0.30)",
@@ -3375,7 +3848,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
     prediction?.level === "medium" ||
     prediction?.level === "high" ||
     (prediction?.level === "unknown" && hasSpecificSource);
-  const predictionInfoText = "Leitura preditiva resumida do comportamento recente.";
+  const predictionInfoText = t("predictionInfo");
 
   return (
     <section
@@ -3388,7 +3861,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
       <div style={styles.smartSurfaceHeader}>
         <div>
           <div style={styles.smartSurfaceEyebrowRow}>
-            <div style={styles.smartSurfaceEyebrow}>Análise Preditiva</div>
+            <div style={styles.smartSurfaceEyebrow}>{t("predictiveAnalysis")}</div>
             <span
               aria-label={predictionInfoText}
               className="sts-info-tooltip"
@@ -3396,7 +3869,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
             >
               <Info size={13} />
               <span className="sts-info-tooltip-content">
-                <strong>Tendência de Risco</strong>
+                <strong>{t("riskTrend")}</strong>
                 <span>{predictionInfoText}</span>
               </span>
             </span>
@@ -3411,33 +3884,33 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
             color: selected.badgeColor,
           }}
         >
-          {prediction?.chip || "Sem dados"}
+          {localizeOperationalText(prediction?.chip || t("noData"), language)}
         </div>
       </div>
 
       <div style={styles.smartSignalLine} />
 
       <div style={{ ...styles.predictionMainTitle, color: selected.value }}>
-        {prediction?.title || "Predição indisponível"}
+        {localizeOperationalText(prediction?.title || t("predictionUnavailable"), language)}
       </div>
 
       <div style={styles.predictionMainDetail}>
-        {prediction?.detail || "Sem dados recentes para prever tendência."}
+        {localizeOperationalText(prediction?.detail || t("noRecentPrediction"), language)}
       </div>
 
       {shouldShowAdvice && (prediction?.cause || prediction?.action) ? (
         <div style={styles.predictionAdviceGrid}>
           {prediction?.cause ? (
             <div style={styles.predictionAdviceItem}>
-              <span style={styles.predictionAdviceLabel}>Causa provável</span>
-              <span>{prediction.cause}</span>
+              <span style={styles.predictionAdviceLabel}>{t("probableCause")}</span>
+              <span>{localizeOperationalText(prediction.cause, language)}</span>
             </div>
           ) : null}
 
           {prediction?.action ? (
             <div style={styles.predictionAdviceItem}>
-              <span style={styles.predictionAdviceLabel}>Ação sugerida</span>
-              <span>{prediction.action}</span>
+              <span style={styles.predictionAdviceLabel}>{t("suggestedAction")}</span>
+              <span>{localizeOperationalText(prediction.action, language)}</span>
             </div>
           ) : null}
         </div>
@@ -3445,7 +3918,7 @@ function UnifiedPredictionCard({ prediction, isOffline, theme = "dark" }) {
 
       {isOffline ? (
         <div style={styles.predictionOfflineNoteGlobal}>
-          Predição suspensa até voltar online.
+          {t("predictionSuspended")}
         </div>
       ) : null}
     </section>
@@ -3576,6 +4049,8 @@ function DataChart({
   isMobile,
   periodKey,
   isOffline,
+  t,
+  language,
 }) {
   const offlineDataKey = `${dataKey}_offline`;
   const chartKeys = [dataKey, offlineDataKey];
@@ -3608,27 +4083,27 @@ function DataChart({
         <div>
           <div style={styles.chartTitle}>{title}</div>
           <div style={styles.chartSubtitle}>
-            Pico inferior: {formatValue(min, unit, valueDigits)} | Pico superior: {formatValue(max, unit, valueDigits)}
+            {t("lowPeak")}: {formatValue(min, unit, valueDigits)} | {t("highPeak")}: {formatValue(max, unit, valueDigits)}
           </div>
           <div style={styles.chartHint}>
-            Intervalo exibido: {periodKey.toUpperCase()}
+            {t("displayedInterval")}: {periodKey.toUpperCase()}
           </div>
           {offlinePoints.length > 0 ? (
             <div style={styles.chartBackfillHint}>
               <span style={styles.chartBackfillDot} />
-              Linha vermelha: leituras captadas offline
+              {t("offlineReadingsLine")}
             </div>
           ) : null}
           {isOffline ? (
             <div style={styles.chartOfflineHint}>
-              Dispositivo offline · histórico preservado até à última leitura válida
+              {t("offlineHistoryPreserved")}
             </div>
           ) : null}
         </div>
       </div>
 
       {!hasData ? (
-        <div style={styles.emptyChartState}>Sem leituras neste período.</div>
+        <div style={styles.emptyChartState}>{t("noReadingsPeriod")}</div>
       ) : (
         <div style={styles.chartWrap}>
           <ResponsiveContainer width="100%" height={isMobile ? 240 : 320} debounce={120}>
@@ -3652,7 +4127,7 @@ function DataChart({
                 domain={[timeWindow.start, timeWindow.end]}
                 ticks={xTicks}
                 scale="time"
-                tickFormatter={(value) => formatShortTime(value, periodKey)}
+                tickFormatter={(value) => formatShortTime(value, periodKey, language)}
                 stroke="#64748b"
                 tick={{ fontSize: isMobile ? 10 : 12, fill: "#64748b" }}
                 tickMargin={isMobile ? 6 : 8}
@@ -3670,7 +4145,16 @@ function DataChart({
                 tickFormatter={yTickFormatter}
               />
 
-              <Tooltip content={<CustomTooltip unit={unit} digits={valueDigits} />} />
+              <Tooltip
+                content={
+                  <CustomTooltip
+                    unit={unit}
+                    digits={valueDigits}
+                    t={t}
+                    language={language}
+                  />
+                }
+              />
 
               {minThreshold !== null && minThreshold !== undefined && (
                 <ReferenceLine
@@ -4553,7 +5037,8 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       device.device_id !== selectedDeviceId);
   const backgroundRefreshing =
     loadState === "backgroundRefreshing" && !deviceSwitchLoading;
-  const deviceDisplayName = device?.name || device?.device_id || selectedDeviceId || "Selecionar dispositivo";
+  const deviceDisplayName =
+    device?.name || device?.device_id || selectedDeviceId || t("selectDevice");
   const locationParts = getLocationParts(device);
   const headerContext = {
     company: getDeviceCompany(device, profile),
@@ -4588,7 +5073,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     device?.config?.fw_version ||
     device?.config?.firmware ||
     null;
-  const deviceLocation = device?.location || "Localização por definir";
+  const deviceLocation = localizeOperationalText(
+    device?.location || t("undefinedLocation"),
+    language
+  );
 
 const communicationHealth = useMemo(
   () =>
@@ -4837,8 +5325,11 @@ const communicationHealth = useMemo(
   const currentHumValue = formatValue(device?.last_humidity, " %");
   const currentWifiRssi =
     parseNumber(deviceOverview?.wifi_rssi) ??
+    parseNumber(deviceOverview?.rssi_dbm) ??
     parseNumber(device?.wifi_rssi) ??
-    parseNumber(deviceOverview?.communication_diagnostics?.wifi_rssi);
+    parseNumber(device?.rssi_dbm) ??
+    parseNumber(deviceOverview?.communication_diagnostics?.wifi_rssi) ??
+    parseNumber(deviceOverview?.communication_diagnostics?.rssi_dbm);
   const currentWifiTone = isDeviceOffline || currentWifiRssi === null
     ? "neutral"
     : currentWifiRssi >= -67
@@ -4854,12 +5345,12 @@ const communicationHealth = useMemo(
   const currentWifiHint = isDeviceOffline
     ? t("offline")
     : currentWifiRssi === null
-    ? "RSSI indisponível"
+    ? t("rssiUnavailable")
     : currentWifiRssi >= -67
-    ? "Sinal forte"
+    ? t("strongSignal")
     : currentWifiRssi >= -75
-    ? "Sinal aceitável"
-    : "Sinal fraco";
+    ? t("acceptableSignal")
+    : t("weakSignal");
   const exteriorSensorAvailable = device?.exterior_sensor_ok !== false;
   const outdoorTemperature = exteriorSensorAvailable
     ? parseNumber(device?.exterior_temperature) ??
@@ -5046,7 +5537,7 @@ const communicationHealth = useMemo(
         body: JSON.stringify(payload),
       });
     } catch (error) {
-      setClientMessage(error?.message || "Erro ao guardar configurações do cliente.");
+      setClientMessage(error?.message || t("saveClientError"));
       setSavingClient(false);
       return;
     }
@@ -5088,7 +5579,7 @@ const communicationHealth = useMemo(
     });
     setClientDirtyFields(new Set());
 
-    setClientMessage("Configurações do cliente guardadas com sucesso.");
+    setClientMessage(t("saveClientSuccess"));
     setSavingClient(false);
   }
 
@@ -5113,7 +5604,7 @@ const communicationHealth = useMemo(
       setAlertActionMessage(data?.message || "Pedido de ACK remoto enviado.");
       await loadData({ silent: true, syncForms: false });
     } catch (error) {
-      setAlertActionMessage(error?.message || "Erro ao enviar o ACK remoto.");
+      setAlertActionMessage(error?.message || t("remoteAckError"));
     } finally {
       setSendingRemoteAck(false);
     }
@@ -5138,10 +5629,10 @@ const communicationHealth = useMemo(
         }),
       });
 
-      setAlertActionMessage(data?.message || "Alertas regularizados com sucesso.");
+      setAlertActionMessage(data?.message || t("regularizeSuccess"));
       await loadData({ silent: true, syncForms: true });
     } catch (error) {
-      setAlertActionMessage(error?.message || "Erro ao regularizar alertas.");
+      setAlertActionMessage(error?.message || t("regularizeError"));
     } finally {
       setClearingAlerts(false);
     }
@@ -5277,7 +5768,7 @@ async function downloadPdfReportForDevice(deviceId, periodKey = "24h") {
     window.URL.revokeObjectURL(url);
     return true;
   } catch (error) {
-    setPageError(error?.message || "Erro ao descarregar relatório PDF.");
+    setPageError(error?.message || t("pdfError"));
     return false;
   }
 }
@@ -5400,12 +5891,14 @@ function downloadPdfReport() {
                 }}
               >
                 <FileDown size={16} />
-                Relatórios PDF
+                {t("pdfReports")}
               </button>
               <NotificationCenter
                 alerts={dashboardNotifications}
                 devices={devices}
                 isMobile={isMobile}
+                t={t}
+                language={language}
                 storageKey={`sts_notifications:${profile?.id || "user"}`}
                 onOpenDeviceAlerts={(deviceId) => {
                   if (deviceId) setSelectedDeviceId(deviceId);
@@ -5477,9 +5970,9 @@ function downloadPdfReport() {
               </div>
               <h1 style={styles.title}>{deviceDisplayName}</h1>
               <div style={styles.deviceHeaderMeta}>
-                <span>{formatDateTime(device?.last_seen)}</span>
+                <span>{formatDateTime(device?.last_seen, language)}</span>
                 <span>•</span>
-                <span>{formatRelativeTime(device?.last_seen)}</span>
+                <span>{formatRelativeTime(device?.last_seen, language)}</span>
                 {deviceSwitchLoading || backgroundRefreshing ? (
                   <>
                     <span>...</span>
@@ -5502,12 +5995,17 @@ function downloadPdfReport() {
                   borderColor: statusInfo.border,
                 }}
               >
-                {deviceSwitchLoading ? t("updating") : statusInfo.label}
+                {deviceSwitchLoading
+                  ? t("updating")
+                  : localizeOperationalText(statusInfo.label, language)}
               </div>
               {!deviceSwitchLoading && operationalCommunicationHealth.tone !== "good" ? (
                 <button
                   type="button"
-                  title={`${operationalCommunicationHealth.summary} · Abrir diagnóstico`}
+                  title={`${localizeOperationalText(
+                    operationalCommunicationHealth.summary,
+                    language
+                  )} · ${t("openDiagnostics")}`}
                   onClick={() => setActiveDeviceSection("diagnostics")}
                   style={{
                     ...styles.statusPillLarge,
@@ -5517,13 +6015,13 @@ function downloadPdfReport() {
                   }}
                 >
                   <Wifi size={15} />
-                  <span>{operationalCommunicationHealth.label}</span>
+                  <span>{localizeOperationalText(operationalCommunicationHealth.label, language)}</span>
                 </button>
               ) : null}
               {!deviceSwitchLoading && ["medium", "high", "critical"].includes(String(predictiveStatus?.level)) ? (
                 <button
                   type="button"
-                  title="Abrir análise preditiva"
+                  title={t("openPredictiveAnalysis")}
                   onClick={() => setActiveDeviceSection("overview")}
                   style={{
                     ...styles.statusPillLarge,
@@ -5532,13 +6030,13 @@ function downloadPdfReport() {
                   }}
                 >
                   <Gauge size={15} />
-                  <span>{predictiveStatus?.chip || "Predição"}</span>
+                  <span>{localizeOperationalText(predictiveStatus?.chip || t("predictiveAnalysis"), language)}</span>
                 </button>
               ) : null}
               {!deviceSwitchLoading && hardwareSummary?.tone === "bad" ? (
                 <button
                   type="button"
-                  title="Abrir diagnóstico do dispositivo"
+                  title={t("openDiagnostics")}
                   onClick={() => setActiveDeviceSection("diagnostics")}
                   style={{
                     ...styles.statusPillLarge,
@@ -5547,7 +6045,7 @@ function downloadPdfReport() {
                   }}
                 >
                   <Cpu size={15} />
-                  <span>{hardwareSummary.label || "Falha do dispositivo"}</span>
+                  <span>{localizeOperationalText(hardwareSummary.label || t("deviceFailure"), language)}</span>
                 </button>
               ) : null}
             </div>
@@ -5558,6 +6056,8 @@ function downloadPdfReport() {
               alerts={dashboardNotifications}
               devices={devices}
               isMobile={isMobile}
+              t={t}
+              language={language}
               storageKey={`sts_notifications:${profile?.id || "user"}`}
               onOpenDeviceAlerts={(deviceId) => {
                 if (deviceId) setSelectedDeviceId(deviceId);
@@ -5593,7 +6093,7 @@ function downloadPdfReport() {
               }}
             >
               <Home size={16} />
-              Voltar
+              {t("back")}
             </button>
           </div>
         </div>
@@ -5602,16 +6102,16 @@ function downloadPdfReport() {
           <section style={styles.reportPickerPanel}>
             <div style={styles.reportPickerHeader}>
               <div>
-                <div style={styles.cardTitle}>Descarregar relatórios PDF</div>
+                <div style={styles.cardTitle}>{t("downloadPdfReports")}</div>
                 <div style={styles.cardHint}>
-                  Seleciona um ou vários dispositivos e o período a incluir.
+                  {t("reportPickerHint")}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setReportPickerOpen(false)}
                 style={styles.reportPickerClose}
-                aria-label="Fechar seleção de relatórios"
+                aria-label={t("closeReportSelection")}
               >
                 <X size={17} />
               </button>
@@ -5630,11 +6130,13 @@ function downloadPdfReport() {
                 style={styles.collapseButton}
               >
                 {reportDeviceIds.length === devices.length
-                  ? "Limpar seleção"
-                  : "Selecionar todos"}
+                  ? t("clearSelection")
+                  : t("selectAll")}
               </button>
               <span style={styles.cardHint}>
-                {reportDeviceIds.length} de {devices.length} selecionado(s)
+                {t("selectedCount")
+                  .replace("{selected}", reportDeviceIds.length)
+                  .replace("{total}", devices.length)}
               </span>
             </div>
 
@@ -5699,18 +6201,22 @@ function downloadPdfReport() {
               >
                 <FileDown size={16} />
                 {downloadingReports
-                  ? "A preparar..."
-                  : `Descarregar ${reportDeviceIds.length || ""} PDF${
-                      reportDeviceIds.length === 1 ? "" : "s"
-                    }`}
+                  ? t("preparing")
+                  : t("downloadReports")
+                      .replace("{count}", reportDeviceIds.length || "")
+                      .replace("{suffix}", reportDeviceIds.length === 1 ? "" : "s")}
               </button>
             </div>
           </section>
         ) : null}
-        {pageError ? <div style={styles.errorBanner}>{pageError}</div> : null}
+        {pageError ? (
+          <div style={styles.errorBanner}>
+            {localizeOperationalText(pageError, language)}
+          </div>
+        ) : null}
         {lastRefreshError && initialLoaded ? (
           <div style={styles.softWarningBanner}>
-            Atualizacao em segundo plano falhou. Mantidos os ultimos dados validos.
+            {t("backgroundRefreshFailed")}
           </div>
         ) : null}
         {!selectedDeviceId && hasDevices ? (
@@ -5719,6 +6225,7 @@ function downloadPdfReport() {
             profile={profile}
             isMobile={isMobile}
             t={t}
+            language={language}
             onSelectDevice={(deviceId) => {
               selectDevice(deviceId);
             }}
@@ -5739,8 +6246,8 @@ function downloadPdfReport() {
               <div style={styles.deviceSwitchCard}>
                 <span style={styles.deviceSwitchSpinner} aria-hidden="true" />
                 <div>
-                  <strong style={styles.deviceSwitchTitle}>A sincronizar dispositivo</strong>
-                  <span style={styles.deviceSwitchHint}>A carregar os dados mais recentes...</span>
+                  <strong style={styles.deviceSwitchTitle}>{t("syncingDevice")}</strong>
+                  <span style={styles.deviceSwitchHint}>{t("loadingLatestData")}</span>
                 </div>
               </div>
             </div>
@@ -5776,15 +6283,15 @@ function downloadPdfReport() {
           }}
         >
           <div style={{ ...styles.operationTile, ...styles.operationTilePrimary }}>
-            <span style={styles.operationLabel}>Estado do sistema</span>
+            <span style={styles.operationLabel}>{t("systemStatus")}</span>
             <strong style={{ ...styles.operationValue, color: statusInfo.color }}>
-              {statusInfo.label}
+              {localizeOperationalText(statusInfo.label, language)}
             </strong>
             <span style={styles.operationHint}>{deviceDisplayName}</span>
           </div>
 
           <div style={styles.operationTile}>
-            <span style={styles.operationLabel}>Temperatura</span>
+            <span style={styles.operationLabel}>{t("temperature")}</span>
             <strong style={styles.operationValue}>
               {isDeviceOffline ? "-" : currentTempValue}
             </strong>
@@ -5792,7 +6299,7 @@ function downloadPdfReport() {
           </div>
 
           <div style={styles.operationTile}>
-            <span style={styles.operationLabel}>Humidade</span>
+            <span style={styles.operationLabel}>{t("humidity")}</span>
             <strong style={styles.operationValue}>
               {isDeviceOffline ? "-" : currentHumValue}
             </strong>
@@ -5800,9 +6307,11 @@ function downloadPdfReport() {
           </div>
 
           <div style={styles.operationTile}>
-            <span style={styles.operationLabel}>Leituras 24h</span>
+            <span style={styles.operationLabel}>{t("readings24h")}</span>
             <strong style={styles.operationValue}>{summary24h.totalReadings ?? 0}</strong>
-            <span style={styles.operationHint}>{communicationHealth.label}</span>
+            <span style={styles.operationHint}>
+              {localizeOperationalText(communicationHealth.label, language)}
+            </span>
           </div>
         </section>
 
@@ -5833,7 +6342,7 @@ function downloadPdfReport() {
                   borderColor: statusInfo.border,
                 }}
               >
-                {statusInfo.label}
+                {localizeOperationalText(statusInfo.label, language)}
               </div>
             </div>
 
@@ -5847,7 +6356,7 @@ function downloadPdfReport() {
             >
               <ExecutiveStatCard
                 label={t("generalStatus")}
-                value={statusInfo.label}
+                value={localizeOperationalText(statusInfo.label, language)}
                 hint={
                   activeAlerts.length
                     ? `${activeAlerts.length} ${
@@ -5859,7 +6368,7 @@ function downloadPdfReport() {
                 }
                 icon={Gauge}
                 onClick={() => setActiveDeviceSection("alerts")}
-                actionLabel="Abrir alertas →"
+                actionLabel={t("openAlertsAction")}
                 tone={
                   effectiveStatus === "OFFLINE"
                     ? "neutral"
@@ -5992,23 +6501,25 @@ function downloadPdfReport() {
 
             <div style={styles.sideSummary}>
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Média temp.</span>
+                <span style={styles.summaryLabel}>{t("avgTemperature")}</span>
                 <span style={styles.summaryValue}>{formatValue(summary24h.tempAvg, " °C")}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Média hum.</span>
+                <span style={styles.summaryLabel}>{t("avgHumidity")}</span>
                 <span style={styles.summaryValue}>{formatValue(summary24h.humAvg, " %", 0)}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Leituras 24h</span>
+                <span style={styles.summaryLabel}>{t("readings24h")}</span>
                 <span style={styles.summaryValue}>{summary24h.totalReadings ?? 0}</span>
               </div>
 
               <div style={styles.summaryBlock}>
-                <span style={styles.summaryLabel}>Comunicação</span>
-                <span style={styles.summaryValue}>{communicationHealth.label}</span>
+                <span style={styles.summaryLabel}>{t("communication")}</span>
+                <span style={styles.summaryValue}>
+                  {localizeOperationalText(communicationHealth.label, language)}
+                </span>
               </div>
             </div>
           </div>
@@ -6018,6 +6529,8 @@ function downloadPdfReport() {
             prediction={predictiveStatus}
             isOffline={effectiveStatus === "OFFLINE"}
             theme={theme}
+            t={t}
+            language={language}
           />
 
         </section>
@@ -6090,7 +6603,7 @@ function downloadPdfReport() {
                   }}
                 >
                   <span style={styles.readingTime}>
-                    {formatDateTime(item.created_at || item.timestamp)}
+                    {formatDateTime(item.created_at || item.timestamp, language)}
                   </span>
                   <span style={styles.readingValue}>
                     {formatValue(item.temperature, " °C")}
@@ -6104,7 +6617,7 @@ function downloadPdfReport() {
                 </div>
               ))
             ) : (
-              <div style={styles.emptyState}>No readings available.</div>
+              <div style={styles.emptyState}>{t("noReadingsAvailable")}</div>
             )}
           </div>
         </section>
@@ -6145,7 +6658,7 @@ function downloadPdfReport() {
           </div>
 
           <div style={styles.healthSummaryBanner}>
-            {communicationHealth.summary}
+            {localizeOperationalText(communicationHealth.summary, language)}
           </div>
 
           <div
@@ -6157,9 +6670,9 @@ function downloadPdfReport() {
             }}
           >
             <HealthStatCard
-              label="Atraso da última leitura"
+              label={t("lastReadingDelay")}
               value={formatDurationCompact(effectiveLastDelayMs)}
-              hint="Tempo desde a última leitura recebida"
+              hint={t("timeSinceLastReading")}
               tone={
                 communicationHealth.label === "Offline"
                   ? "bad"
@@ -6172,16 +6685,18 @@ function downloadPdfReport() {
             />
 
             <HealthStatCard
-              label="Intervalo esperado"
+              label={t("expectedInterval")}
               value={formatDurationCompact(communicationHealth.expected_interval_ms)}
-              hint="Com base na configuração atual do dispositivo"
+              hint={t("basedOnCurrentConfig")}
               tone="neutral"
             />
 
             <HealthStatCard
-              label="Cobertura de leituras"
+              label={t("readingCoverage")}
               value={`${communicationHealth.delivery_pct ?? 0}%`}
-              hint={`${communicationHealth.received_readings} de ${communicationHealth.expected_readings} leituras esperadas`}
+              hint={t("readingsExpected")
+                .replace("{received}", communicationHealth.received_readings)
+                .replace("{expected}", communicationHealth.expected_readings)}
               tone={
                 (communicationHealth.delivery_pct ?? 0) < 80
                   ? "bad"
@@ -6192,15 +6707,19 @@ function downloadPdfReport() {
             />
 
             <HealthStatCard
-              label="Estabilidade"
+              label={t("stability")}
               value={
                 communicationHealth.regularity_pct !== null
                   ? `${communicationHealth.regularity_pct}%`
                   : "-"
               }
-              hint={`Falhas relevantes: ${communicationHealth.relevant_gap_count} · Gaps graves: ${communicationHealth.severe_gap_count} · Maior gap: ${formatDurationCompact(communicationHealth.max_gap_ms)}`}
+              hint={`${t("relevantFailures")}: ${communicationHealth.relevant_gap_count} · ${t(
+                "severeGaps"
+              )}: ${communicationHealth.severe_gap_count} · ${t("largestGap")}: ${formatDurationCompact(
+                communicationHealth.max_gap_ms
+              )}`}
               tone={communicationHealth.tone}
-              badge={communicationHealth.label}
+              badge={localizeOperationalText(communicationHealth.label, language)}
             />
 
             <HealthStatCard
@@ -6217,8 +6736,8 @@ function downloadPdfReport() {
 
             <HealthStatCard
               label={t("lastCommunication")}
-              value={formatRelativeTime(device?.last_seen)}
-              hint={formatDateTime(device?.last_seen)}
+              value={formatRelativeTime(device?.last_seen, language)}
+              hint={formatDateTime(device?.last_seen, language)}
               tone={lastCommunicationTone}
             />
           </div>
@@ -6229,11 +6748,10 @@ function downloadPdfReport() {
             </span>
             <span>
               <strong style={styles.automatedHealthNoticeTitle}>
-                Monitorização automática ativa
+                {t("activeMonitoring")}
               </strong>
               <small style={styles.automatedHealthNoticeText}>
-                Falhas de hardware, sensores, comunicação ou risco preditivo
-                relevante são apresentadas nas notificações.
+                {t("activeMonitoringHint")}
               </small>
             </span>
           </div>
@@ -6308,6 +6826,8 @@ function downloadPdfReport() {
             isMobile={isMobile}
             periodKey={period}
             isOffline={effectiveStatus === "OFFLINE"}
+            t={t}
+            language={language}
           />
 
           <DataChart
@@ -6320,6 +6840,8 @@ function downloadPdfReport() {
             isMobile={isMobile}
             periodKey={period}
             isOffline={effectiveStatus === "OFFLINE"}
+            t={t}
+            language={language}
           />
         </section>
         <section
@@ -6409,7 +6931,7 @@ function downloadPdfReport() {
           : styles.successText
       }
     >
-      {alertActionMessage}
+      {localizeOperationalText(alertActionMessage, language)}
     </div>
   ) : null}
 
@@ -6470,7 +6992,7 @@ function downloadPdfReport() {
         type="button"
         onClick={clearActiveAlerts}
         disabled={clearingAlerts}
-        title="Ferramenta técnica para corrigir um estado de alerta incoerente. Não apaga o histórico."
+        title={t("alertCorrectionTool")}
         style={{
           ...styles.collapseButton,
           ...(clearingAlerts ? styles.disabledButton : {}),
@@ -6487,7 +7009,7 @@ function downloadPdfReport() {
     </div>
   ) : !visibleAlerts.length ? (
     <div style={styles.emptyState}>
-      Sem alertas nas últimas {ALERT_RECENT_HOURS}h.
+      {t("alertsLastHours").replace("{hours}", ALERT_RECENT_HOURS)}
     </div>
   ) : (
     <div style={styles.alertList}>
@@ -6495,12 +7017,15 @@ function downloadPdfReport() {
         <AlertRow
           key={item.id || `${item.sent_at || item.created_at}-${index}`}
           item={item}
+          t={t}
+          language={language}
+          theme={theme}
         />
       ))}
 
       {!alertsCollapsed && hasOlderAlerts ? (
         <div style={styles.alertListHint}>
-          Existem mais {alerts.length - recentAlerts.length} alertas no histórico.
+          {t("olderAlerts").replace("{count}", alerts.length - recentAlerts.length)}
         </div>
       ) : null}
     </div>
@@ -6580,7 +7105,7 @@ function downloadPdfReport() {
               <div style={styles.settingsSectionIcon}><Gauge size={18} /></div>
               <div>
                 <div style={styles.settingsSectionTitle}>{t("technicalSensors")}</div>
-                <div style={styles.cardHint}>Defina a janela segura para cada grandeza monitorizada.</div>
+                <div style={styles.cardHint}>{t("safeWindowHint")}</div>
               </div>
             </div>
             <div
@@ -6590,7 +7115,7 @@ function downloadPdfReport() {
               }}
             >
               <div style={styles.settingsMetricCard}>
-                <div style={styles.settingsMetricTitle}><Thermometer size={16} /> Temperatura</div>
+                <div style={styles.settingsMetricTitle}><Thermometer size={16} /> {t("temperature")}</div>
                 <div style={styles.settingsMetricFields}>
                   <div style={styles.field}>
                     <label style={styles.label}>{t("tempMin")}</label>
@@ -6609,7 +7134,7 @@ function downloadPdfReport() {
                 </div>
               </div>
               <div style={styles.settingsMetricCard}>
-                <div style={styles.settingsMetricTitle}><Droplets size={16} /> Humidade</div>
+                <div style={styles.settingsMetricTitle}><Droplets size={16} /> {t("humidity")}</div>
                 <div style={styles.settingsMetricFields}>
                   <div style={styles.field}>
                     <label style={styles.label}>{t("humMin")}</label>
@@ -6634,9 +7159,9 @@ function downloadPdfReport() {
             <div style={styles.settingsSectionHeader}>
               <div style={styles.settingsSectionIcon}><Volume2 size={18} /></div>
               <div>
-                <div style={styles.settingsSectionTitle}>Alarme auditivo</div>
+                <div style={styles.settingsSectionTitle}>{t("audibleAlarm")}</div>
                 <div style={styles.cardHint}>
-                  O buzzer toca por impulsos enquanto existir um alarme ativo sem ACK.
+                  {t("buzzerBehavior")}
                 </div>
               </div>
             </div>
@@ -6646,14 +7171,14 @@ function downloadPdfReport() {
                 {[
                   {
                     value: true,
-                    label: "Ligado",
-                    hint: "Alarme sonoro ativo",
+                    label: t("enabled"),
+                    hint: t("soundAlarmActive"),
                     Icon: Volume2,
                   },
                   {
                     value: false,
-                    label: "Desligado",
-                    hint: "Apenas alertas visuais",
+                    label: t("disabled"),
+                    hint: t("visualAlertsOnly"),
                     Icon: VolumeX,
                   },
                 ].map(({ value, label, hint, Icon }) => {
@@ -6698,8 +7223,7 @@ function downloadPdfReport() {
                 })}
               </div>
               <div style={styles.cardHint}>
-                Os registos, notificações e alertas visuais permanecem ativos em
-                ambas as opções.
+                {t("buzzerRecordsHint")}
               </div>
             </div>
           </div>
@@ -6775,7 +7299,7 @@ function downloadPdfReport() {
               </div>
 
               <div style={styles.field}>
-                <label style={styles.label}>Falha comunicação (min)</label>
+                <label style={styles.label}>{t("communicationFailureMin")}</label>
                 <input
                   type="number"
                   step="1"
@@ -6805,8 +7329,8 @@ function downloadPdfReport() {
           {canEditSelectedDevice ? (
             <div style={styles.settingsSaveBar}>
               <div>
-                <div style={styles.settingsSaveTitle}>Aplicar configuração</div>
-                <div style={styles.cardHint}>As alterações serão sincronizadas com este dispositivo.</div>
+                <div style={styles.settingsSaveTitle}>{t("applyConfiguration")}</div>
+                <div style={styles.cardHint}>{t("configurationSyncHint")}</div>
               </div>
               <button
                 style={styles.primaryButton}
@@ -6819,14 +7343,16 @@ function downloadPdfReport() {
               {clientMessage ? (
                 <span
                   style={{
-                    ...(clientMessage.toLowerCase().includes("sucesso")
+                    ...(["sucesso", "success", "sem alterações", "no changes"].some(
+                      (token) => clientMessage.toLowerCase().includes(token)
+                    )
                       ? styles.successText
                       : styles.errorTextInline),
                     ...styles.settingsSaveMessage,
                     ...(isMobile ? styles.settingsSaveMessageMobile : {}),
                   }}
                 >
-                  {clientMessage}
+                  {localizeOperationalText(clientMessage, language)}
                 </span>
               ) : null}
             </div>
@@ -6859,16 +7385,16 @@ function downloadPdfReport() {
                 }
                 icon={Wrench}
               />
-              <InfoItem label="Aplicação" value={APP_VERSION_LABEL} icon={LayoutDashboard} />
+              <InfoItem label={t("application")} value={APP_VERSION_LABEL} icon={LayoutDashboard} />
               <InfoItem label={t("configVersion")} value={device?.config_version ?? "-"} icon={Settings} />
-              <InfoItem label={t("lastUpdate")} value={formatDateTime(device?.updated_at || device?.last_seen)} icon={Clock} />
+              <InfoItem label={t("lastUpdate")} value={formatDateTime(device?.updated_at || device?.last_seen, language)} icon={Clock} />
             </div>
           </section>
         ) : null}
 
         {!loading && initialLoaded && hasDevices && !hasReadings ? (
           <div style={styles.emptyState}>
-            Ainda não existem leituras históricas disponíveis para os últimos 7 dias.
+            {t("noHistoricalReadings7d")}
           </div>
         ) : null}
           </div>
@@ -6970,6 +7496,13 @@ const styles = {
     "--sts-shadow": "0 18px 42px rgba(0, 0, 0, 0.22)",
     "--sts-menu-bg": "rgba(9, 15, 26, 0.98)",
     "--sts-accent": "#2dd4bf",
+    "--sts-control-border": "rgba(45, 212, 191, 0.30)",
+    "--sts-control-shadow": "0 8px 22px rgba(0, 0, 0, 0.16)",
+    "--sts-control-active-shadow": "0 0 0 2px rgba(45, 212, 191, 0.12)",
+    "--sts-nav-active-bg":
+      "radial-gradient(ellipse at 14% 50%, rgba(45, 212, 191, 0.22) 0%, rgba(20, 184, 166, 0.10) 38%, transparent 72%), linear-gradient(110deg, rgba(15, 118, 110, 0.10), rgba(15, 23, 42, 0.36))",
+    "--sts-nav-active-border": "rgba(94, 234, 212, 0.26)",
+    "--sts-nav-active-shadow": "0 12px 30px rgba(20, 184, 166, 0.08)",
     "--sts-sidebar-bg": "linear-gradient(180deg, rgba(10, 18, 30, 0.96), rgba(7, 12, 20, 0.94))",
     background:
       "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.14) 0%, transparent 34%), linear-gradient(180deg, #071018 0%, #0a111b 44%, #070b12 100%)",
@@ -6983,8 +7516,8 @@ const styles = {
     "--sts-surface": "rgba(255, 255, 255, 0.82)",
     "--sts-surface-soft": "rgba(248, 250, 252, 0.86)",
     "--sts-surface-strong": "rgba(255, 255, 255, 0.96)",
-    "--sts-border": "rgba(15, 23, 42, 0.12)",
-    "--sts-border-strong": "rgba(15, 23, 42, 0.18)",
+    "--sts-border": "rgba(51, 65, 85, 0.12)",
+    "--sts-border-strong": "rgba(15, 118, 110, 0.24)",
     "--sts-text": "#102033",
     "--sts-muted": "#64748b",
     "--sts-muted-strong": "#475569",
@@ -6992,6 +7525,13 @@ const styles = {
     "--sts-shadow": "0 18px 42px rgba(15, 23, 42, 0.10)",
     "--sts-menu-bg": "rgba(255, 255, 255, 0.96)",
     "--sts-accent": "#0f766e",
+    "--sts-control-border": "rgba(13, 148, 136, 0.30)",
+    "--sts-control-shadow": "0 10px 26px rgba(15, 118, 110, 0.08)",
+    "--sts-control-active-shadow": "0 0 0 2px rgba(13, 148, 136, 0.12)",
+    "--sts-nav-active-bg":
+      "radial-gradient(ellipse at 14% 50%, rgba(45, 212, 191, 0.22) 0%, rgba(153, 246, 228, 0.10) 42%, transparent 74%), linear-gradient(110deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.92))",
+    "--sts-nav-active-border": "rgba(13, 148, 136, 0.24)",
+    "--sts-nav-active-shadow": "0 10px 26px rgba(15, 118, 110, 0.08)",
     "--sts-sidebar-bg": "linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(241, 245, 249, 0.90))",
     background:
       "radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.16) 0%, transparent 32%), linear-gradient(180deg, #eef7f6 0%, #f7fafc 46%, #e8eef5 100%)",
@@ -8116,7 +8656,7 @@ const styles = {
     minHeight: "48px",
     border: "1px solid transparent",
     background: "transparent",
-    color: "#94a3b8",
+    color: "var(--sts-muted-strong)",
     borderRadius: "14px",
     padding: "11px 12px",
     display: "flex",
@@ -8126,6 +8666,9 @@ const styles = {
     textAlign: "left",
     fontSize: "13px",
     fontWeight: 850,
+    outline: "none",
+    appearance: "none",
+    WebkitAppearance: "none",
     transition: "background 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease",
   },
 
@@ -8171,10 +8714,10 @@ const styles = {
   },
 
   deviceNavItemActive: {
-    background: "linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(15, 23, 42, 0.48))",
-    border: "1px solid rgba(94, 234, 212, 0.28)",
-    color: "#f8fafc",
-    boxShadow: "0 14px 32px rgba(20, 184, 166, 0.10)",
+    background: "var(--sts-nav-active-bg)",
+    border: "1px solid var(--sts-nav-active-border)",
+    color: "var(--sts-text)",
+    boxShadow: "var(--sts-nav-active-shadow)",
   },
 
   entryGate: {
@@ -8838,7 +9381,7 @@ const styles = {
 
   selectorMainButton: {
     width: "100%",
-    border: "1px solid rgba(15, 118, 110, 0.24)",
+    border: "1px solid var(--sts-control-border)",
     background: "var(--sts-surface-strong)",
     color: "var(--sts-text)",
     borderRadius: "14px",
@@ -8849,6 +9392,10 @@ const styles = {
     gap: "14px",
     cursor: "pointer",
     textAlign: "left",
+    outline: "none",
+    appearance: "none",
+    WebkitAppearance: "none",
+    boxShadow: "var(--sts-control-shadow)",
   },
 
   selectorMainLeft: {
@@ -8912,7 +9459,7 @@ const styles = {
     right: 0,
     zIndex: 50,
     background: "var(--sts-menu-bg)",
-    border: "1px solid rgba(148, 163, 184, 0.32)",
+    border: "1px solid var(--sts-control-border)",
     borderRadius: "14px",
     padding: "10px",
     boxShadow: "0 24px 54px rgba(0,0,0,0.32)",
@@ -8933,12 +9480,15 @@ const styles = {
     gap: "12px",
     textAlign: "left",
     marginBottom: "8px",
+    outline: "none",
+    appearance: "none",
+    WebkitAppearance: "none",
   },
 
   selectorOptionActive: {
-    border: "1px solid #0f766e",
-    boxShadow: "0 0 0 3px rgba(15,118,110,0.12)",
-    background: "rgba(20, 184, 166, 0.14)",
+    border: "1px solid var(--sts-accent)",
+    boxShadow: "var(--sts-control-active-shadow)",
+    background: "color-mix(in srgb, var(--sts-accent) 12%, var(--sts-surface-strong))",
   },
 
   selectorOptionLeft: {
@@ -9771,9 +10321,10 @@ collapseButton: {
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "7px",
     padding: "5px",
-    border: "1px solid color-mix(in srgb, var(--sts-accent) 38%, var(--sts-border))",
+    border: "1px solid var(--sts-control-border)",
     borderRadius: "13px",
     background: "var(--sts-input-bg)",
+    boxShadow: "var(--sts-control-shadow)",
   },
 
   buzzerChoiceWrap: {
@@ -9817,14 +10368,17 @@ collapseButton: {
     fontSize: "12px",
     fontWeight: 800,
     cursor: "pointer",
+    outline: "none",
+    appearance: "none",
+    WebkitAppearance: "none",
     transition: "background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
   },
 
   segmentedOptionActive: {
-    borderColor: "color-mix(in srgb, var(--sts-accent) 72%, var(--sts-border))",
+    borderColor: "var(--sts-accent)",
     background: "color-mix(in srgb, var(--sts-accent) 13%, var(--sts-surface-strong))",
     color: "var(--sts-text)",
-    boxShadow: "0 0 0 1px color-mix(in srgb, var(--sts-accent) 16%, transparent), 0 6px 18px rgba(0,0,0,0.14)",
+    boxShadow: "var(--sts-control-active-shadow)",
   },
 
   segmentedMark: {

@@ -284,8 +284,11 @@ function getDiagnostics(device, config) {
     communication_diagnostics: communicationDiagnostics,
     wifi_rssi:
       communicationDiagnostics.wifi_rssi ??
+      communicationDiagnostics.rssi_dbm ??
       device?.wifi_rssi ??
+      device?.rssi_dbm ??
       diagnostics.wifi_rssi ??
+      diagnostics.rssi_dbm ??
       null,
     buffer_count: communicationDiagnostics.buffer_count ?? null,
     post_ok_count: communicationDiagnostics.post_ok_count ?? null,

@@ -606,8 +606,17 @@ function normalizeCommunicationDiagnostics(value, fallback = {}) {
   const previous = fallback && typeof fallback === "object" ? fallback : {};
   const numeric = (key) =>
     source[key] === undefined ? previous[key] ?? null : toOptionalNumber(source[key]);
+  const numericAlias = (canonicalKey, legacyKey) => {
+    if (source[canonicalKey] !== undefined) {
+      return toOptionalNumber(source[canonicalKey]);
+    }
+    if (source[legacyKey] !== undefined) {
+      return toOptionalNumber(source[legacyKey]);
+    }
+    return previous[canonicalKey] ?? previous[legacyKey] ?? null;
+  };
 
-  const wifiRssi = numeric("wifi_rssi");
+  const wifiRssi = numericAlias("wifi_rssi", "rssi_dbm");
   let wifiQuality = "unknown";
   if (wifiRssi !== null) {
     if (wifiRssi >= -55) wifiQuality = "excellent";
@@ -623,7 +632,7 @@ function normalizeCommunicationDiagnostics(value, fallback = {}) {
     post_fail_count: numeric("post_fail_count"),
     buffer_count: numeric("buffer_count"),
     buffer_dropped_count: numeric("buffer_dropped_count"),
-    wifi_reconnect_count: numeric("wifi_reconnect_count"),
+    wifi_reconnect_count: numericAlias("wifi_reconnect_count", "wifi_reconnects"),
     last_http_status: numeric("last_http_status"),
     boot_count: numeric("boot_count"),
     reset_reason: source.reset_reason ?? previous.reset_reason ?? null,
@@ -3106,11 +3115,13 @@ app.post("/api/temperature", async (req, res) => {
       hardware_diagnostics,
       communication_diagnostics,
       wifi_rssi,
+      rssi_dbm,
       post_ok_count,
       post_fail_count,
       buffer_count,
       buffer_dropped_count,
       wifi_reconnect_count,
+      wifi_reconnects,
       last_http_status,
       boot_count,
       reset_reason,
@@ -3174,12 +3185,12 @@ app.post("/api/temperature", async (req, res) => {
     );
     const receivedCommunicationDiagnostics = normalizeCommunicationDiagnostics(
       communication_diagnostics || {
-        wifi_rssi,
+        wifi_rssi: wifi_rssi ?? rssi_dbm,
         post_ok_count,
         post_fail_count,
         buffer_count,
         buffer_dropped_count,
-        wifi_reconnect_count,
+        wifi_reconnect_count: wifi_reconnect_count ?? wifi_reconnects,
         last_http_status,
         boot_count,
         reset_reason,
