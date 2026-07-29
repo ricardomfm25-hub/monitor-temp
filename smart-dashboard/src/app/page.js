@@ -469,6 +469,11 @@ function getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin) {
       (humHigh !== null && humidity > humHigh));
 
   if (temperatureOutside || humidityOutside) return "ALERT";
+  // A recent successful contact is authoritative. A stored OFFLINE/NO_WIFI
+  // label may belong to the request that restored communication.
+  if (rawStatus.includes("OFFLINE") || rawStatus.includes("NO_WIFI")) {
+    return "NORMAL";
+  }
   return rawStatus || "SEM DADOS";
 }
 
@@ -3805,6 +3810,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     display_standby_min: "",
     buzzer_enabled: true,
   });
+  const [clientDirtyFields, setClientDirtyFields] = useState(() => new Set());
 
   const [adminForm, setAdminForm] = useState({
     name: "",
@@ -4166,7 +4172,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               last_seen_seconds:
                 overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
               communication_health: overviewData?.communication_health || null,
-              config: overviewData?.config || baseDeviceData?.config || {},
+              // Configuration controls must reflect only the persisted device
+              // configuration. Overview normalization is for display/analysis.
+              config: baseDeviceData?.config || overviewData?.config || {},
               hardware_diagnostics:
                 overviewData?.hardware_diagnostics ||
                 overviewData?.diagnostics?.hardware_diagnostics ||
@@ -4309,6 +4317,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
             display_standby_min: toInputValue(deviceConfig?.display_standby_min),
             buzzer_enabled: deviceConfig?.buzzer_enabled !== false,
           });
+          setClientDirtyFields(new Set());
 
           setAdminForm({
             name: deviceData?.name || "",
@@ -4875,6 +4884,15 @@ const communicationHealth = useMemo(
     };
   }, [liveReadings]);
 
+  function updateClientConfigField(field, value) {
+    setClientForm((prev) => ({ ...prev, [field]: value }));
+    setClientDirtyFields((prev) => {
+      const next = new Set(prev);
+      next.add(field);
+      return next;
+    });
+  }
+
   async function saveClientConfig() {
     if (!device || !selectedDeviceId || !canEditSelectedDevice) return;
 
@@ -4952,22 +4970,35 @@ const communicationHealth = useMemo(
     }
 
     let data;
-    const payload = {
+    if (clientDirtyFields.size === 0) {
+      setClientMessage("Não existem alterações por guardar.");
+      setSavingClient(false);
+      return;
+    }
+
+    const editableValues = {
       temp_low_c: newTempLow,
       temp_high_c: newTempHigh,
       hum_low: newHumLow,
       hum_high: newHumHigh,
       buzzer_enabled: clientForm.buzzer_enabled !== false,
     };
+    const payload = {};
+    for (const [field, value] of Object.entries(editableValues)) {
+      if (clientDirtyFields.has(field)) payload[field] = value;
+    }
 
     if (canEditTechnicalConfig) {
-      Object.assign(payload, {
+      const technicalValues = {
         hyst_c: newHyst,
         hyst_hum: newHystHum,
         send_interval_s: newSendInterval * 60,
         offline_alert_after_min: newOfflineAlertAfter,
         display_standby_min: newDisplayStandby,
-      });
+      };
+      for (const [field, value] of Object.entries(technicalValues)) {
+        if (clientDirtyFields.has(field)) payload[field] = value;
+      }
     }
 
     try {
@@ -5016,6 +5047,7 @@ const communicationHealth = useMemo(
       display_standby_min: toInputValue(refreshedConfig?.display_standby_min),
       buzzer_enabled: refreshedConfig?.buzzer_enabled !== false,
     });
+    setClientDirtyFields(new Set());
 
     setClientMessage("Configurações do cliente guardadas com sucesso.");
     setSavingClient(false);
@@ -6502,14 +6534,14 @@ function downloadPdfReport() {
                   <div style={styles.field}>
                     <label style={styles.label}>{t("tempMin")}</label>
                     <div style={styles.inputWithUnit}>
-                      <input type="number" step="0.1" value={clientForm.temp_low_c} onChange={(e) => setClientForm((prev) => ({ ...prev, temp_low_c: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <input type="number" step="0.1" value={clientForm.temp_low_c} onChange={(e) => updateClientConfigField("temp_low_c", e.target.value)} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
                       <span style={styles.inputUnit}>°C</span>
                     </div>
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>{t("tempMax")}</label>
                     <div style={styles.inputWithUnit}>
-                      <input type="number" step="0.1" value={clientForm.temp_high_c} onChange={(e) => setClientForm((prev) => ({ ...prev, temp_high_c: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <input type="number" step="0.1" value={clientForm.temp_high_c} onChange={(e) => updateClientConfigField("temp_high_c", e.target.value)} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
                       <span style={styles.inputUnit}>°C</span>
                     </div>
                   </div>
@@ -6521,14 +6553,14 @@ function downloadPdfReport() {
                   <div style={styles.field}>
                     <label style={styles.label}>{t("humMin")}</label>
                     <div style={styles.inputWithUnit}>
-                      <input type="number" step="1" value={clientForm.hum_low} onChange={(e) => setClientForm((prev) => ({ ...prev, hum_low: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <input type="number" step="1" value={clientForm.hum_low} onChange={(e) => updateClientConfigField("hum_low", e.target.value)} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
                       <span style={styles.inputUnit}>%</span>
                     </div>
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>{t("humMax")}</label>
                     <div style={styles.inputWithUnit}>
-                      <input type="number" step="1" value={clientForm.hum_high} onChange={(e) => setClientForm((prev) => ({ ...prev, hum_high: e.target.value }))} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
+                      <input type="number" step="1" value={clientForm.hum_high} onChange={(e) => updateClientConfigField("hum_high", e.target.value)} style={styles.configInputUnit} disabled={!canEditSelectedDevice} />
                       <span style={styles.inputUnit}>%</span>
                     </div>
                   </div>
@@ -6571,12 +6603,7 @@ function downloadPdfReport() {
                       key={label}
                       type="button"
                       aria-pressed={selected}
-                      onClick={() =>
-                        setClientForm((prev) => ({
-                          ...prev,
-                          buzzer_enabled: value,
-                        }))
-                      }
+                      onClick={() => updateClientConfigField("buzzer_enabled", value)}
                       disabled={!canEditSelectedDevice}
                       style={{
                         ...styles.segmentedOption,
@@ -6638,12 +6665,7 @@ function downloadPdfReport() {
                   type="number"
                   step="0.1"
                   value={clientForm.hyst_c}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      hyst_c: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => updateClientConfigField("hyst_c", e.target.value)}
                   style={styles.configInput}
                   disabled={!canEditSelectedDevice}
                 />
@@ -6655,12 +6677,7 @@ function downloadPdfReport() {
                   type="number"
                   step="0.1"
                   value={clientForm.hyst_hum}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      hyst_hum: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => updateClientConfigField("hyst_hum", e.target.value)}
                   style={styles.configInput}
                   disabled={!canEditSelectedDevice}
                 />
@@ -6690,12 +6707,7 @@ function downloadPdfReport() {
                   min="1"
                   max="15"
                   value={clientForm.send_interval_s}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      send_interval_s: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => updateClientConfigField("send_interval_s", e.target.value)}
                   style={styles.configInput}
                   disabled={!canEditSelectedDevice}
                 />
@@ -6707,12 +6719,7 @@ function downloadPdfReport() {
                   type="number"
                   step="1"
                   value={clientForm.offline_alert_after_min}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      offline_alert_after_min: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => updateClientConfigField("offline_alert_after_min", e.target.value)}
                   style={styles.configInput}
                   disabled={!canEditSelectedDevice}
                 />
@@ -6724,12 +6731,7 @@ function downloadPdfReport() {
                   type="number"
                   step="1"
                   value={clientForm.display_standby_min}
-                  onChange={(e) =>
-                    setClientForm((prev) => ({
-                      ...prev,
-                      display_standby_min: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => updateClientConfigField("display_standby_min", e.target.value)}
                   style={styles.configInput}
                   disabled={!canEditSelectedDevice}
                 />

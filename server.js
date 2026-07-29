@@ -966,8 +966,7 @@ function resolveTelemetryStatus({
 
   if (
     normalizedIncoming === "sensor_fail" ||
-    normalizedIncoming === "setup_wifi" ||
-    normalizedIncoming === "offline"
+    normalizedIncoming === "setup_wifi"
   ) {
     return normalizedIncoming;
   }
