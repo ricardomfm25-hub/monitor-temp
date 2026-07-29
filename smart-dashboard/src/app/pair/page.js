@@ -154,10 +154,6 @@ function PairPageContent() {
         throw new Error("Código de associação inválido.");
       }
 
-      if (String(deviceData.pairing_status || "").toLowerCase() === "assigned") {
-        throw new Error("Este dispositivo já foi associado.");
-      }
-
       const { data: existingAccess, error: accessCheckError } = await supabase
         .from("device_access")
         .select("id")
@@ -167,6 +163,20 @@ function PairPageContent() {
 
       if (accessCheckError) {
         throw new Error("Erro ao verificar acessos existentes.");
+      }
+
+      if (String(deviceData.pairing_status || "").toLowerCase() === "assigned") {
+        if (existingAccess) {
+          setMessage("Este dispositivo já está associado à tua conta.");
+          setMessageType("success");
+          setTimeout(() => {
+            router.replace("/");
+            router.refresh();
+          }, 450);
+          return;
+        }
+
+        throw new Error("Este dispositivo já foi associado a outra conta.");
       }
 
       if (!existingAccess) {
@@ -203,7 +213,7 @@ function PairPageContent() {
 
       setTimeout(() => {
         router.replace(
-          `/onboarding/device?device_id=${encodeURIComponent(deviceData.device_id)}`
+          `/onboarding/device?device_id=${encodeURIComponent(deviceData.device_id)}&setup=1`
         );
         router.refresh();
       }, 700);

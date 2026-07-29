@@ -25,6 +25,7 @@ function OnboardingDevicePageContent() {
   const supabase = useMemo(() => createClient(), []);
 
   const deviceId = searchParams.get("device_id") || "";
+  const setupRequested = searchParams.get("setup") === "1";
 
   const [checking, setChecking] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -56,7 +57,10 @@ function OnboardingDevicePageContent() {
         } = await supabase.auth.getSession();
 
         if (!session?.user) {
-          router.replace(`/login?next=${encodeURIComponent(`/onboarding/device?device_id=${deviceId}`)}`);
+          const nextPath = `/onboarding/device?device_id=${encodeURIComponent(deviceId)}${
+            setupRequested ? "&setup=1" : ""
+          }`;
+          router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
           return;
         }
 
@@ -76,6 +80,12 @@ function OnboardingDevicePageContent() {
 
         if (!accessData?.can_view) {
           throw new Error("Não tens acesso a este dispositivo.");
+        }
+
+        if (!setupRequested) {
+          router.replace("/");
+          router.refresh();
+          return;
         }
 
         const { data: deviceData, error: deviceError } = await supabase
@@ -120,7 +130,7 @@ function OnboardingDevicePageContent() {
     return () => {
       isMounted = false;
     };
-  }, [supabase, router, deviceId]);
+  }, [supabase, router, deviceId, setupRequested]);
 
   async function handleSave() {
     if (saving || !device) return;

@@ -183,6 +183,7 @@ export default function AdminPage() {
   const [showPasswordTools, setShowPasswordTools] = useState(false);
 
   const [deviceForm, setDeviceForm] = useState({
+    device_id: "",
     name: "",
     location: "",
     temp_low_c: "",
@@ -434,6 +435,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (!selectedDeviceData) {
       setDeviceForm({
+        device_id: "",
         name: "",
         location: "",
         temp_low_c: "",
@@ -453,6 +455,7 @@ export default function AdminPage() {
     const config = selectedDeviceData.config || {};
 
     setDeviceForm({
+      device_id: selectedDeviceData.device_id || "",
       name: selectedDeviceData.name || "",
       location: selectedDeviceData.location || "",
       temp_low_c: toInputValue(config.temp_low_c),
@@ -886,6 +889,7 @@ export default function AdminPage() {
       return;
     }
 
+    const nextDeviceId = deviceForm.device_id.trim();
     const values = {
       temp_low_c: parseNumber(deviceForm.temp_low_c),
       temp_high_c: parseNumber(deviceForm.temp_high_c),
@@ -899,11 +903,20 @@ export default function AdminPage() {
     };
 
     if (
+      !nextDeviceId ||
       !deviceForm.name.trim() ||
       !deviceForm.location.trim() ||
       Object.values(values).some((v) => v === null)
     ) {
       setMessage("Preenche todos os campos do dispositivo com valores válidos.");
+      setMessageType("error");
+      return;
+    }
+
+    if (!/^[A-Za-z0-9_-]{3,64}$/.test(nextDeviceId)) {
+      setMessage(
+        "O Device ID deve ter 3 a 64 caracteres e usar apenas letras, números, _ ou -."
+      );
       setMessageType("error");
       return;
     }
@@ -947,7 +960,40 @@ export default function AdminPage() {
     setSavingDevice(true);
     setMessage("");
 
+    let targetDeviceId = selectedDevice;
+    let deviceIdRenamed = false;
+
     try {
+      if (nextDeviceId !== selectedDevice) {
+        const confirmed = window.confirm(
+          `Alterar o Device ID de "${selectedDevice}" para "${nextDeviceId}"?\n\n` +
+            "O histórico, alertas e acessos serão mantidos. O dispositivo ficará sem sincronizar " +
+            "até o firmware usar exatamente o novo ID."
+        );
+
+        if (!confirmed) {
+          setSavingDevice(false);
+          return;
+        }
+
+        const { data: renameResult, error: renameError } = await supabase.rpc(
+          "rename_device_id",
+          {
+            p_current_device_id: selectedDevice,
+            p_new_device_id: nextDeviceId,
+          }
+        );
+
+        if (renameError) {
+          throw new Error(
+            renameError.message || "Não foi possível alterar o Device ID."
+          );
+        }
+
+        targetDeviceId = renameResult?.device_id || nextDeviceId;
+        deviceIdRenamed = true;
+      }
+
       const currentConfig = selectedDeviceData.config || {};
 
       const newConfig = {
@@ -973,7 +1019,7 @@ export default function AdminPage() {
           config_version: Number(selectedDeviceData.config_version || 0) + 1,
           updated_at: new Date().toISOString(),
         })
-        .eq("device_id", selectedDevice)
+        .eq("device_id", targetDeviceId)
         .select("*")
         .single();
 
@@ -983,14 +1029,44 @@ export default function AdminPage() {
 
       setDevices((prev) =>
         prev.map((item) =>
-          item.device_id === data.device_id ? { ...item, ...data } : item
+          item.device_id === selectedDevice || item.device_id === data.device_id
+            ? { ...item, ...data }
+            : item
         )
       );
 
-      setMessage("Configuração operacional guardada com sucesso.");
+      if (deviceIdRenamed) {
+        setDeviceAccess((prev) =>
+          prev.map((item) =>
+            item.device_id === selectedDevice
+              ? { ...item, device_id: targetDeviceId }
+              : item
+          )
+        );
+        setAlertRecipients((prev) =>
+          prev.map((item) =>
+            item.device_id === selectedDevice
+              ? { ...item, device_id: targetDeviceId }
+              : item
+          )
+        );
+        setSelectedDevice(targetDeviceId);
+      }
+
+      setMessage(
+        deviceIdRenamed
+          ? `Device ID alterado para ${targetDeviceId}. Atualiza o DEVICE_ID no firmware antes do upload.`
+          : "Configuração operacional guardada com sucesso."
+      );
       setMessageType("success");
     } catch (error) {
-      setMessage(error?.message || "Erro ao guardar configuração do dispositivo.");
+      setMessage(
+        deviceIdRenamed
+          ? `O Device ID foi alterado para ${targetDeviceId}, mas a restante configuração não ficou guardada: ${
+              error?.message || "erro desconhecido"
+            }`
+          : error?.message || "Erro ao guardar configuração do dispositivo."
+      );
       setMessageType("error");
     } finally {
       setSavingDevice(false);
@@ -1786,6 +1862,26 @@ export default function AdminPage() {
             <>
               <div style={styles.configSectionTitle}>Identificação</div>
               <div style={styles.configGrid}>
+                <ConfigField
+                  label="Device ID"
+                  help="Identificador técnico único. Ao alterar, usa exatamente o mesmo valor em DEVICE_ID no firmware e faz novo upload."
+                >
+                  <input
+                    type="text"
+                    placeholder="SmartTempSystems_01"
+                    value={deviceForm.device_id}
+                    onChange={(e) =>
+                      setDeviceForm((prev) => ({
+                        ...prev,
+                        device_id: e.target.value,
+                      }))
+                    }
+                    style={styles.input}
+                    spellCheck={false}
+                    autoCapitalize="none"
+                  />
+                </ConfigField>
+
                 <ConfigField
                   label="Nome do dispositivo"
                   help="Nome apresentado na dashboard, emails e área administrativa."
