@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../utils/supabase/client";
 import { FirmwareVersionBadge } from "../components/FirmwareVersionBadge";
+import { APP_VERSION_LABEL } from "../version";
 
 function toInputValue(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -1108,7 +1109,7 @@ export default function AdminPage() {
       <div style={styles.container}>
         <div style={styles.headerBar}>
           <div style={styles.header}>
-            <h1 style={styles.title}>STS Admin</h1>
+            <h1 style={styles.title}>STS Admin {APP_VERSION_LABEL}</h1>
             <div style={styles.versionBadge}>
               <FirmwareVersionBadge
                 value={

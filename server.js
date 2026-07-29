@@ -974,7 +974,8 @@ function resolveTelemetryStatus({
   if (hasActiveAlarmMask) return "alarm";
 
   if (normalizedIncoming === "alarm" && computedHasBreach) return "alarm";
-  if (normalizedIncoming === "alert" && computedHasBreach) return "alert";
+  // Firmware ALERT is preventive and may legitimately precede a threshold breach.
+  if (normalizedIncoming === "alert") return "alert";
 
   return normalizedComputed;
 }

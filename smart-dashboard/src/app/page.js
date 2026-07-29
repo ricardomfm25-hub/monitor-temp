@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import { FirmwareVersionBadge } from "./components/FirmwareVersionBadge";
+import { APP_VERSION_LABEL } from "./version";
 import {
   BarChart3,
   Bell,
@@ -2522,6 +2523,8 @@ function ExecutiveStatCard({
   emphasis = false,
   iconToneOnly = false,
   toneBackground = false,
+  onClick,
+  actionLabel,
 }) {
   const toneStyles = getHealthToneStyles(tone);
   const cardToneStyles = iconToneOnly
@@ -2530,11 +2533,25 @@ function ExecutiveStatCard({
 
   return (
     <div
+      role={onClick ? "link" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       style={{
         ...styles.executiveStatCard,
         ...(emphasis ? styles.executiveStatCardEmphasis : {}),
         borderColor: cardToneStyles.badgeBorder,
         ...(toneBackground ? { background: toneStyles.badgeBg } : {}),
+        ...(onClick ? styles.executiveStatCardClickable : {}),
       }}
     >
       <div style={styles.executiveStatTop}>
@@ -2558,6 +2575,7 @@ function ExecutiveStatCard({
       </div>
 
       {hint ? <div style={styles.executiveStatHint}>{hint}</div> : null}
+      {actionLabel ? <div style={styles.executiveStatAction}>{actionLabel}</div> : null}
     </div>
   );
 }
@@ -2591,6 +2609,14 @@ function HealthStatCard({ label, value, hint, tone = "neutral", badge }) {
 }
 
 function getHealthToneStyles(tone) {
+  if (tone === "ack") {
+    return {
+      valueColor: "#60a5fa",
+      badgeBg: "rgba(37, 99, 235, 0.16)",
+      badgeBorder: "rgba(96, 165, 250, 0.30)",
+    };
+  }
+
   if (tone === "good") {
     return {
       valueColor: "#22c55e",
@@ -2931,7 +2957,7 @@ function DeviceSidebar({
   );
 }
 
-function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
+function NotificationCenter({ alerts, devices, isMobile, storageKey, onOpenDeviceAlerts }) {
   const [open, setOpen] = useState(false);
   const [seenAt, setSeenAt] = useState(0);
   const [clearedAt, setClearedAt] = useState(0);
@@ -3047,7 +3073,19 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
               const sourceDevice = deviceMap.get(item.device_id);
               const level = getAlertLevelInfo(item?.level);
               return (
-                <div key={item.id || `${item.device_id}-${getAlertTimestamp(item)}-${index}`} style={styles.notificationItem}>
+                <button
+                  key={item.id || `${item.device_id}-${getAlertTimestamp(item)}-${index}`}
+                  type="button"
+                  title="Abrir alertas deste dispositivo"
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenDeviceAlerts?.(item.device_id);
+                  }}
+                  style={{
+                    ...styles.notificationItem,
+                    ...styles.notificationItemButton,
+                  }}
+                >
                   <span style={{ ...styles.notificationDot, background: level.color }} />
                   <div style={styles.notificationItemBody}>
                     <div style={styles.notificationItemTop}>
@@ -3072,8 +3110,9 @@ function NotificationCenter({ alerts, devices, isMobile, storageKey }) {
                         ? formatRelativeTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)
                         : formatDateTime(item?.detected_at || item?.event_at || item?.sent_at || item?.created_at)}
                     </span>
+                    <span style={styles.notificationOpenLink}>Abrir alertas →</span>
                   </div>
-                </div>
+                </button>
               );
             }) : <div style={styles.notificationEmpty}>Sem alertas registados.</div>}
           </div>
@@ -5363,7 +5402,16 @@ function downloadPdfReport() {
                 <FileDown size={16} />
                 Relatórios PDF
               </button>
-              <NotificationCenter alerts={dashboardNotifications} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
+              <NotificationCenter
+                alerts={dashboardNotifications}
+                devices={devices}
+                isMobile={isMobile}
+                storageKey={`sts_notifications:${profile?.id || "user"}`}
+                onOpenDeviceAlerts={(deviceId) => {
+                  if (deviceId) setSelectedDeviceId(deviceId);
+                  setActiveDeviceSection("alerts");
+                }}
+              />
               {isSuperAdmin ? (
                 <button
                   onClick={() => router.push("/admin")}
@@ -5506,7 +5554,16 @@ function downloadPdfReport() {
           </div>
 
           <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
-            <NotificationCenter alerts={dashboardNotifications} devices={devices} isMobile={isMobile} storageKey={`sts_notifications:${profile?.id || "user"}`} />
+            <NotificationCenter
+              alerts={dashboardNotifications}
+              devices={devices}
+              isMobile={isMobile}
+              storageKey={`sts_notifications:${profile?.id || "user"}`}
+              onOpenDeviceAlerts={(deviceId) => {
+                if (deviceId) setSelectedDeviceId(deviceId);
+                setActiveDeviceSection("alerts");
+              }}
+            />
             {isSuperAdmin ? (
               <button
                 onClick={() => router.push("/admin")}
@@ -5801,9 +5858,13 @@ function downloadPdfReport() {
                     : t("noActiveAlerts")
                 }
                 icon={Gauge}
+                onClick={() => setActiveDeviceSection("alerts")}
+                actionLabel="Abrir alertas →"
                 tone={
                   effectiveStatus === "OFFLINE"
                     ? "neutral"
+                    : String(effectiveStatus).toLowerCase().includes("ack")
+                    ? "ack"
                     : String(effectiveStatus).toLowerCase().match(/alarm|critical/)
                     ? "bad"
                     : String(effectiveStatus).toLowerCase().includes("alert")
@@ -6798,6 +6859,7 @@ function downloadPdfReport() {
                 }
                 icon={Wrench}
               />
+              <InfoItem label="Aplicação" value={APP_VERSION_LABEL} icon={LayoutDashboard} />
               <InfoItem label={t("configVersion")} value={device?.config_version ?? "-"} icon={Settings} />
               <InfoItem label={t("lastUpdate")} value={formatDateTime(device?.updated_at || device?.last_seen)} icon={Clock} />
             </div>
@@ -7498,6 +7560,20 @@ const styles = {
     borderBottom: "1px solid rgba(148, 163, 184, 0.10)",
   },
 
+  notificationItemButton: {
+    width: "100%",
+    margin: 0,
+    borderTop: 0,
+    borderRight: 0,
+    borderLeft: 0,
+    background: "transparent",
+    color: "inherit",
+    textAlign: "left",
+    font: "inherit",
+    cursor: "pointer",
+    transition: "background 160ms ease",
+  },
+
   notificationDot: {
     width: "9px",
     height: "9px",
@@ -7539,6 +7615,14 @@ const styles = {
     color: "var(--sts-muted)",
     fontSize: "10px",
     fontWeight: 700,
+  },
+
+  notificationOpenLink: {
+    marginTop: "3px",
+    color: "#5eead4",
+    fontSize: "10px",
+    fontWeight: 900,
+    letterSpacing: "0.02em",
   },
 
   notificationEmpty: {
@@ -8477,6 +8561,16 @@ const styles = {
   executiveStatCardEmphasis: {
     minHeight: "154px",
     background: "linear-gradient(135deg, rgba(20,184,166,0.10), var(--sts-surface-soft))",
+  },
+
+  executiveStatCardClickable: {
+    cursor: "pointer",
+  },
+
+  executiveStatAction: {
+    color: "#5eead4",
+    fontSize: "11px",
+    fontWeight: 900,
   },
 
   executiveStatTop: {
