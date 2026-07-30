@@ -1377,8 +1377,14 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
         bucket.latestTimestamp !== null
           ? new Date(bucket.latestTimestamp).toISOString()
           : bucket.created_at,
-      temperature: bucket.temperature !== null ? Number(bucket.temperature.toFixed(2)) : null,
-      humidity: bucket.humidity !== null ? Number(bucket.humidity.toFixed(2)) : null,
+      temperature:
+        bucket.offlineTemperature === null && bucket.temperature !== null
+          ? Number(bucket.temperature.toFixed(2))
+          : null,
+      humidity:
+        bucket.offlineHumidity === null && bucket.humidity !== null
+          ? Number(bucket.humidity.toFixed(2))
+          : null,
       temperature_offline:
         bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
       humidity_offline:
