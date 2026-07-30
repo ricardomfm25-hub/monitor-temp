@@ -305,6 +305,14 @@ const I18N = {
     chartExtremeDotsText: "Minimum and maximum in the selected period.",
     chartAxes: "Grid and time axis",
     chartAxesText: "Time horizontally; measured value vertically.",
+    preparingDevice: "Preparing device",
+    preparingDeviceHint: "The dashboard will open when everything is synchronized.",
+    syncingOverview: "Current status and configuration",
+    syncingHistory: "Readings and chart history",
+    syncingAlerts: "Alerts and communication health",
+    syncFailed: "Unable to complete synchronization.",
+    tryAgain: "Try again",
+    returnToSelection: "Return to selection",
   },
   pt: {
     overview: "Visão geral",
@@ -547,6 +555,14 @@ const I18N = {
     chartExtremeDotsText: "Valores mínimo e máximo do período selecionado.",
     chartAxes: "Grelha e eixo temporal",
     chartAxesText: "Tempo na horizontal; valor medido na vertical.",
+    preparingDevice: "A preparar dispositivo",
+    preparingDeviceHint: "A dashboard abre quando estiver tudo sincronizado.",
+    syncingOverview: "Estado atual e configuração",
+    syncingHistory: "Leituras e histórico dos gráficos",
+    syncingAlerts: "Alertas e saúde da comunicação",
+    syncFailed: "Não foi possível concluir a sincronização.",
+    tryAgain: "Tentar novamente",
+    returnToSelection: "Voltar à seleção",
   },
 };
 
@@ -4421,6 +4437,94 @@ function BootScreen() {
   );
 }
 
+function DeviceSyncScreen({
+  deviceName,
+  error,
+  onRetry,
+  onBack,
+  isMobile,
+  themeOverrides,
+  t,
+}) {
+  const syncItems = [
+    t("syncingOverview"),
+    t("syncingHistory"),
+    t("syncingAlerts"),
+  ];
+
+  return (
+    <main
+      style={{
+        ...styles.page,
+        ...(themeOverrides.page || {}),
+        ...(isMobile ? styles.pageMobile : {}),
+      }}
+    >
+      <div style={styles.deviceSyncPage}>
+        <div
+          style={{
+            ...styles.deviceSyncPanel,
+            ...(isMobile ? styles.deviceSyncPanelMobile : {}),
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <Image
+            src={STS_LOGO_SRC}
+            alt="STS"
+            width={124}
+            height={54}
+            priority
+            style={styles.deviceSyncLogo}
+          />
+          <div style={styles.deviceSyncIndicator}>
+            <span style={styles.deviceSyncRing} aria-hidden="true" />
+            <Snowflake size={24} />
+          </div>
+          <div style={styles.deviceSyncCopy}>
+            <span style={styles.deviceHeaderKicker}>{t("preparingDevice")}</span>
+            <h1 style={styles.deviceSyncTitle}>{deviceName}</h1>
+            <p style={styles.deviceSyncSubtitle}>
+              {error ? t("syncFailed") : t("preparingDeviceHint")}
+            </p>
+          </div>
+
+          {!error ? (
+            <div style={styles.deviceSyncChecklist}>
+              {syncItems.map((item) => (
+                <div key={item} style={styles.deviceSyncChecklistItem}>
+                  <span style={styles.deviceSyncChecklistPulse} />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.deviceSyncError}>{error}</div>
+          )}
+
+          {error ? (
+            <div
+              style={{
+                ...styles.deviceSyncActions,
+                gridTemplateColumns: isMobile
+                  ? "1fr"
+                  : "repeat(2, minmax(0, 1fr))",
+              }}
+            >
+              <button type="button" onClick={onBack} style={styles.collapseButton}>
+                {t("returnToSelection")}
+              </button>
+              <button type="button" onClick={onRetry} style={styles.primaryButton}>
+                {t("tryAgain")}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </main>
+  );
+}
+
 async function fetchJsonOrThrow(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -5217,6 +5321,11 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
       Boolean(selectedDeviceId) &&
       Boolean(device?.device_id) &&
       device.device_id !== selectedDeviceId);
+  const deviceSyncGateActive =
+    initialLoaded &&
+    Boolean(selectedDeviceId) &&
+    (loadState === "deviceSwitchLoading" ||
+      device?.device_id !== selectedDeviceId);
   const backgroundRefreshing =
     loadState === "backgroundRefreshing" && !deviceSwitchLoading;
   const deviceDisplayName =
@@ -6027,6 +6136,37 @@ function downloadPdfReport() {
 
   if (loading && !initialLoaded) {
     return <BootScreen />;
+  }
+
+  if (deviceSyncGateActive) {
+    const selectedDeviceSummary = devices.find(
+      (item) => item.device_id === selectedDeviceId
+    );
+
+    return (
+      <DeviceSyncScreen
+        deviceName={
+          selectedDeviceSummary?.name ||
+          selectedDeviceSummary?.device_id ||
+          selectedDeviceId
+        }
+        error={loadState === "error" ? lastRefreshError || pageError : ""}
+        isMobile={isMobile}
+        themeOverrides={themeOverrides}
+        t={t}
+        onRetry={() => loadData({ syncForms: true })}
+        onBack={() => {
+          setSelectedDeviceId(null);
+          setDevice(null);
+          setDeviceOverview(null);
+          setReadings([]);
+          setAlerts([]);
+          setLoadState("loaded");
+          setLastRefreshError("");
+          setPageError("");
+        }}
+      />
+    );
   }
 
   return (
@@ -8602,6 +8742,128 @@ const styles = {
     color: "var(--sts-muted-strong)",
     fontSize: "12px",
     fontWeight: 700,
+  },
+
+  deviceSyncPage: {
+    minHeight: "calc(100vh - 48px)",
+    display: "grid",
+    placeItems: "center",
+    padding: "24px",
+  },
+
+  deviceSyncPanel: {
+    width: "min(100%, 590px)",
+    display: "grid",
+    justifyItems: "center",
+    gap: "18px",
+    padding: "34px",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "24px",
+    background:
+      "linear-gradient(145deg, color-mix(in srgb, var(--sts-surface) 96%, transparent), color-mix(in srgb, var(--sts-surface-soft) 92%, transparent))",
+    boxShadow: "0 28px 80px rgba(2, 8, 23, 0.20)",
+    textAlign: "center",
+  },
+
+  deviceSyncPanelMobile: {
+    padding: "26px 18px",
+    borderRadius: "19px",
+  },
+
+  deviceSyncLogo: {
+    width: "124px",
+    height: "54px",
+    objectFit: "contain",
+  },
+
+  deviceSyncIndicator: {
+    position: "relative",
+    width: "64px",
+    height: "64px",
+    display: "grid",
+    placeItems: "center",
+    color: "var(--sts-accent)",
+  },
+
+  deviceSyncRing: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "50%",
+    border: "3px solid color-mix(in srgb, var(--sts-accent) 18%, transparent)",
+    borderTopColor: "var(--sts-accent)",
+    animation: "spin 0.9s linear infinite",
+  },
+
+  deviceSyncCopy: {
+    display: "grid",
+    justifyItems: "center",
+    gap: "7px",
+  },
+
+  deviceSyncTitle: {
+    margin: 0,
+    color: "var(--sts-text)",
+    fontSize: "clamp(24px, 4vw, 34px)",
+    lineHeight: 1.1,
+    fontWeight: 950,
+  },
+
+  deviceSyncSubtitle: {
+    maxWidth: "430px",
+    margin: 0,
+    color: "var(--sts-muted)",
+    fontSize: "13px",
+    lineHeight: 1.55,
+    fontWeight: 700,
+  },
+
+  deviceSyncChecklist: {
+    width: "min(100%, 430px)",
+    display: "grid",
+    gap: "8px",
+  },
+
+  deviceSyncChecklistItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "10px 12px",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "12px",
+    background: "var(--sts-surface-soft)",
+    color: "var(--sts-muted-strong)",
+    fontSize: "12px",
+    fontWeight: 750,
+    textAlign: "left",
+  },
+
+  deviceSyncChecklistPulse: {
+    width: "8px",
+    height: "8px",
+    flex: "0 0 8px",
+    borderRadius: "50%",
+    background: "var(--sts-accent)",
+    boxShadow:
+      "0 0 0 4px color-mix(in srgb, var(--sts-accent) 12%, transparent)",
+    animation: "stsSoftPulse 1.3s ease-in-out infinite",
+  },
+
+  deviceSyncError: {
+    width: "min(100%, 430px)",
+    padding: "11px 13px",
+    border: "1px solid rgba(239, 68, 68, 0.28)",
+    borderRadius: "12px",
+    background: "rgba(239, 68, 68, 0.08)",
+    color: "#f87171",
+    fontSize: "12px",
+    lineHeight: 1.5,
+    fontWeight: 750,
+  },
+
+  deviceSyncActions: {
+    width: "min(100%, 430px)",
+    display: "grid",
+    gap: "10px",
   },
 
   deviceWorkspace: {

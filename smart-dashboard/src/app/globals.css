@@ -139,6 +139,18 @@ textarea {
   }
 }
 
+@keyframes stsSoftPulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;
