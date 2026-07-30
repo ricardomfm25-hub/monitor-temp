@@ -730,7 +730,7 @@ function isOfflineCapturedReading(incoming, cfg) {
   }
 
   if (incoming.captured_offline !== undefined && incoming.captured_offline !== null) {
-    return toBoolean(incoming.captured_offline);
+    if (toBoolean(incoming.captured_offline)) return true;
   }
 
   const deliveryAttempts = toOptionalNumber(incoming.delivery_attempts) || 0;
@@ -741,7 +741,7 @@ function isOfflineCapturedReading(incoming, cfg) {
       ? Number(cfg.send_interval_s) * 1000
       : 60 * 1000;
 
-  if (deliveryAttempts > 1) return true;
+  if (deliveryAttempts > 0) return true;
   if (sampleAgeS !== null && sampleAgeS * 1000 > Math.max(expectedMs, 60 * 1000)) {
     return true;
   }
@@ -3273,13 +3273,14 @@ app.post("/api/temperature", async (req, res) => {
     };
     const { queued_backfill: _queuedBackfill, ...persistedReadingMeta } =
       incomingReadingMeta;
+    const shouldMarkOfflineCaptured = isOfflineCapturedReading(
+      incomingReadingMeta,
+      cfg
+    );
     const enrichedReadingPayload = {
       ...readingPayload,
       ...persistedReadingMeta,
-      offline_captured:
-        incomingReadingMeta.captured_offline === null
-          ? false
-          : incomingReadingMeta.captured_offline,
+      offline_captured: shouldMarkOfflineCaptured,
       wifi_rssi: receivedCommunicationDiagnostics.wifi_rssi,
       post_ok_count: receivedCommunicationDiagnostics.post_ok_count,
       post_fail_count: receivedCommunicationDiagnostics.post_fail_count,
@@ -3299,7 +3300,7 @@ app.post("/api/temperature", async (req, res) => {
       incomingCreatedTs + 1000 < existingLastSeenTs;
     const isHistoricalBackfill =
       Boolean(existingDeviceRow) &&
-      (isOfflineCapturedReading(incomingReadingMeta, cfg) || isQueuedOlderThanCurrent);
+      (shouldMarkOfflineCaptured || isQueuedOlderThanCurrent);
 
     failureStage = "validar_cadencia";
     let { data: latestReadingForRate, error: latestReadingForRateError } =
@@ -3349,14 +3350,37 @@ app.post("/api/temperature", async (req, res) => {
           isMissingReadingTelemetryColumnError(insertReadingsResult.error) ||
           isMissingReadingOperationalColumnError(insertReadingsResult.error)
         ) {
-          const fallbackInsertResult = await supabase.from("readings").insert([
-            {
-              device_id,
-              temperature: numericTemperature,
-              humidity: numericHumidity,
-              created_at: readingCreatedAt,
-            },
-          ]);
+          // Communication metrics are optional. Preserve capture time, queue,
+          // offline, alarm and exterior metadata when an older database has not
+          // yet received the communication-diagnostics migration.
+          const compatibleReadingPayload = { ...enrichedReadingPayload };
+          [
+            "wifi_rssi",
+            "post_ok_count",
+            "post_fail_count",
+            "buffer_count",
+            "wifi_reconnect_count",
+            "last_http_status",
+          ].forEach((key) => delete compatibleReadingPayload[key]);
+
+          let fallbackInsertResult = await supabase
+            .from("readings")
+            .insert([compatibleReadingPayload]);
+
+          if (
+            fallbackInsertResult.error &&
+            (isMissingReadingTelemetryColumnError(fallbackInsertResult.error) ||
+              isMissingReadingOperationalColumnError(fallbackInsertResult.error))
+          ) {
+            fallbackInsertResult = await supabase.from("readings").insert([
+              {
+                device_id,
+                temperature: numericTemperature,
+                humidity: numericHumidity,
+                created_at: readingCreatedAt,
+              },
+            ]);
+          }
 
           if (fallbackInsertResult.error) {
             console.error("Erro ao inserir reading:", fallbackInsertResult.error);

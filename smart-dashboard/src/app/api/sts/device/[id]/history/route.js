@@ -210,7 +210,10 @@ export async function GET(request, context) {
           row.last_http_status === null || row.last_http_status === undefined
             ? null
             : Number(row.last_http_status),
-        offline_captured: toBoolean(row.offline_captured),
+        offline_captured:
+          row.offline_captured === null || row.offline_captured === undefined
+            ? null
+            : toBoolean(row.offline_captured),
       }))
       .filter((row) => Number.isFinite(row.timestamp));
 

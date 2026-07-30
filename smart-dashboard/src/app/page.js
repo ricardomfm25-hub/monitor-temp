@@ -291,6 +291,20 @@ const I18N = {
     lastReportedNetwork: "Last reported network",
     currentConnection: "Current connection",
     signalQuality: "Signal quality",
+    chartGuideTitle: "How to read the charts",
+    chartGuideHint: "Expand the visual guide",
+    chartOnlineLine: "Blue solid line",
+    chartOnlineLineText: "Readings delivered normally while communication was available.",
+    chartOfflineLine: "Red solid line and dots",
+    chartOfflineLineText: "Readings captured during a communication interruption and delivered after reconnection. They appear only in the corresponding capture period.",
+    chartMinLimit: "Orange dashed line",
+    chartMinLimitText: "Configured minimum operating limit.",
+    chartMaxLimit: "Red dashed line",
+    chartMaxLimitText: "Configured maximum operating limit.",
+    chartExtremeDots: "Yellow and pink dots",
+    chartExtremeDotsText: "Minimum and maximum values within the selected display period.",
+    chartAxes: "Grid and time axis",
+    chartAxesText: "The horizontal axis represents the selected period; the vertical axis represents the measured value.",
   },
   pt: {
     overview: "Visão geral",
@@ -519,6 +533,20 @@ const I18N = {
     lastReportedNetwork: "Última rede comunicada",
     currentConnection: "Ligação atual",
     signalQuality: "Qualidade do sinal",
+    chartGuideTitle: "Como interpretar os gráficos",
+    chartGuideHint: "Expandir guia visual",
+    chartOnlineLine: "Linha azul contínua",
+    chartOnlineLineText: "Leituras entregues normalmente enquanto existia comunicação.",
+    chartOfflineLine: "Linha e pontos vermelhos contínuos",
+    chartOfflineLineText: "Leituras captadas durante uma interrupção de comunicação e entregues após a reconexão. Aparecem apenas no período correspondente à captura.",
+    chartMinLimit: "Linha laranja tracejada",
+    chartMinLimitText: "Limite mínimo de funcionamento configurado.",
+    chartMaxLimit: "Linha vermelha tracejada",
+    chartMaxLimitText: "Limite máximo de funcionamento configurado.",
+    chartExtremeDots: "Pontos amarelo e rosa",
+    chartExtremeDotsText: "Valores mínimo e máximo dentro do período de visualização selecionado.",
+    chartAxes: "Grelha e eixo temporal",
+    chartAxesText: "O eixo horizontal representa o período selecionado; o eixo vertical representa o valor medido.",
   },
 };
 
@@ -926,7 +954,7 @@ function getDeviceEffectiveStatus(device) {
 
 function isOfflineCapturedReading(reading, sendIntervalS) {
   const explicitOffline = parseBoolean(reading?.offline_captured);
-  if (explicitOffline !== null) return explicitOffline;
+  if (explicitOffline === true) return true;
 
   const deliveryAttempts = parseNumber(reading?.delivery_attempts) || 0;
   const sampleAgeS = parseNumber(reading?.sample_age_s);
@@ -937,7 +965,7 @@ function isOfflineCapturedReading(reading, sendIntervalS) {
       : 60 * 1000;
   const delayedMs = Math.max(expectedMs, 60 * 1000);
 
-  if (deliveryAttempts > 1) return true;
+  if (deliveryAttempts > 0) return true;
   if (sampleAgeS !== null && sampleAgeS * 1000 > delayedMs) return true;
 
   if (sampleEpoch !== null && sampleEpoch > 1700000000) {
@@ -2611,6 +2639,49 @@ function getAlertTimestamp(item) {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+function getOfflineCaptureWindows(alerts, offlineAlertAfterMin) {
+  const thresholdMs = Math.max(
+    0,
+    (Number(offlineAlertAfterMin) || 0) * 60 * 1000
+  );
+  const ordered = [...(alerts || [])]
+    .filter((item) => String(item?.type || "").toLowerCase() === "offline")
+    .sort((a, b) => getAlertTimestamp(a) - getAlertTimestamp(b));
+  const windows = [];
+  let activeStart = null;
+
+  for (const item of ordered) {
+    const timestamp = getAlertTimestamp(item);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+
+    const descriptor = `${item?.title || ""} ${item?.message || ""}`.toLowerCase();
+    const isRecovery =
+      descriptor.includes("novamente online") ||
+      descriptor.includes("voltou a comunicar") ||
+      descriptor.includes("back online") ||
+      descriptor.includes("resumed communication");
+    const isOfflineStart =
+      !isRecovery &&
+      (descriptor.includes("dispositivo offline") ||
+        descriptor.includes("deixou de comunicar") ||
+        descriptor.includes("device offline") ||
+        descriptor.includes("stopped communicating"));
+
+    if (isOfflineStart) {
+      activeStart = Math.max(0, timestamp - thresholdMs);
+    } else if (isRecovery && activeStart !== null) {
+      windows.push({ start: activeStart, end: timestamp });
+      activeStart = null;
+    }
+  }
+
+  if (activeStart !== null) {
+    windows.push({ start: activeStart, end: Date.now() });
+  }
+
+  return windows;
+}
+
 function getAlertDedupeKey(item) {
   const bucket = Math.floor(getAlertTimestamp(item) / 120000);
   return [
@@ -4249,6 +4320,68 @@ function DataChart({
   );
 }
 
+function ChartVisualGuide({ t }) {
+  const items = [
+    {
+      swatch: "online",
+      title: t("chartOnlineLine"),
+      text: t("chartOnlineLineText"),
+    },
+    {
+      swatch: "offline",
+      title: t("chartOfflineLine"),
+      text: t("chartOfflineLineText"),
+    },
+    {
+      swatch: "minLimit",
+      title: t("chartMinLimit"),
+      text: t("chartMinLimitText"),
+    },
+    {
+      swatch: "maxLimit",
+      title: t("chartMaxLimit"),
+      text: t("chartMaxLimitText"),
+    },
+    {
+      swatch: "extremes",
+      title: t("chartExtremeDots"),
+      text: t("chartExtremeDotsText"),
+    },
+    {
+      swatch: "axis",
+      title: t("chartAxes"),
+      text: t("chartAxesText"),
+    },
+  ];
+
+  return (
+    <details style={styles.chartGuide}>
+      <summary style={styles.chartGuideSummary}>
+        <span style={styles.chartGuideSummaryText}>
+          <strong>{t("chartGuideTitle")}</strong>
+          <small>{t("chartGuideHint")}</small>
+        </span>
+      </summary>
+      <div style={styles.chartGuideGrid}>
+        {items.map((item) => (
+          <div key={item.swatch} style={styles.chartGuideItem}>
+            <span
+              style={{
+                ...styles.chartGuideSwatch,
+                ...styles[`chartGuideSwatch_${item.swatch}`],
+              }}
+            />
+            <span style={styles.chartGuideText}>
+              <strong>{item.title}</strong>
+              <small>{item.text}</small>
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function BootScreen() {
   return (
     <main style={styles.bootPage}>
@@ -4775,7 +4908,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               sample_age_s: parseNumber(item.sample_age_s),
               sample_epoch: parseNumber(item.sample_epoch),
               delivery_attempts: parseNumber(item.delivery_attempts),
-              offline_captured: parseBoolean(item.offline_captured) === true,
+              offline_captured: parseBoolean(item.offline_captured),
               timestamp: Number.isFinite(timestamp) ? timestamp : null,
             };
           })
@@ -5026,6 +5159,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
   const hystHum = parseNumber(config?.hyst_hum);
   const sendIntervalS = parseNumber(config?.send_interval_s);
   const displayStandbyMin = parseNumber(config?.display_standby_min);
+  const offlineAlertAfterMin = parseNumber(config?.offline_alert_after_min);
   const canEditTechnicalConfig =
     isSuperAdmin ||
     (canEditSelectedDevice && Boolean(config?.client_can_edit_technical));
@@ -5035,12 +5169,33 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     [readings, device]
   );
 
+  const chartSourceReadings = useMemo(() => {
+    const offlineWindows = getOfflineCaptureWindows(
+      alerts,
+      offlineAlertAfterMin
+    );
+    if (!offlineWindows.length) return liveReadings;
+
+    return liveReadings.map((item) => {
+      if (isOfflineCapturedReading(item, sendIntervalS)) return item;
+      const timestamp = Number(item?.timestamp);
+      const fallsInsideOfflineWindow =
+        Number.isFinite(timestamp) &&
+        offlineWindows.some(
+          (window) => timestamp >= window.start && timestamp <= window.end
+        );
+
+      return fallsInsideOfflineWindow
+        ? { ...item, offline_captured: true, offline_inferred: true }
+        : item;
+    });
+  }, [alerts, liveReadings, offlineAlertAfterMin, sendIntervalS]);
+
   const chartReadings = useMemo(
-    () => buildTimeSeries(liveReadings, period, sendIntervalS),
-    [liveReadings, period, sendIntervalS]
+    () => buildTimeSeries(chartSourceReadings, period, sendIntervalS),
+    [chartSourceReadings, period, sendIntervalS]
   );
 
-  const offlineAlertAfterMin = parseNumber(config?.offline_alert_after_min);
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin);
   const statusInfo = getStatusInfo(effectiveStatus);
   const deviceSwitchLoading =
@@ -6869,6 +7024,7 @@ function downloadPdfReport() {
             language={language}
           />
         </section>
+        {activeDeviceSection === "charts" ? <ChartVisualGuide t={t} /> : null}
         <section
           style={{
             ...styles.card,
@@ -10183,6 +10339,89 @@ const styles = {
     transform: "rotate(45deg)",
     boxShadow: "0 0 12px rgba(249,115,22,0.4)",
     flex: "0 0 auto",
+  },
+
+  chartGuide: {
+    padding: "0",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "16px",
+    background: "var(--sts-surface)",
+    overflow: "hidden",
+  },
+
+  chartGuideSummary: {
+    padding: "15px 17px",
+    color: "var(--sts-text)",
+    cursor: "pointer",
+    userSelect: "none",
+  },
+
+  chartGuideSummaryText: {
+    display: "inline-grid",
+    gap: "3px",
+  },
+
+  chartGuideGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(245px, 1fr))",
+    gap: "10px",
+    padding: "2px 16px 16px",
+  },
+
+  chartGuideItem: {
+    minWidth: 0,
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "11px",
+    padding: "11px",
+    border: "1px solid var(--sts-border)",
+    borderRadius: "12px",
+    background: "var(--sts-surface-soft)",
+  },
+
+  chartGuideText: {
+    minWidth: 0,
+    display: "grid",
+    gap: "3px",
+    color: "var(--sts-text)",
+    fontSize: "12px",
+  },
+
+  chartGuideSwatch: {
+    position: "relative",
+    width: "34px",
+    height: "14px",
+    flex: "0 0 34px",
+    marginTop: "2px",
+    borderTop: "3px solid #3b82f6",
+  },
+
+  chartGuideSwatch_online: {
+    borderTopColor: "#3b82f6",
+  },
+
+  chartGuideSwatch_offline: {
+    borderTopColor: "#ef4444",
+    boxShadow: "8px -5px 0 -4px #ef4444, 24px -5px 0 -4px #ef4444",
+  },
+
+  chartGuideSwatch_minLimit: {
+    borderTop: "2px dashed #f59e0b",
+  },
+
+  chartGuideSwatch_maxLimit: {
+    borderTop: "2px dashed #ef4444",
+  },
+
+  chartGuideSwatch_extremes: {
+    borderTop: 0,
+    background:
+      "radial-gradient(circle at 9px 7px, #facc15 0 4px, transparent 5px), radial-gradient(circle at 25px 7px, #fb7185 0 4px, transparent 5px)",
+  },
+
+  chartGuideSwatch_axis: {
+    borderTop: "1px dashed var(--sts-muted)",
+    borderBottom: "1px dashed var(--sts-muted)",
   },
 
   chartWrap: {
