@@ -290,6 +290,12 @@ function getDiagnostics(device, config) {
       diagnostics.wifi_rssi ??
       diagnostics.rssi_dbm ??
       null,
+    wifi_ssid:
+      communicationDiagnostics.wifi_ssid ??
+      communicationDiagnostics.ssid ??
+      device?.wifi_ssid ??
+      diagnostics.wifi_ssid ??
+      null,
     buffer_count: communicationDiagnostics.buffer_count ?? null,
     post_ok_count: communicationDiagnostics.post_ok_count ?? null,
     post_fail_count: communicationDiagnostics.post_fail_count ?? null,

@@ -615,8 +615,20 @@ function normalizeCommunicationDiagnostics(value, fallback = {}) {
     }
     return previous[canonicalKey] ?? previous[legacyKey] ?? null;
   };
+  const textAlias = (canonicalKey, legacyKey, maxLength = 64) => {
+    const raw =
+      source[canonicalKey] !== undefined
+        ? source[canonicalKey]
+        : source[legacyKey] !== undefined
+        ? source[legacyKey]
+        : previous[canonicalKey] ?? previous[legacyKey] ?? null;
+    if (raw === null || raw === undefined) return null;
+    const text = String(raw);
+    return text.length ? text.slice(0, maxLength) : null;
+  };
 
   const wifiRssi = numericAlias("wifi_rssi", "rssi_dbm");
+  const wifiSsid = textAlias("wifi_ssid", "ssid");
   let wifiQuality = "unknown";
   if (wifiRssi !== null) {
     if (wifiRssi >= -55) wifiQuality = "excellent";
@@ -627,6 +639,7 @@ function normalizeCommunicationDiagnostics(value, fallback = {}) {
 
   return {
     wifi_rssi: wifiRssi,
+    wifi_ssid: wifiSsid,
     wifi_quality: wifiQuality,
     post_ok_count: numeric("post_ok_count"),
     post_fail_count: numeric("post_fail_count"),
@@ -3116,6 +3129,8 @@ app.post("/api/temperature", async (req, res) => {
       communication_diagnostics,
       wifi_rssi,
       rssi_dbm,
+      wifi_ssid,
+      ssid,
       post_ok_count,
       post_fail_count,
       buffer_count,
@@ -3184,19 +3199,36 @@ app.post("/api/temperature", async (req, res) => {
       cfg.hardware_diagnostics
     );
     const receivedCommunicationDiagnostics = normalizeCommunicationDiagnostics(
-      communication_diagnostics || {
-        wifi_rssi: wifi_rssi ?? rssi_dbm,
-        post_ok_count,
-        post_fail_count,
-        buffer_count,
-        buffer_dropped_count,
-        wifi_reconnect_count: wifi_reconnect_count ?? wifi_reconnects,
-        last_http_status,
-        boot_count,
-        reset_reason,
-        clock_synced,
-        clock_sync_age_s,
-        free_heap,
+      {
+        ...(communication_diagnostics || {}),
+        wifi_rssi:
+          communication_diagnostics?.wifi_rssi ??
+          communication_diagnostics?.rssi_dbm ??
+          wifi_rssi ??
+          rssi_dbm,
+        wifi_ssid:
+          communication_diagnostics?.wifi_ssid ??
+          communication_diagnostics?.ssid ??
+          wifi_ssid ??
+          ssid,
+        post_ok_count: communication_diagnostics?.post_ok_count ?? post_ok_count,
+        post_fail_count: communication_diagnostics?.post_fail_count ?? post_fail_count,
+        buffer_count: communication_diagnostics?.buffer_count ?? buffer_count,
+        buffer_dropped_count:
+          communication_diagnostics?.buffer_dropped_count ?? buffer_dropped_count,
+        wifi_reconnect_count:
+          communication_diagnostics?.wifi_reconnect_count ??
+          communication_diagnostics?.wifi_reconnects ??
+          wifi_reconnect_count ??
+          wifi_reconnects,
+        last_http_status:
+          communication_diagnostics?.last_http_status ?? last_http_status,
+        boot_count: communication_diagnostics?.boot_count ?? boot_count,
+        reset_reason: communication_diagnostics?.reset_reason ?? reset_reason,
+        clock_synced: communication_diagnostics?.clock_synced ?? clock_synced,
+        clock_sync_age_s:
+          communication_diagnostics?.clock_sync_age_s ?? clock_sync_age_s,
+        free_heap: communication_diagnostics?.free_heap ?? free_heap,
       },
       cfg.communication_diagnostics
     );

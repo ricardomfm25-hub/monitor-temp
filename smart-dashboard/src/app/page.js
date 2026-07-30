@@ -284,6 +284,13 @@ const I18N = {
     valueLabel: "Value",
     offlineCapturedReading: "Reading captured offline",
     notes: "Notes",
+    networkConnection: "Network connection",
+    networkConnectionHint: "Current Wi-Fi information reported by the device",
+    connectedNetwork: "Connected network",
+    networkNotReported: "Network not reported",
+    lastReportedNetwork: "Last reported network",
+    currentConnection: "Current connection",
+    signalQuality: "Signal quality",
   },
   pt: {
     overview: "Visão geral",
@@ -505,6 +512,13 @@ const I18N = {
     valueLabel: "Valor",
     offlineCapturedReading: "Leitura captada offline",
     notes: "Obs.",
+    networkConnection: "Ligação de rede",
+    networkConnectionHint: "Informação Wi-Fi atual comunicada pelo dispositivo",
+    connectedNetwork: "Rede ligada",
+    networkNotReported: "Rede não comunicada",
+    lastReportedNetwork: "Última rede comunicada",
+    currentConnection: "Ligação atual",
+    signalQuality: "Qualidade do sinal",
   },
 };
 
@@ -5330,6 +5344,17 @@ const communicationHealth = useMemo(
     parseNumber(device?.rssi_dbm) ??
     parseNumber(deviceOverview?.communication_diagnostics?.wifi_rssi) ??
     parseNumber(deviceOverview?.communication_diagnostics?.rssi_dbm);
+  const currentWifiSsidRaw =
+    deviceOverview?.wifi_ssid ??
+    deviceOverview?.communication_diagnostics?.wifi_ssid ??
+    deviceOverview?.communication_diagnostics?.ssid ??
+    device?.wifi_ssid ??
+    device?.communication_diagnostics?.wifi_ssid ??
+    null;
+  const currentWifiSsid =
+    currentWifiSsidRaw === null || currentWifiSsidRaw === undefined
+      ? null
+      : String(currentWifiSsidRaw);
   const currentWifiTone = isDeviceOffline || currentWifiRssi === null
     ? "neutral"
     : currentWifiRssi >= -67
@@ -7050,6 +7075,41 @@ function downloadPdfReport() {
 
             <div style={styles.readOnlyBadge}>
               {canEditSelectedDevice ? t("editable") : t("readOnly")}
+            </div>
+          </div>
+
+          <div style={styles.settingsSection}>
+            <div style={styles.settingsSectionHeader}>
+              <div style={styles.settingsSectionIcon}><Wifi size={18} /></div>
+              <div>
+                <div style={styles.settingsSectionTitle}>{t("networkConnection")}</div>
+                <div style={styles.cardHint}>{t("networkConnectionHint")}</div>
+              </div>
+            </div>
+            <div
+              style={{
+                ...styles.settingsMetricGrid,
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              }}
+            >
+              <div style={styles.settingsMetricCard}>
+                <div style={styles.settingsMetricTitle}>
+                  <Wifi size={16} /> {t("connectedNetwork")}
+                </div>
+                <div style={styles.settingsNetworkValue}>
+                  {currentWifiSsid || t("networkNotReported")}
+                </div>
+                <div style={styles.settingsNetworkHint}>
+                  {isDeviceOffline ? t("lastReportedNetwork") : t("currentConnection")}
+                </div>
+              </div>
+              <div style={styles.settingsMetricCard}>
+                <div style={styles.settingsMetricTitle}>
+                  <Radio size={16} /> {t("signalQuality")}
+                </div>
+                <div style={styles.settingsNetworkValue}>{currentWifiLabel}</div>
+                <div style={styles.settingsNetworkHint}>{currentWifiHint}</div>
+              </div>
             </div>
           </div>
 
@@ -10440,6 +10500,23 @@ collapseButton: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "10px",
+  },
+
+  settingsNetworkValue: {
+    minHeight: "28px",
+    margin: "0 2px",
+    color: "var(--sts-text)",
+    fontSize: "18px",
+    lineHeight: 1.35,
+    fontWeight: 850,
+    overflowWrap: "anywhere",
+  },
+
+  settingsNetworkHint: {
+    margin: "5px 2px 0",
+    color: "var(--sts-muted)",
+    fontSize: "11px",
+    fontWeight: 700,
   },
 
   inputWithUnit: {
