@@ -292,19 +292,19 @@ const I18N = {
     currentConnection: "Current connection",
     signalQuality: "Signal quality",
     chartGuideTitle: "How to read the charts",
-    chartGuideHint: "Expand the visual guide",
+    chartGuideHint: "Lines, limits and markers",
     chartOnlineLine: "Blue solid line",
-    chartOnlineLineText: "Readings delivered normally while communication was available.",
-    chartOfflineLine: "Red solid line and dots",
-    chartOfflineLineText: "Readings captured during a communication interruption and delivered after reconnection. They appear only in the corresponding capture period.",
+    chartOnlineLineText: "Readings delivered with normal communication.",
+    chartOfflineLine: "Red solid line",
+    chartOfflineLineText: "Readings recovered after a communication interruption.",
     chartMinLimit: "Orange dashed line",
     chartMinLimitText: "Configured minimum operating limit.",
     chartMaxLimit: "Red dashed line",
     chartMaxLimitText: "Configured maximum operating limit.",
     chartExtremeDots: "Yellow and pink dots",
-    chartExtremeDotsText: "Minimum and maximum values within the selected display period.",
+    chartExtremeDotsText: "Minimum and maximum in the selected period.",
     chartAxes: "Grid and time axis",
-    chartAxesText: "The horizontal axis represents the selected period; the vertical axis represents the measured value.",
+    chartAxesText: "Time horizontally; measured value vertically.",
   },
   pt: {
     overview: "Visão geral",
@@ -534,19 +534,19 @@ const I18N = {
     currentConnection: "Ligação atual",
     signalQuality: "Qualidade do sinal",
     chartGuideTitle: "Como interpretar os gráficos",
-    chartGuideHint: "Expandir guia visual",
+    chartGuideHint: "Linhas, limites e marcadores",
     chartOnlineLine: "Linha azul contínua",
-    chartOnlineLineText: "Leituras entregues normalmente enquanto existia comunicação.",
-    chartOfflineLine: "Linha e pontos vermelhos contínuos",
-    chartOfflineLineText: "Leituras captadas durante uma interrupção de comunicação e entregues após a reconexão. Aparecem apenas no período correspondente à captura.",
+    chartOnlineLineText: "Leituras entregues com comunicação normal.",
+    chartOfflineLine: "Linha vermelha contínua",
+    chartOfflineLineText: "Leituras recuperadas após uma interrupção de comunicação.",
     chartMinLimit: "Linha laranja tracejada",
     chartMinLimitText: "Limite mínimo de funcionamento configurado.",
     chartMaxLimit: "Linha vermelha tracejada",
     chartMaxLimitText: "Limite máximo de funcionamento configurado.",
     chartExtremeDots: "Pontos amarelo e rosa",
-    chartExtremeDotsText: "Valores mínimo e máximo dentro do período de visualização selecionado.",
+    chartExtremeDotsText: "Valores mínimo e máximo do período selecionado.",
     chartAxes: "Grelha e eixo temporal",
-    chartAxesText: "O eixo horizontal representa o período selecionado; o eixo vertical representa o valor medido.",
+    chartAxesText: "Tempo na horizontal; valor medido na vertical.",
   },
 };
 
@@ -4273,8 +4273,8 @@ function DataChart({
                   type="linear"
                   dataKey={offlineDataKey}
                   stroke="#ef4444"
-                  strokeWidth={3}
-                  dot={{ r: 3, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
+                  strokeWidth={3.25}
+                  dot={false}
                   activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
                   connectNulls={false}
                   isAnimationActive={false}
@@ -4320,7 +4320,7 @@ function DataChart({
   );
 }
 
-function ChartVisualGuide({ t }) {
+function ChartVisualGuide({ t, isMobile }) {
   const items = [
     {
       swatch: "online",
@@ -4362,7 +4362,14 @@ function ChartVisualGuide({ t }) {
           <small>{t("chartGuideHint")}</small>
         </span>
       </summary>
-      <div style={styles.chartGuideGrid}>
+      <div
+        style={{
+          ...styles.chartGuideGrid,
+          gridTemplateColumns: isMobile
+            ? "1fr"
+            : "repeat(3, minmax(0, 1fr))",
+        }}
+      >
         {items.map((item) => (
           <div key={item.swatch} style={styles.chartGuideItem}>
             <span
@@ -4373,7 +4380,7 @@ function ChartVisualGuide({ t }) {
             />
             <span style={styles.chartGuideText}>
               <strong>{item.title}</strong>
-              <small>{item.text}</small>
+              <small style={styles.chartGuideDescription}>{item.text}</small>
             </span>
           </div>
         ))}
@@ -7024,7 +7031,9 @@ function downloadPdfReport() {
             language={language}
           />
         </section>
-        {activeDeviceSection === "charts" ? <ChartVisualGuide t={t} /> : null}
+        {activeDeviceSection === "charts" ? (
+          <ChartVisualGuide t={t} isMobile={isMobile} />
+        ) : null}
         <section
           style={{
             ...styles.card,
@@ -10363,7 +10372,6 @@ const styles = {
 
   chartGuideGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(245px, 1fr))",
     gap: "10px",
     padding: "2px 16px 16px",
   },
@@ -10384,7 +10392,15 @@ const styles = {
     display: "grid",
     gap: "3px",
     color: "var(--sts-text)",
+    fontSize: "13px",
+    lineHeight: 1.45,
+  },
+
+  chartGuideDescription: {
+    color: "var(--sts-muted)",
     fontSize: "12px",
+    lineHeight: 1.5,
+    fontWeight: 650,
   },
 
   chartGuideSwatch: {
@@ -10401,8 +10417,10 @@ const styles = {
   },
 
   chartGuideSwatch_offline: {
-    borderTopColor: "#ef4444",
-    boxShadow: "8px -5px 0 -4px #ef4444, 24px -5px 0 -4px #ef4444",
+    borderTop: 0,
+    height: "12px",
+    background:
+      "linear-gradient(to bottom, transparent 4px, #ef4444 4px, #ef4444 7px, transparent 7px)",
   },
 
   chartGuideSwatch_minLimit: {
