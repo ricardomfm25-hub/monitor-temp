@@ -1386,7 +1386,7 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     }
   }
 
-  return Array.from(buckets.values())
+  const series = Array.from(buckets.values())
     .map((bucket) => ({
       timestamp: bucket.timestamp,
       created_at:
@@ -1411,6 +1411,36 @@ function buildTimeSeries(readings, periodKey, sendIntervalS) {
     }))
     .filter((item) => item.timestamp >= start && item.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);
+
+  // Give both colour series one shared point at each immediate transition.
+  // This keeps the trace visually continuous without drawing the blue series
+  // underneath the red offline interval.
+  ["temperature", "humidity"].forEach((metricKey) => {
+    const offlineKey = `${metricKey}_offline`;
+
+    for (let index = 1; index < series.length; index += 1) {
+      const previous = series[index - 1];
+      const current = series[index];
+      if (previous.offline_captured === current.offline_captured) continue;
+
+      const previousValue = previous.offline_captured
+        ? parseNumber(previous[offlineKey])
+        : parseNumber(previous[metricKey]);
+      const currentValue = current.offline_captured
+        ? parseNumber(current[offlineKey])
+        : parseNumber(current[metricKey]);
+
+      if (previousValue === null || currentValue === null) continue;
+
+      if (current.offline_captured) {
+        current[metricKey] = currentValue;
+      } else {
+        current[offlineKey] = currentValue;
+      }
+    }
+  });
+
+  return series;
 }
 
 function getXAxisTicks(periodKey) {
