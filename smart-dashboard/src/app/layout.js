@@ -1,9 +1,8 @@
 import "./globals.css";
-import { APP_VERSION_LABEL } from "./version";
 
 export const metadata = {
-  title: `SmartThermoSecure ${APP_VERSION_LABEL}`,
-  description: "Professional IoT monitoring dashboard for temperature and humidity.",
+  title: "SmartTempSystems App",
+  description: "SmartTempSystems monitoring application.",
 };
 
 export const viewport = {
