@@ -1,3 +1,12 @@
 node_modules/
 .npm-cache/
 .env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.bin
+coverage/

@@ -76,9 +76,15 @@ function getHardwareComponentRows(device) {
   return Object.entries(components).map(([key, value]) => ({
     key,
     label: value?.label || key,
-    ok: value?.ok !== false,
+    healthState:
+      value?.health_state ||
+      (value?.ok === true ? "HEALTHY" : value?.ok === false ? "FAULT" : "UNKNOWN"),
+    confidence: value?.diagnostic_confidence || "UNKNOWN",
     detail: Object.entries(value || {})
-      .filter(([itemKey]) => !["label", "ok"].includes(itemKey))
+      .filter(
+        ([itemKey]) =>
+          !["label", "ok", "health_state", "diagnostic_confidence"].includes(itemKey)
+      )
       .map(([itemKey, itemValue]) => `${itemKey}: ${itemValue}`)
       .join(" · "),
   }));
@@ -1088,15 +1094,67 @@ export default function AdminPage() {
       const activeUntil =
         durationMin > 0 ? new Date(now.getTime() + durationMin * 60000).toISOString() : null;
       const currentConfig = selectedDeviceData.config || {};
+      const currentMaintenance = currentConfig.maintenance || {};
+      const actor = profile?.id || profile?.email || "admin";
       const nextConfig = {
         ...currentConfig,
         maintenance: {
+          maintenance_state: durationMin > 0 ? "ACTIVE" : "INACTIVE",
           active_until: activeUntil,
-          started_at: durationMin > 0 ? now.toISOString() : null,
+          started_at: durationMin > 0 ? now.toISOString() : currentMaintenance.started_at || null,
+          ended_at: durationMin > 0 ? null : now.toISOString(),
           duration_min: durationMin > 0 ? durationMin : null,
-          started_by: durationMin > 0 ? profile?.email || profile?.id || "admin" : null,
+          reason:
+            durationMin > 0
+              ? currentMaintenance.reason || "Intervenção técnica programada"
+              : currentMaintenance.reason || "Intervenção técnica concluída",
+          started_by: durationMin > 0 ? actor : currentMaintenance.started_by || null,
+          ended_by: durationMin > 0 ? null : actor,
+          source: "dashboard",
+          notification_policy: {
+            suppress_process_alarms: true,
+            suppress_communication: false,
+            suppress_component_health: false,
+          },
         },
       };
+
+      const maintenanceReason =
+        durationMin > 0
+          ? "Intervenção técnica programada"
+          : "Intervenção técnica concluída";
+      const { error: rpcError } = await supabase.rpc("sts_set_device_maintenance", {
+        p_device_code: selectedDevice,
+        p_duration_min: durationMin,
+        p_reason: maintenanceReason,
+        p_source: "dashboard",
+      });
+      const rpcUnavailable =
+        rpcError && ["42883", "PGRST202", "PGRST204"].includes(String(rpcError.code || ""));
+      if (rpcError && !rpcUnavailable) throw rpcError;
+
+      if (!rpcError) {
+        const { data: refreshed, error: refreshError } = await supabase
+          .from("devices")
+          .select("*")
+          .eq("device_id", selectedDevice)
+          .single();
+        if (refreshError || !refreshed) {
+          throw refreshError || new Error("Manutenção atualizada, mas não foi possível reler o dispositivo.");
+        }
+        setDevices((prev) =>
+          prev.map((item) =>
+            item.device_id === refreshed.device_id ? { ...item, ...refreshed } : item
+          )
+        );
+        setMessage(
+          durationMin > 0
+            ? `Modo manutenção ativo por ${durationMin} minutos. Apenas notificações de processo são suprimidas; comunicação e diagnóstico continuam ativos.`
+            : "Modo manutenção desativado."
+        );
+        setMessageType("success");
+        return;
+      }
 
       const { data, error } = await supabase
         .from("devices")
@@ -1121,7 +1179,7 @@ export default function AdminPage() {
 
       setMessage(
         durationMin > 0
-          ? `Modo manutenção ativo por ${durationMin} minutos. Alertas silenciados.`
+          ? `Modo manutenção ativo por ${durationMin} minutos. Apenas notificações de processo são suprimidas; comunicação e diagnóstico continuam ativos.`
           : "Modo manutenção desativado."
       );
       setMessageType("success");
@@ -2283,14 +2341,31 @@ export default function AdminPage() {
                     key={component.key}
                     style={{
                       ...styles.hardwareItem,
-                      borderColor: component.ok ? "#14532d" : "#7f1d1d",
+                      borderColor:
+                        component.healthState === "HEALTHY"
+                          ? "#14532d"
+                          : component.healthState === "UNKNOWN"
+                            ? "#334155"
+                            : "#7f1d1d",
                     }}
                   >
                     <span style={styles.hardwareLabel}>{component.label}</span>
-                    <strong style={{ color: component.ok ? "#22c55e" : "#ef4444" }}>
-                      {component.ok ? "OK" : "Atenção"}
+                    <strong
+                      style={{
+                        color:
+                          component.healthState === "HEALTHY"
+                            ? "#22c55e"
+                            : component.healthState === "UNKNOWN"
+                              ? "#94a3b8"
+                              : "#ef4444",
+                      }}
+                    >
+                      {component.healthState}
                     </strong>
-                    <small style={styles.hardwareDetail}>{component.detail || component.key}</small>
+                    <small style={styles.hardwareDetail}>
+                      Confiança: {component.confidence}
+                      {component.detail ? ` · ${component.detail}` : ""}
+                    </small>
                   </div>
                 ))
               ) : (

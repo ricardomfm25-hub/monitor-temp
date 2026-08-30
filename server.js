@@ -4,6 +4,17 @@ const { createClient } = require("@supabase/supabase-js");
 const axios = require("axios");
 const cors = require("cors");
 const PDFDocument = require("pdfkit");
+const crypto = require("crypto");
+const {
+  normalizeComponentHealthSnapshot,
+} = require("./src/core/component-health");
+const { deriveDeviceStateSnapshot } = require("./src/core/device-state");
+const {
+  NOTIFICATION_CATEGORIES,
+  isMaintenanceActive: isCoreMaintenanceActive,
+  normalizeMaintenance,
+  notificationDecision,
+} = require("./src/core/maintenance");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,6 +23,20 @@ const API_TOKEN = process.env.API_TOKEN;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const missingRequiredEnv = [
+  ["API_TOKEN", API_TOKEN],
+  ["SUPABASE_URL", SUPABASE_URL],
+  ["SUPABASE_SERVICE_ROLE_KEY", SUPABASE_SERVICE_ROLE_KEY],
+]
+  .filter(([, value]) => !String(value || "").trim())
+  .map(([name]) => name);
+
+if (missingRequiredEnv.length) {
+  throw new Error(
+    `Configuração insegura: variáveis obrigatórias em falta: ${missingRequiredEnv.join(", ")}`
+  );
+}
 
 const TEMP_LIMIT = parseFloat(process.env.TEMP_LIMIT || "25");
 const COOLDOWN_MIN = parseInt(process.env.ALERT_COOLDOWN_MIN || "30", 10);
@@ -44,7 +69,45 @@ const FRONTEND_ORIGINS = [
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
 ].filter(Boolean);
 
-app.use(express.json());
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "64kb", strict: true }));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (req.path.startsWith("/api/")) {
+    res.setHeader("Cache-Control", "no-store");
+  }
+  next();
+});
+
+const apiRateBuckets = new Map();
+const API_RATE_WINDOW_MS = 60 * 1000;
+const API_RATE_MAX_PER_IP = 1200;
+app.use("/api", (req, res, next) => {
+  const now = Date.now();
+  const key = String(req.ip || req.socket?.remoteAddress || "unknown");
+  const current = apiRateBuckets.get(key);
+  if (!current || now - current.startedAt >= API_RATE_WINDOW_MS) {
+    apiRateBuckets.set(key, { startedAt: now, count: 1 });
+    return next();
+  }
+  current.count += 1;
+  if (current.count > API_RATE_MAX_PER_IP) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "Demasiados pedidos" });
+  }
+  return next();
+});
+
+setInterval(() => {
+  const cutoff = Date.now() - API_RATE_WINDOW_MS * 2;
+  for (const [key, bucket] of apiRateBuckets.entries()) {
+    if (bucket.startedAt < cutoff) apiRateBuckets.delete(key);
+  }
+}, API_RATE_WINDOW_MS).unref();
 
 app.use(
   cors({
@@ -66,7 +129,14 @@ function getAuthToken(req) {
 }
 
 function isAuthorized(req) {
-  return getAuthToken(req) === API_TOKEN;
+  const received = getAuthToken(req);
+  if (!received || !API_TOKEN) return false;
+  const receivedBuffer = Buffer.from(String(received), "utf8");
+  const expectedBuffer = Buffer.from(String(API_TOKEN), "utf8");
+  return (
+    receivedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(receivedBuffer, expectedBuffer)
+  );
 }
 
 function nowIso() {
@@ -520,7 +590,7 @@ function validateConfigNumbers(payload) {
 function getDeviceConfig(deviceRow) {
   const cfg = deviceRow?.config || {};
   const alertState = cfg.alert_state || {};
-  const maintenance = cfg.maintenance || {};
+  const maintenance = normalizeMaintenance(cfg.maintenance || {});
 
   return {
     ...cfg,
@@ -535,10 +605,17 @@ function getDeviceConfig(deviceRow) {
     display_standby_min: toNumberOrDefault(cfg.display_standby_min, 10),
     buzzer_enabled: cfg.buzzer_enabled !== false,
     maintenance: {
+      maintenance_state: maintenance.maintenance_state,
       active_until: maintenance.active_until || null,
       started_at: maintenance.started_at || null,
+      ended_at: maintenance.ended_at || null,
       duration_min: toOptionalNumber(maintenance.duration_min),
+      reason: maintenance.reason || null,
       started_by: maintenance.started_by || null,
+      ended_by: maintenance.ended_by || null,
+      source: maintenance.source,
+      audit_event_id: maintenance.audit_event_id || null,
+      notification_policy: maintenance.notification_policy,
     },
     alert_state: {
       temp_active: Boolean(alertState.temp_active),
@@ -567,11 +644,190 @@ function getDeviceConfig(deviceRow) {
   };
 }
 
+function isNormalizedSchemaUnavailable(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    code === "42P01" ||
+    code === "42703" ||
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("could not find the table")
+  );
+}
+
+async function resolveDeviceConfigurationForIngestion(deviceRow, payload) {
+  const deviceUuid = deviceRow?.id;
+  if (!deviceUuid) return null;
+
+  const firmwareVersion =
+    payload?.firmware_version ||
+    payload?.fw_version ||
+    payload?.firmware ||
+    payload?.firmwareVersion ||
+    deviceRow?.firmware_version ||
+    null;
+  const configVersion = toOptionalNumber(deviceRow?.config_version);
+
+  const { data: current, error: currentError } = await supabase
+    .from("device_configurations")
+    .select("id, firmware_version, hardware_version, config_version")
+    .eq("device_id", deviceUuid)
+    .is("effective_to", null)
+    .maybeSingle();
+
+  if (currentError) {
+    if (isNormalizedSchemaUnavailable(currentError)) return null;
+    throw currentError;
+  }
+
+  const sameConfiguration =
+    current &&
+    String(current.firmware_version || "") === String(firmwareVersion || "") &&
+    String(current.hardware_version || "") === String(deviceRow?.hardware_version || "") &&
+    Number(current.config_version || 0) === Number(configVersion || 0);
+
+  if (sameConfiguration) return current.id;
+
+  const changedAt = nowIso();
+  if (current?.id) {
+    const { error: closeError } = await supabase
+      .from("device_configurations")
+      .update({ effective_to: changedAt })
+      .eq("id", current.id)
+      .is("effective_to", null);
+    if (closeError) throw closeError;
+  }
+
+  const { data: created, error: createError } = await supabase
+    .from("device_configurations")
+    .insert([{
+      device_id: deviceUuid,
+      effective_from: changedAt,
+      firmware_version: firmwareVersion,
+      hardware_version: deviceRow?.hardware_version || null,
+      config_version: configVersion,
+      configuration: deviceRow?.config || {},
+      reason: current ? "configuration_changed" : "first_normalized_ingestion",
+    }])
+    .select("id")
+    .single();
+
+  if (createError) throw createError;
+  return created?.id || null;
+}
+
+async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
+  if (!deviceRow?.id) {
+    return { stored: false, reason: "device_uuid_unavailable" };
+  }
+
+  try {
+    const configurationId = await resolveDeviceConfigurationForIngestion(
+      deviceRow,
+      payload
+    );
+    const rawPayload = payload && typeof payload === "object" ? payload : {};
+    const payloadSha256 = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(rawPayload))
+      .digest("hex");
+    const batchPayload = {
+      device_id: deviceRow.id,
+      telemetry_seq: toOptionalNumber(rawPayload.telemetry_seq),
+      recorded_at: recordedAt,
+      device_configuration_id: configurationId,
+      firmware_version:
+        rawPayload.firmware_version ||
+        rawPayload.fw_version ||
+        rawPayload.firmware ||
+        rawPayload.firmwareVersion ||
+        deviceRow.firmware_version ||
+        null,
+      transport: "https",
+      raw_payload: rawPayload,
+      payload_sha256: payloadSha256,
+    };
+
+    let { data: batch, error: batchError } = await supabase
+      .from("ingestion_batches")
+      .insert([batchPayload])
+      .select("id")
+      .single();
+
+    if (batchError?.code === "23505" && batchPayload.telemetry_seq !== null) {
+      const existingBatch = await supabase
+        .from("ingestion_batches")
+        .select("id")
+        .eq("device_id", deviceRow.id)
+        .eq("telemetry_seq", batchPayload.telemetry_seq)
+        .maybeSingle();
+      batch = existingBatch.data;
+      batchError = existingBatch.error;
+    }
+
+    if (batchError) {
+      if (isNormalizedSchemaUnavailable(batchError)) {
+        return { stored: false, reason: "normalized_schema_not_deployed" };
+      }
+      throw batchError;
+    }
+
+    const sensorDefinitions = [
+      { sensor_key: "interior_temperature", sensor_type: "temperature", name: "Temperatura interior", unit: "degC", location_context: "interior" },
+      { sensor_key: "interior_humidity", sensor_type: "humidity", name: "Humidade interior", unit: "%RH", location_context: "interior" },
+      { sensor_key: "ambient_temperature", sensor_type: "temperature", name: "Temperatura ambiente", unit: "degC", location_context: "ambient" },
+      { sensor_key: "ambient_humidity", sensor_type: "humidity", name: "Humidade ambiente", unit: "%RH", location_context: "ambient" },
+    ].map((definition) => ({ ...definition, device_id: deviceRow.id }));
+
+    const { data: sensors, error: sensorsError } = await supabase
+      .from("sensors")
+      .upsert(sensorDefinitions, { onConflict: "device_id,sensor_key" })
+      .select("id, sensor_key");
+    if (sensorsError) throw sensorsError;
+
+    const sensorByKey = new Map((sensors || []).map((sensor) => [sensor.sensor_key, sensor.id]));
+    const candidateValues = [
+      ["interior_temperature", rawPayload.temperature],
+      ["interior_humidity", rawPayload.humidity],
+      ["ambient_temperature", rawPayload.exterior_temperature],
+      ["ambient_humidity", rawPayload.exterior_humidity],
+    ];
+    const normalizedRows = candidateValues
+      .map(([sensorKey, rawValue]) => ({
+        sensor_id: sensorByKey.get(sensorKey),
+        value: toOptionalNumber(rawValue),
+      }))
+      .filter((item) => item.sensor_id && item.value !== null)
+      .map((item) => ({
+        ingestion_batch_id: batch.id,
+        sensor_id: item.sensor_id,
+        recorded_at: recordedAt,
+        value_numeric: item.value,
+        quality: "valid",
+      }));
+
+    if (normalizedRows.length) {
+      const { error: readingsError } = await supabase
+        .from("sensor_readings")
+        .insert(normalizedRows);
+      if (readingsError && readingsError.code !== "23505") throw readingsError;
+    }
+
+    return { stored: true, batch_id: batch.id, values: normalizedRows.length };
+  } catch (error) {
+    if (isNormalizedSchemaUnavailable(error)) {
+      return { stored: false, reason: "normalized_schema_not_deployed" };
+    }
+    console.error("Falha no dual write normalizado; telemetria legada preservada:", error);
+    return { stored: false, reason: "normalized_write_failed" };
+  }
+}
+
 function isMaintenanceActive(config) {
-  const activeUntil = config?.maintenance?.active_until;
-  if (!activeUntil) return false;
-  const ts = new Date(activeUntil).getTime();
-  return Number.isFinite(ts) && ts > Date.now();
+  return isCoreMaintenanceActive(config);
 }
 
 function normalizeHardwareDiagnostics(value, fallback = {}) {
@@ -582,23 +838,138 @@ function normalizeHardwareDiagnostics(value, fallback = {}) {
     return null;
   }
 
-  const source = value && typeof value === "object" ? value : {};
-  const components =
-    source.components && typeof source.components === "object"
-      ? source.components
-      : {};
+  return normalizeComponentHealthSnapshot(value, fallback);
+}
 
-  return {
-    overall_ok:
-      source.overall_ok === undefined || source.overall_ok === null
-        ? Object.values(components).every((item) => item?.ok !== false)
-        : toBoolean(source.overall_ok),
-    updated_at: nowIso(),
-    components: {
-      ...(fallback.components || {}),
-      ...components,
-    },
-  };
+async function persistComponentHealth({ deviceRow, snapshot, ingestionBatchId = null }) {
+  if (!deviceRow?.id || !snapshot?.components) {
+    return { stored: false, reason: "component_health_unavailable" };
+  }
+
+  try {
+    const definitions = Object.entries(snapshot.components).map(([componentKey, component]) => ({
+      device_id: deviceRow.id,
+      component_key: componentKey,
+      component_type: component.component_type || componentKey,
+      name: component.label || componentKey,
+      diagnostic_capabilities: {
+        confidence: component.diagnostic_confidence,
+        scope: component.diagnostic_scope,
+      },
+      metadata: {},
+      active: true,
+      updated_at: snapshot.updated_at || nowIso(),
+    }));
+
+    const { data: components, error: componentsError } = await supabase
+      .from("device_components")
+      .upsert(definitions, { onConflict: "device_id,component_key" })
+      .select("id,component_key");
+    if (componentsError) throw componentsError;
+
+    const componentIds = (components || []).map((component) => component.id);
+    const { data: recent, error: recentError } = componentIds.length
+      ? await supabase
+          .from("component_health_events")
+          .select("component_id,health_state,diagnostic_confidence,error_count,consecutive_errors,observed_at")
+          .in("component_id", componentIds)
+          .order("observed_at", { ascending: false })
+      : { data: [], error: null };
+    if (recentError) throw recentError;
+
+    const latestByComponent = new Map();
+    for (const event of recent || []) {
+      if (!latestByComponent.has(event.component_id)) {
+        latestByComponent.set(event.component_id, event);
+      }
+    }
+
+    const componentByKey = new Map(
+      (components || []).map((component) => [component.component_key, component])
+    );
+    const rows = [];
+    for (const [componentKey, evidence] of Object.entries(snapshot.components)) {
+      const component = componentByKey.get(componentKey);
+      if (!component) continue;
+      const previous = latestByComponent.get(component.id);
+      const changed =
+        !previous ||
+        previous.health_state !== evidence.health_state ||
+        previous.diagnostic_confidence !== evidence.diagnostic_confidence ||
+        Number(previous.error_count || 0) !== Number(evidence.error_count || 0) ||
+        Number(previous.consecutive_errors || 0) !== Number(evidence.consecutive_errors || 0);
+      if (!changed) continue;
+
+      rows.push({
+        component_id: component.id,
+        health_state: evidence.health_state,
+        diagnostic_confidence: evidence.diagnostic_confidence,
+        diagnostic_source: evidence.diagnostic_source || "device_telemetry",
+        diagnostic_scope: evidence.diagnostic_scope || null,
+        observed_at: snapshot.updated_at || nowIso(),
+        last_seen: snapshot.updated_at || nowIso(),
+        last_success: evidence.health_state === "HEALTHY" ? snapshot.updated_at || nowIso() : null,
+        last_error: ["DEGRADED", "FAULT"].includes(evidence.health_state)
+          ? snapshot.updated_at || nowIso()
+          : null,
+        error_count: Number(evidence.error_count || 0),
+        consecutive_errors: Number(evidence.consecutive_errors || 0),
+        diagnostic_information: evidence,
+        ingestion_batch_id: ingestionBatchId,
+      });
+    }
+
+    if (rows.length) {
+      const { error: eventsError } = await supabase.from("component_health_events").insert(rows);
+      if (eventsError) throw eventsError;
+    }
+    return { stored: true, changes: rows.length, components: componentIds.length };
+  } catch (error) {
+    if (isNormalizedSchemaUnavailable(error)) {
+      return { stored: false, reason: "component_health_schema_not_deployed" };
+    }
+    console.error("Falha ao persistir Component Health; ingestão Cold preservada:", error);
+    return { stored: false, reason: "component_health_write_failed" };
+  }
+}
+
+async function persistDeviceState({ deviceRow, snapshot, source = "device_telemetry" }) {
+  if (!deviceRow?.id || !snapshot) {
+    return { stored: false, reason: "device_state_unavailable" };
+  }
+  try {
+    const { data: previous, error: previousError } = await supabase
+      .from("device_state_snapshots")
+      .select("operational_state,component_health_state,communication_state,maintenance_state")
+      .eq("device_id", deviceRow.id)
+      .order("observed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (previousError) throw previousError;
+
+    const changed =
+      !previous ||
+      previous.operational_state !== snapshot.operational_state ||
+      previous.component_health_state !== snapshot.component_health_state ||
+      previous.communication_state !== snapshot.communication_state ||
+      previous.maintenance_state !== snapshot.maintenance_state;
+    if (!changed) return { stored: true, changed: false };
+
+    const { error } = await supabase.from("device_state_snapshots").insert({
+      device_id: deviceRow.id,
+      ...snapshot,
+      source,
+      evidence: {},
+    });
+    if (error) throw error;
+    return { stored: true, changed: true };
+  } catch (error) {
+    if (isNormalizedSchemaUnavailable(error)) {
+      return { stored: false, reason: "device_state_schema_not_deployed" };
+    }
+    console.error("Falha ao persistir estado Core; ingestão Cold preservada:", error);
+    return { stored: false, reason: "device_state_write_failed" };
+  }
 }
 
 function normalizeCommunicationDiagnostics(value, fallback = {}) {
@@ -2079,6 +2450,79 @@ async function insertAlertHistory({
 
   if (error) {
     console.error("Erro ao inserir histórico de alerta:", error);
+    return;
+  }
+
+  // Compatibility bridge: preserve the existing alerts table while also
+  // creating a context-rich operational event when the hierarchy is assigned.
+  try {
+    const { data: deviceRow, error: deviceError } = await supabase
+      .from("devices")
+      .select("id, space_id")
+      .eq("device_id", device_id)
+      .maybeSingle();
+    if (deviceError || !deviceRow?.id || !deviceRow?.space_id) return;
+
+    const { data: spaceRow, error: spaceError } = await supabase
+      .from("spaces")
+      .select("id, site_id")
+      .eq("id", deviceRow.space_id)
+      .maybeSingle();
+    if (spaceError || !spaceRow?.site_id) return;
+
+    const { data: siteRow, error: siteError } = await supabase
+      .from("sites")
+      .select("id, client_id")
+      .eq("id", spaceRow.site_id)
+      .maybeSingle();
+    if (siteError || !siteRow?.client_id) return;
+
+    const normalizedType = String(type || "system").toLowerCase();
+    const normalizedEvent = String(event || "triggered").toLowerCase();
+    const eventTypeMap = {
+      temperature: "temperature_alarm",
+      temp: "temperature_alarm",
+      humidity: "humidity_alarm",
+      hum: "humidity_alarm",
+      offline: "device_offline",
+      system: normalizedEvent === "ack" ? "alarm_acknowledged" : "system_event",
+    };
+    const operationalPayload = {
+      client_id: siteRow.client_id,
+      site_id: siteRow.id,
+      space_id: spaceRow.id,
+      device_id: deviceRow.id,
+      event_type: eventTypeMap[normalizedType] || normalizedType,
+      start_time: nowIso(),
+      severity:
+        normalizedEvent === "resolved"
+          ? "info"
+          : normalizedType === "offline"
+          ? "warning"
+          : "critical",
+      source: "system",
+      description: message || title || null,
+      confirmation_status:
+        normalizedEvent === "ack" ? "confirmed" : "unconfirmed",
+      metadata: {
+        legacy_alert: true,
+        legacy_type: type,
+        legacy_event: event,
+        title,
+        temperature,
+        humidity,
+      },
+    };
+    const { error: eventError } = await supabase
+      .from("events")
+      .insert([operationalPayload]);
+    if (eventError && !isNormalizedSchemaUnavailable(eventError)) {
+      console.error("Erro ao espelhar alerta em events:", eventError);
+    }
+  } catch (eventMirrorError) {
+    if (!isNormalizedSchemaUnavailable(eventMirrorError)) {
+      console.error("Falha ao espelhar alerta operacional:", eventMirrorError);
+    }
   }
 }
 
@@ -2495,17 +2939,24 @@ async function processTriggeredAndResolvedAlerts({
   cfg,
 }) {
   const alertState = cfg.alert_state;
-  if (isMaintenanceActive(cfg)) {
-    return {
-      ...alertState,
-      maintenance_suppressed_at: nowIso(),
-    };
-  }
+  const processNotification = notificationDecision({
+    category: NOTIFICATION_CATEGORIES.PROCESS_ALARM,
+    maintenance: cfg.maintenance,
+  });
+  const suppressProcessNotification = processNotification.suppress;
 
   const tempInfo = getTemperatureAlertDirection(numericTemperature, cfg);
   const humInfo = getHumidityAlertDirection(numericHumidity, cfg);
 
-  let nextAlertState = { ...alertState };
+  let nextAlertState = {
+    ...alertState,
+    ...(suppressProcessNotification
+      ? {
+          maintenance_suppressed_at: nowIso(),
+          maintenance_suppression_reason: processNotification.reason,
+        }
+      : {}),
+  };
 
   if (tempInfo.breached && !alertState.temp_active) {
     nextAlertState.temp_last_sent_at = null;
@@ -2524,7 +2975,10 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.temp_active = true;
 
-    if (canSendByCooldown(alertState.temp_last_email_attempt_at)) {
+    if (
+      !suppressProcessNotification &&
+      canSendByCooldown(alertState.temp_last_email_attempt_at)
+    ) {
       const emailResult = await sendTemperatureTriggeredEmail({
         device: deviceRow,
         temperature: numericTemperature,
@@ -2541,7 +2995,10 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (tempInfo.breached && alertState.temp_active && !alertState.temp_last_sent_at) {
-    if (canSendByCooldown(alertState.temp_last_email_attempt_at)) {
+    if (
+      !suppressProcessNotification &&
+      canSendByCooldown(alertState.temp_last_email_attempt_at)
+    ) {
       const emailResult = await sendTemperatureTriggeredEmail({
         device: deviceRow,
         temperature: numericTemperature,
@@ -2558,12 +3015,14 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (!tempInfo.breached && alertState.temp_active) {
-    await sendTemperatureResolvedEmail({
-      device: deviceRow,
-      temperature: numericTemperature,
-      humidity: numericHumidity,
-      cfg,
-    });
+    if (!suppressProcessNotification) {
+      await sendTemperatureResolvedEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        cfg,
+      });
+    }
 
     await insertAlertHistory({
       device_id: deviceRow.device_id,
@@ -2599,7 +3058,10 @@ async function processTriggeredAndResolvedAlerts({
 
     nextAlertState.hum_active = true;
 
-    if (canSendByCooldown(alertState.hum_last_email_attempt_at)) {
+    if (
+      !suppressProcessNotification &&
+      canSendByCooldown(alertState.hum_last_email_attempt_at)
+    ) {
       const emailResult = await sendHumidityTriggeredEmail({
         device: deviceRow,
         temperature: numericTemperature,
@@ -2616,7 +3078,10 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (humInfo.breached && alertState.hum_active && !alertState.hum_last_sent_at) {
-    if (canSendByCooldown(alertState.hum_last_email_attempt_at)) {
+    if (
+      !suppressProcessNotification &&
+      canSendByCooldown(alertState.hum_last_email_attempt_at)
+    ) {
       const emailResult = await sendHumidityTriggeredEmail({
         device: deviceRow,
         temperature: numericTemperature,
@@ -2633,12 +3098,14 @@ async function processTriggeredAndResolvedAlerts({
   }
 
   if (!humInfo.breached && alertState.hum_active) {
-    await sendHumidityResolvedEmail({
-      device: deviceRow,
-      temperature: numericTemperature,
-      humidity: numericHumidity,
-      cfg,
-    });
+    if (!suppressProcessNotification) {
+      await sendHumidityResolvedEmail({
+        device: deviceRow,
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+        cfg,
+      });
+    }
 
     await insertAlertHistory({
       device_id: deviceRow.device_id,
@@ -2701,7 +3168,6 @@ async function checkDevicesHealthAndSendOfflineAlerts() {
     processed += 1;
 
     const cfg = getDeviceConfig(deviceRow);
-    if (isMaintenanceActive(cfg)) continue;
     const alertState = cfg.alert_state;
     const lastSeenTs = deviceRow?.last_seen
       ? new Date(deviceRow.last_seen).getTime()
@@ -3084,6 +3550,188 @@ app.post("/api/check-devices-health", async (req, res) => {
   } catch (error) {
     console.error("Erro em /api/check-devices-health:", error);
     res.status(500).json({ error: "Erro ao verificar saúde dos dispositivos" });
+  }
+});
+
+// -------------------- DEVICE HEARTBEAT --------------------
+app.post("/api/device/heartbeat", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const {
+      device_id,
+      device_status,
+      firmware_version,
+      hardware_diagnostics,
+      communication_diagnostics,
+      wifi_connected,
+    } = req.body || {};
+
+    if (!device_id) {
+      return res.status(400).json({ error: "device_id é obrigatório" });
+    }
+
+    const { data: existingDeviceRow, error: deviceFetchError } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("device_id", device_id)
+      .maybeSingle();
+
+    if (deviceFetchError) {
+      console.error("Erro ao ler device no heartbeat:", deviceFetchError);
+      return res.status(500).json({ error: "Erro ao ler dispositivo" });
+    }
+
+    const baseDeviceRow = existingDeviceRow || {
+      device_id,
+      name: device_id,
+      location: "Localização por definir",
+      config: {},
+      config_version: 1,
+    };
+    const cfg = getDeviceConfig(baseDeviceRow);
+    const currentNowIso = nowIso();
+    const heartbeatReportsWifi =
+      wifi_connected === undefined || wifi_connected === null
+        ? true
+        : toBoolean(wifi_connected);
+    const normalizedStatus = normalizeDeviceStatus(
+      heartbeatReportsWifi ? device_status : "offline"
+    );
+    const receivedHardwareDiagnostics = normalizeHardwareDiagnostics(
+      hardware_diagnostics,
+      cfg.hardware_diagnostics
+    );
+    const receivedCommunicationDiagnostics = normalizeCommunicationDiagnostics(
+      communication_diagnostics,
+      cfg.communication_diagnostics
+    );
+    const nextAlertState = {
+      ...(cfg.alert_state || {}),
+      offline_active: false,
+      ...(cfg.alert_state?.offline_active
+        ? { offline_last_resolved_at: currentNowIso }
+        : {}),
+    };
+    const nextConfig = {
+      ...(baseDeviceRow.config || {}),
+      ...(firmware_version ? { firmware_version } : {}),
+      ...(receivedHardwareDiagnostics
+        ? { hardware_diagnostics: receivedHardwareDiagnostics }
+        : {}),
+      communication_diagnostics: receivedCommunicationDiagnostics,
+      alert_state: nextAlertState,
+    };
+    const heartbeatPayload = {
+      device_id,
+      name: sanitizeDeviceName(baseDeviceRow.name, device_id),
+      location: sanitizeLocation(baseDeviceRow.location),
+      config: nextConfig,
+      config_version: baseDeviceRow.config_version || 1,
+      firmware_version:
+        firmware_version ||
+        baseDeviceRow.firmware_version ||
+        baseDeviceRow.config?.firmware_version ||
+        null,
+      status: statusToDbLabel(normalizedStatus),
+      last_seen: currentNowIso,
+      updated_at: currentNowIso,
+    };
+
+    let heartbeatError = null;
+    if (existingDeviceRow) {
+      const {
+        device_id: _deviceId,
+        name: _name,
+        location: _location,
+        config_version: _configVersion,
+        ...updatePayload
+      } = heartbeatPayload;
+      const attempts = [
+        updatePayload,
+        { ...updatePayload, firmware_version: undefined },
+        {
+          status: heartbeatPayload.status,
+          last_seen: currentNowIso,
+          updated_at: currentNowIso,
+          config: nextConfig,
+        },
+        {
+          status: heartbeatPayload.status,
+          last_seen: currentNowIso,
+          updated_at: currentNowIso,
+        },
+        { last_seen: currentNowIso, updated_at: currentNowIso },
+      ].map((payload) =>
+        Object.fromEntries(
+          Object.entries(payload).filter(([, value]) => value !== undefined)
+        )
+      );
+
+      for (const payload of attempts) {
+        const { error } = await supabase
+          .from("devices")
+          .update(payload)
+          .eq("device_id", device_id);
+        if (!error) {
+          heartbeatError = null;
+          break;
+        }
+        heartbeatError = error;
+        console.error("Erro no heartbeat. A tentar fallback:", error);
+      }
+    } else {
+      const { error } = await supabase
+        .from("devices")
+        .upsert([heartbeatPayload], { onConflict: "device_id" });
+      heartbeatError = error;
+    }
+
+    if (heartbeatError) {
+      return res.status(500).json({
+        error: "Erro ao atualizar heartbeat",
+        detail: heartbeatError.message || null,
+      });
+    }
+
+    const { data: heartbeatDeviceRow } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("device_id", device_id)
+      .maybeSingle();
+    const componentHealth = await persistComponentHealth({
+      deviceRow: heartbeatDeviceRow,
+      snapshot: receivedHardwareDiagnostics,
+    });
+    const coreStateSnapshot = deriveDeviceStateSnapshot({
+      operationalStatus: normalizedStatus,
+      componentHealth: receivedHardwareDiagnostics,
+      communication: {
+        online: heartbeatReportsWifi,
+        ...receivedCommunicationDiagnostics,
+      },
+      maintenance: cfg.maintenance,
+      observedAt: currentNowIso,
+    });
+    const coreState = await persistDeviceState({
+      deviceRow: heartbeatDeviceRow,
+      snapshot: coreStateSnapshot,
+      source: "device_heartbeat",
+    });
+
+    return res.json({
+      ok: true,
+      device_id,
+      status: statusToApiLabel(normalizedStatus),
+      last_seen: currentNowIso,
+      component_health: componentHealth,
+      core_state: { ...coreState, snapshot: coreStateSnapshot },
+    });
+  } catch (error) {
+    console.error("Erro em /api/device/heartbeat:", error);
+    return res.status(500).json({ error: "Erro interno no heartbeat" });
   }
 });
 
@@ -3534,6 +4182,27 @@ app.post("/api/temperature", async (req, res) => {
     }
 
     const refreshedCfg = getDeviceConfig(freshDeviceRow);
+    const normalizedIngestion = await persistNormalizedTelemetry({
+      deviceRow: freshDeviceRow,
+      payload: req.body,
+      recordedAt: readingCreatedAt,
+    });
+    const componentHealth = await persistComponentHealth({
+      deviceRow: freshDeviceRow,
+      snapshot: receivedHardwareDiagnostics,
+      ingestionBatchId: normalizedIngestion?.batch_id || null,
+    });
+    const coreStateSnapshot = deriveDeviceStateSnapshot({
+      operationalStatus: telemetryStatus,
+      componentHealth: receivedHardwareDiagnostics,
+      communication: { online: true, ...receivedCommunicationDiagnostics },
+      maintenance: refreshedCfg.maintenance,
+      observedAt: currentNowIso,
+    });
+    const coreState = await persistDeviceState({
+      deviceRow: freshDeviceRow,
+      snapshot: coreStateSnapshot,
+    });
 
     failureStage = "processar_alertas";
     const nextAlertState = isHistoricalBackfill
@@ -3546,26 +4215,24 @@ app.post("/api/temperature", async (req, res) => {
         });
 
     if (isHistoricalBackfill && refreshedCfg.alert_state.offline_active) {
-      if (!isMaintenanceActive(refreshedCfg)) {
-        await sendOnlineRecoveredEmail({
-          device: {
-            ...freshDeviceRow,
-            last_temperature: numericTemperature,
-            last_humidity: numericHumidity,
-          },
-        });
+      await sendOnlineRecoveredEmail({
+        device: {
+          ...freshDeviceRow,
+          last_temperature: numericTemperature,
+          last_humidity: numericHumidity,
+        },
+      });
 
-        await insertAlertHistory({
-          device_id,
-          type: "offline",
-          event: "resolved",
-          title: "Dispositivo novamente online",
-          message:
-            "O dispositivo voltou a comunicar com o backend durante o reenvio do buffer.",
-          temperature: numericTemperature,
-          humidity: numericHumidity,
-        });
-      }
+      await insertAlertHistory({
+        device_id,
+        type: "offline",
+        event: "resolved",
+        title: "Dispositivo novamente online",
+        message:
+          "O dispositivo voltou a comunicar com o backend durante o reenvio do buffer.",
+        temperature: numericTemperature,
+        humidity: numericHumidity,
+      });
 
       nextAlertState.offline_active = false;
       nextAlertState.offline_last_resolved_at = currentNowIso;
@@ -3618,6 +4285,9 @@ app.post("/api/temperature", async (req, res) => {
       current_updated: !isHistoricalBackfill,
       applied_config: getDeviceConfig({ config: finalConfig }),
       status: statusToApiLabel(telemetryStatus),
+      normalized_ingestion: normalizedIngestion,
+      component_health: componentHealth,
+      core_state: { ...coreState, snapshot: coreStateSnapshot },
     });
   } catch (error) {
     console.error(`Erro em /api/temperature [${failureStage}]:`, error);

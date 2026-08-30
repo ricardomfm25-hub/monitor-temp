@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,41 @@ function getSupabaseAdminClient() {
 
 export async function POST(request) {
   try {
+    const cookieStore = await cookies();
+    const userClient = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll() {},
+        },
+      }
+    );
+    const {
+      data: { user },
+      error: userError,
+    } = await userClient.auth.getUser();
+    if (userError || !user) {
+      return Response.json({ error: "Não autenticado." }, { status: 401 });
+    }
+
+    const { data: profile, error: profileError } = await userClient
+      .from("profiles")
+      .select("role, is_active")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (
+      profileError ||
+      !profile ||
+      profile.role !== "super_admin" ||
+      !profile.is_active
+    ) {
+      return Response.json({ error: "Sem permissão." }, { status: 403 });
+    }
+
     const body = await request.json();
     const userId = String(body?.user_id || "").trim();
     const password = String(body?.password || "");

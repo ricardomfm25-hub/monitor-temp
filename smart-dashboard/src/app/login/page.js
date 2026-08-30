@@ -9,7 +9,13 @@ function LoginPageContent() {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
 
-  const nextPath = searchParams.get("next") || "/";
+  const requestedNextPath = searchParams.get("next") || "/";
+  const nextPath =
+    requestedNextPath.startsWith("/") &&
+    !requestedNextPath.startsWith("//") &&
+    !requestedNextPath.includes("\\")
+      ? requestedNextPath
+      : "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -570,6 +570,7 @@ const EN_OPERATIONAL_TEXT = {
   "SEM DADOS": "NO DATA",
   "ALARME": "ALARM",
   "ALERTA": "ALERT",
+  "FALHA DE SENSOR": "SENSOR FAILURE",
   "NORMALIZADO": "NORMALIZED",
   "Sem dados": "No data",
   "Sem detalhe": "No details",
@@ -1017,6 +1018,19 @@ function getStatusInfo(status) {
       priority: 3,
       dot: "#ef4444",
       panel: "#17151d",
+    };
+  }
+
+  if (s.includes("sensor")) {
+    return {
+      label: "FALHA DE SENSOR",
+      color: "#f59e0b",
+      soft: "rgba(245, 158, 11, 0.14)",
+      border: "rgba(251, 191, 36, 0.28)",
+      glow: "0 0 0 1px rgba(245,158,11,0.10)",
+      priority: 1,
+      dot: "#f59e0b",
+      panel: "#17181d",
     };
   }
 
@@ -3047,7 +3061,10 @@ function getHardwareSummary(diagnostics) {
     return { label: "Sem detalhe", tone: "neutral", color: "#94a3b8" };
   }
 
-  const failing = entries.filter((item) => item?.ok === false);
+  const stateOf = (item) =>
+    item?.health_state ||
+    (item?.ok === true ? "HEALTHY" : item?.ok === false ? "FAULT" : "UNKNOWN");
+  const failing = entries.filter((item) => ["FAULT", "DEGRADED"].includes(stateOf(item)));
   if (failing.length > 0) {
     return {
       label: failing.length ? `${failing.length} componente(s) com atenção` : "Atenção",
@@ -3056,7 +3073,17 @@ function getHardwareSummary(diagnostics) {
     };
   }
 
-  return { label: "Hardware OK", tone: "good", color: "#22c55e" };
+  const known = entries.filter((item) => stateOf(item) !== "UNKNOWN");
+  if (known.length === 0) {
+    return { label: "Saúde física não confirmada", tone: "neutral", color: "#94a3b8" };
+  }
+
+  const unknownCount = entries.length - known.length;
+  return {
+    label: unknownCount > 0 ? `Saudável · ${unknownCount} não confirmado(s)` : "Hardware OK",
+    tone: "good",
+    color: "#22c55e",
+  };
 }
 
 function isMaintenanceActive(config) {

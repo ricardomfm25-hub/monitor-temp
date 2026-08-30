@@ -86,11 +86,9 @@ function PairPageContent() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from("devices")
-        .select("device_id, name, location, pairing_code, pairing_status")
-        .eq("pairing_code", code)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("preview_device_pairing", {
+        p_code: code,
+      });
 
       if (!isMounted) return;
 
@@ -140,72 +138,27 @@ function PairPageContent() {
     setMessageType("neutral");
 
     try {
-      const { data: deviceData, error: deviceError } = await supabase
-        .from("devices")
-        .select("*")
-        .eq("pairing_code", code)
-        .maybeSingle();
+      const { data: pairingResult, error: deviceError } = await supabase.rpc(
+        "claim_device_pairing",
+        { p_code: code }
+      );
 
       if (deviceError) {
         throw new Error("Erro ao validar o dispositivo.");
       }
 
-      if (!deviceData) {
+      if (!pairingResult?.device_id) {
         throw new Error("Código de associação inválido.");
       }
 
-      const { data: existingAccess, error: accessCheckError } = await supabase
-        .from("device_access")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("device_id", deviceData.device_id)
-        .maybeSingle();
-
-      if (accessCheckError) {
-        throw new Error("Erro ao verificar acessos existentes.");
-      }
-
-      if (String(deviceData.pairing_status || "").toLowerCase() === "assigned") {
-        if (existingAccess) {
-          setMessage("Este dispositivo já está associado à tua conta.");
-          setMessageType("success");
-          setTimeout(() => {
-            router.replace("/");
-            router.refresh();
-          }, 450);
-          return;
-        }
-
-        throw new Error("Este dispositivo já foi associado a outra conta.");
-      }
-
-      if (!existingAccess) {
-        const { error: insertAccessError } = await supabase
-          .from("device_access")
-          .insert({
-            user_id: user.id,
-            device_id: deviceData.device_id,
-            can_view: true,
-            can_edit: true,
-          });
-
-        if (insertAccessError) {
-          throw new Error("Erro ao criar acesso ao dispositivo.");
-        }
-      }
-
-      const { error: updateDeviceError } = await supabase
-        .from("devices")
-        .update({
-          pairing_status: "assigned",
-          paired_at: new Date().toISOString(),
-          paired_by: user.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("device_id", deviceData.device_id);
-
-      if (updateDeviceError) {
-        throw new Error("Erro ao finalizar a associação do dispositivo.");
+      if (pairingResult.status === "already_owned") {
+        setMessage("Este dispositivo já está associado à tua conta.");
+        setMessageType("success");
+        setTimeout(() => {
+          router.replace("/");
+          router.refresh();
+        }, 450);
+        return;
       }
 
       setMessage("Dispositivo associado com sucesso.");
@@ -213,7 +166,7 @@ function PairPageContent() {
 
       setTimeout(() => {
         router.replace(
-          `/onboarding/device?device_id=${encodeURIComponent(deviceData.device_id)}&setup=1`
+          `/onboarding/device?device_id=${encodeURIComponent(pairingResult.device_id)}&setup=1`
         );
         router.refresh();
       }, 700);
