@@ -20,6 +20,8 @@ declare
   device_b uuid := gen_random_uuid();
   sensor_a uuid := gen_random_uuid();
   sensor_b uuid := gen_random_uuid();
+  component_a uuid := gen_random_uuid();
+  component_b uuid := gen_random_uuid();
   batch_a uuid := gen_random_uuid();
   batch_b uuid := gen_random_uuid();
   event_alarm uuid := gen_random_uuid();
@@ -68,6 +70,26 @@ begin
     (batch_a, sensor_a, now() - interval '1 minute', 3.2),
     (batch_b, sensor_b, now() - interval '1 minute', 7.4);
 
+  insert into public.device_components (id, device_id, component_key, component_type, name) values
+    (component_a, device_a, 'dht22', 'temperature_humidity_sensor', 'DHT22 A'),
+    (component_b, device_b, 'dht22', 'temperature_humidity_sensor', 'DHT22 B');
+  insert into public.component_health_events (
+    component_id, health_state, diagnostic_confidence, diagnostic_source, observed_at
+  ) values
+    (component_a, 'HEALTHY', 'OBSERVED', 'test', now()),
+    (component_b, 'FAULT', 'OBSERVED', 'test', now());
+  insert into public.audit_logs (
+    client_id, actor_type, action, target_type, target_id, device_id, source, result
+  ) values
+    (client_a, 'system', 'test.created', 'device', 'STS-TEST-A', device_a, 'test', 'success'),
+    (client_b, 'system', 'test.created', 'device', 'STS-TEST-B', device_b, 'test', 'success');
+  insert into public.alerts (
+    device_id, temperature, humidity, type, event, title, message, sent_at,
+    alert_status
+  ) values
+    ('STS-TEST-A', 3.2, 65, 'temperature', 'triggered', 'Alert A', 'Tenant A', now(), 'OPEN'),
+    ('STS-TEST-B', 7.4, 70, 'temperature', 'triggered', 'Alert B', 'Tenant B', now(), 'OPEN');
+
   insert into public.events (
     id, client_id, site_id, space_id, device_id, event_type, start_time, severity, source
   ) values
@@ -83,8 +105,12 @@ begin
   perform set_config('sts_test.user_b', user_b::text, true);
   perform set_config('sts_test.client_a', client_a::text, true);
   perform set_config('sts_test.client_b', client_b::text, true);
+  perform set_config('sts_test.site_b', site_b::text, true);
   perform set_config('sts_test.device_a', device_a::text, true);
+  perform set_config('sts_test.device_b', device_b::text, true);
   perform set_config('sts_test.sensor_a', sensor_a::text, true);
+  perform set_config('sts_test.sensor_b', sensor_b::text, true);
+  perform set_config('sts_test.batch_b', batch_b::text, true);
 end $$;
 
 set local role authenticated;
@@ -102,6 +128,15 @@ declare
   leaked_devices integer;
   event_count integer;
   ground_truth_count integer;
+  own_component_health integer;
+  leaked_component_health integer;
+  own_audit integer;
+  leaked_audit integer;
+  own_alerts integer;
+  leaked_alerts integer;
+  affected integer;
+  denied boolean;
+  foreign_insert_id uuid := gen_random_uuid();
 begin
   select count(*) into visible_a
   from public.clients where id = current_setting('sts_test.client_a')::uuid;
@@ -140,6 +175,149 @@ begin
   if event_count <> 3 or ground_truth_count <> 1 then
     raise exception 'Events/ground truth failure: events %, ground truth %', event_count, ground_truth_count;
   end if;
+
+  select count(*) into own_component_health
+  from public.component_health_events che
+  join public.device_components dc on dc.id = che.component_id
+  where dc.device_id = current_setting('sts_test.device_a')::uuid;
+  select count(*) into leaked_component_health
+  from public.component_health_events che
+  join public.device_components dc on dc.id = che.component_id
+  where dc.device_id <> current_setting('sts_test.device_a')::uuid;
+  if own_component_health <> 1 or leaked_component_health <> 0 then
+    raise exception 'Component Health RLS failure: own %, leaked %', own_component_health, leaked_component_health;
+  end if;
+
+  select count(*) into own_audit from public.audit_logs
+  where client_id = current_setting('sts_test.client_a')::uuid;
+  select count(*) into leaked_audit from public.audit_logs
+  where client_id = current_setting('sts_test.client_b')::uuid;
+  if own_audit <> 1 or leaked_audit <> 0 then
+    raise exception 'Audit RLS failure: own %, leaked %', own_audit, leaked_audit;
+  end if;
+
+  select count(*) into own_alerts from public.alerts where device_id = 'STS-TEST-A';
+  select count(*) into leaked_alerts from public.alerts where device_id = 'STS-TEST-B';
+  if own_alerts <> 1 or leaked_alerts <> 0 then
+    raise exception 'Alert RLS failure: own %, leaked %', own_alerts, leaked_alerts;
+  end if;
+
+  update public.clients set name = name
+  where id = current_setting('sts_test.client_b')::uuid;
+  get diagnostics affected = row_count;
+  if affected <> 0 then raise exception 'Cliente A updated Cliente B.'; end if;
+
+  denied := false;
+  begin
+    insert into public.sensor_readings (
+      id, ingestion_batch_id, sensor_id, recorded_at, value_numeric
+    ) values (
+      foreign_insert_id,
+      current_setting('sts_test.batch_b')::uuid,
+      current_setting('sts_test.sensor_b')::uuid,
+      now(), 8.1
+    );
+  exception when others then
+    denied := true;
+  end;
+  if not denied and exists (
+    select 1 from public.sensor_readings where id = foreign_insert_id
+  ) then
+    raise exception 'Cliente A inserted a reading for Cliente B.';
+  end if;
+
+  denied := false;
+  affected := 0;
+  begin
+    update public.alerts
+    set alert_status = 'ACKNOWLEDGED', acknowledged_at = now(),
+        acknowledged_by = auth.uid()
+    where device_id = 'STS-TEST-B';
+    get diagnostics affected = row_count;
+  exception when others then
+    denied := true;
+  end;
+  if not denied and affected <> 0 then
+    raise exception 'Cliente A acknowledged an alert for Cliente B.';
+  end if;
+
+  denied := false;
+  begin
+    perform public.sts_set_device_maintenance(
+      'STS-TEST-B', 30, 'Cross tenant denial test', 'api'
+    );
+  exception when others then
+    denied := true;
+  end;
+  if not denied then raise exception 'Cliente A activated maintenance for Cliente B.'; end if;
+
+  perform public.sts_set_device_maintenance(
+    'STS-TEST-A', 30, 'Authorized tenant test', 'api'
+  );
+  if not exists (
+    select 1 from public.maintenance_sessions
+    where device_id = current_setting('sts_test.device_a')::uuid
+      and maintenance_state = 'ACTIVE'
+  ) then
+    raise exception 'Authorized maintenance RPC did not persist session.';
+  end if;
+  if not exists (
+    select 1 from public.events
+    where device_id = current_setting('sts_test.device_a')::uuid
+      and event_type = 'maintenance_started'
+  ) or not exists (
+    select 1 from public.audit_logs
+    where device_id = current_setting('sts_test.device_a')::uuid
+      and action = 'maintenance.start'
+  ) then
+    raise exception 'Maintenance RPC did not persist event and audit evidence.';
+  end if;
+
+  denied := false;
+  begin
+    perform public.sts_transition_device_lifecycle(
+      'STS-TEST-B', 'ONBOARDING', 'Cross tenant denial test', 'api', false, 'rls-test'
+    );
+  exception when others then
+    denied := true;
+  end;
+  if not denied then raise exception 'Cliente A changed Cliente B lifecycle.'; end if;
+
+  perform public.sts_transition_device_lifecycle(
+    'STS-TEST-A', 'ONBOARDING', 'Authorized tenant test', 'api', false, 'rls-test'
+  );
+  if not exists (
+    select 1 from public.device_lifecycle_events
+    where device_id = current_setting('sts_test.device_a')::uuid
+      and to_state = 'ONBOARDING'
+      and correlation_id = 'rls-test'
+  ) then
+    raise exception 'Authorized lifecycle RPC did not persist event.';
+  end if;
+  if not exists (
+    select 1 from public.events
+    where device_id = current_setting('sts_test.device_a')::uuid
+      and event_type = 'device_lifecycle_changed'
+      and correlation_id = 'rls-test'
+  ) or not exists (
+    select 1 from public.audit_logs
+    where device_id = current_setting('sts_test.device_a')::uuid
+      and action = 'device.lifecycle.transition'
+      and correlation_id = 'rls-test'
+  ) then
+    raise exception 'Lifecycle RPC did not correlate event and audit evidence.';
+  end if;
+
+  denied := false;
+  affected := 0;
+  begin
+    delete from public.sites
+    where id = current_setting('sts_test.site_b')::uuid;
+    get diagnostics affected = row_count;
+  exception when others then
+    denied := true;
+  end;
+  if not denied and affected <> 0 then raise exception 'Cliente A deleted Cliente B site.'; end if;
 end $$;
 
 select set_config('request.jwt.claim.sub', current_setting('sts_test.user_b'), true);
@@ -147,12 +325,26 @@ select set_config('request.jwt.claim.sub', current_setting('sts_test.user_b'), t
 do $$
 declare
   leaked_a integer;
+  leaked_health integer;
+  leaked_audit integer;
+  leaked_alerts integer;
 begin
   select count(*) into leaked_a
   from public.sensor_readings_context
   where client_id = current_setting('sts_test.client_a')::uuid;
   if leaked_a <> 0 then
     raise exception 'RLS failure: Cliente B can read % rows from Cliente A', leaked_a;
+  end if;
+  select count(*) into leaked_health
+  from public.component_health_events che
+  join public.device_components dc on dc.id = che.component_id
+  where dc.device_id = current_setting('sts_test.device_a')::uuid;
+  select count(*) into leaked_audit from public.audit_logs
+  where client_id = current_setting('sts_test.client_a')::uuid;
+  select count(*) into leaked_alerts from public.alerts where device_id = 'STS-TEST-A';
+  if leaked_health <> 0 or leaked_audit <> 0 or leaked_alerts <> 0 then
+    raise exception 'Cliente B indirect leak: health %, audit %, alerts %',
+      leaked_health, leaked_audit, leaked_alerts;
   end if;
 end $$;
 

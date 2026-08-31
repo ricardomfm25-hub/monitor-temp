@@ -1,4 +1,4 @@
--- Run after migration 20260830_07 in staging or a disposable database.
+-- Run after migration 20260830_08 in staging or a disposable database.
 -- Read-only schema contract checks; no production data is modified.
 
 do $$
@@ -11,7 +11,9 @@ begin
     'component_health_events',
     'maintenance_sessions',
     'device_state_snapshots',
-    'audit_logs'
+    'audit_logs',
+    'actuators',
+    'device_lifecycle_events'
   ] loop
     if to_regclass('public.' || required_table) is null then
       raise exception 'Missing STS Core table: %', required_table;
@@ -30,7 +32,15 @@ begin
       ('device_state_snapshots', 'communication_state'),
       ('device_state_snapshots', 'maintenance_state'),
       ('audit_logs', 'action'),
-      ('audit_logs', 'result')
+      ('audit_logs', 'result'),
+      ('audit_logs', 'correlation_id'),
+      ('devices', 'lifecycle_state'),
+      ('ingestion_batches', 'idempotency_key'),
+      ('ingestion_batches', 'delivery_class'),
+      ('sensor_readings', 'confidence'),
+      ('sensor_readings', 'quality_reason_codes'),
+      ('alerts', 'alert_status'),
+      ('events', 'correlation_id')
     ) as expected(table_name, column_name)
   loop
     if not exists (
@@ -47,6 +57,9 @@ begin
   if to_regprocedure('public.sts_set_device_maintenance(text,integer,text,text)') is null then
     raise exception 'Missing maintenance lifecycle RPC.';
   end if;
+  if to_regprocedure('public.sts_transition_device_lifecycle(text,text,text,text,boolean,text)') is null then
+    raise exception 'Missing device lifecycle RPC.';
+  end if;
 
   if not exists (
     select 1 from pg_indexes
@@ -60,7 +73,10 @@ begin
     select 1
     from information_schema.role_table_grants
     where table_schema = 'public'
-      and table_name in ('component_health_events', 'device_state_snapshots', 'audit_logs')
+      and table_name in (
+        'component_health_events', 'device_state_snapshots', 'audit_logs',
+        'device_lifecycle_events'
+      )
       and grantee = 'authenticated'
       and privilege_type in ('UPDATE', 'DELETE', 'TRUNCATE')
   ) then

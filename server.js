@@ -10,6 +10,17 @@ const {
 } = require("./src/core/component-health");
 const { deriveDeviceStateSnapshot } = require("./src/core/device-state");
 const {
+  METRICS,
+  buildIdempotencyKey,
+  buildMeasurementCandidates,
+  classifyDelivery,
+  compareLegacyAndCore,
+} = require("./src/core/measurement-contract");
+const {
+  getCoreMetricsSnapshot,
+  incrementCoreMetric,
+} = require("./src/core/observability");
+const {
   NOTIFICATION_CATEGORIES,
   isMaintenanceActive: isCoreMaintenanceActive,
   normalizeMaintenance,
@@ -719,7 +730,12 @@ async function resolveDeviceConfigurationForIngestion(deviceRow, payload) {
   return created?.id || null;
 }
 
-async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
+async function persistNormalizedTelemetry({
+  deviceRow,
+  payload,
+  recordedAt,
+  componentHealth = null,
+}) {
   if (!deviceRow?.id) {
     return { stored: false, reason: "device_uuid_unavailable" };
   }
@@ -734,6 +750,13 @@ async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
       .createHash("sha256")
       .update(JSON.stringify(rawPayload))
       .digest("hex");
+    const receivedAt = nowIso();
+    const idempotencyKey = buildIdempotencyKey({
+      deviceId: deviceRow.device_id || deviceRow.id,
+      telemetrySeq: rawPayload.telemetry_seq,
+      eventTime: recordedAt,
+      payload: rawPayload,
+    });
     const batchPayload = {
       device_id: deviceRow.id,
       telemetry_seq: toOptionalNumber(rawPayload.telemetry_seq),
@@ -749,6 +772,9 @@ async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
       transport: "https",
       raw_payload: rawPayload,
       payload_sha256: payloadSha256,
+      idempotency_key: idempotencyKey,
+      delivery_class: classifyDelivery(rawPayload),
+      schema_version: 1,
     };
 
     let { data: batch, error: batchError } = await supabase
@@ -757,13 +783,32 @@ async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
       .select("id")
       .single();
 
-    if (batchError?.code === "23505" && batchPayload.telemetry_seq !== null) {
-      const existingBatch = await supabase
+    if (
+      batchError &&
+      ["42703", "PGRST204"].includes(String(batchError.code || ""))
+    ) {
+      const legacyBatchPayload = { ...batchPayload };
+      delete legacyBatchPayload.idempotency_key;
+      delete legacyBatchPayload.delivery_class;
+      delete legacyBatchPayload.schema_version;
+      const legacyInsert = await supabase
+        .from("ingestion_batches")
+        .insert([legacyBatchPayload])
+        .select("id")
+        .single();
+      batch = legacyInsert.data;
+      batchError = legacyInsert.error;
+    }
+
+    if (batchError?.code === "23505") {
+      let existingBatchQuery = supabase
         .from("ingestion_batches")
         .select("id")
-        .eq("device_id", deviceRow.id)
-        .eq("telemetry_seq", batchPayload.telemetry_seq)
-        .maybeSingle();
+        .eq("device_id", deviceRow.id);
+      existingBatchQuery = batchPayload.telemetry_seq !== null
+        ? existingBatchQuery.eq("telemetry_seq", batchPayload.telemetry_seq)
+        : existingBatchQuery.eq("idempotency_key", idempotencyKey);
+      const existingBatch = await existingBatchQuery.maybeSingle();
       batch = existingBatch.data;
       batchError = existingBatch.error;
     }
@@ -775,12 +820,20 @@ async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
       throw batchError;
     }
 
-    const sensorDefinitions = [
-      { sensor_key: "interior_temperature", sensor_type: "temperature", name: "Temperatura interior", unit: "degC", location_context: "interior" },
-      { sensor_key: "interior_humidity", sensor_type: "humidity", name: "Humidade interior", unit: "%RH", location_context: "interior" },
-      { sensor_key: "ambient_temperature", sensor_type: "temperature", name: "Temperatura ambiente", unit: "degC", location_context: "ambient" },
-      { sensor_key: "ambient_humidity", sensor_type: "humidity", name: "Humidade ambiente", unit: "%RH", location_context: "ambient" },
-    ].map((definition) => ({ ...definition, device_id: deviceRow.id }));
+    const sensorNames = {
+      interior_temperature: ["Temperatura interior", "interior"],
+      interior_humidity: ["Humidade interior", "interior"],
+      ambient_temperature: ["Temperatura ambiente", "ambient"],
+      ambient_humidity: ["Humidade ambiente", "ambient"],
+    };
+    const sensorDefinitions = METRICS.map((metric) => ({
+      device_id: deviceRow.id,
+      sensor_key: metric.sensorKey,
+      sensor_type: metric.metricType,
+      name: sensorNames[metric.sensorKey][0],
+      unit: metric.unit,
+      location_context: sensorNames[metric.sensorKey][1],
+    }));
 
     const { data: sensors, error: sensorsError } = await supabase
       .from("sensors")
@@ -789,38 +842,89 @@ async function persistNormalizedTelemetry({ deviceRow, payload, recordedAt }) {
     if (sensorsError) throw sensorsError;
 
     const sensorByKey = new Map((sensors || []).map((sensor) => [sensor.sensor_key, sensor.id]));
-    const candidateValues = [
-      ["interior_temperature", rawPayload.temperature],
-      ["interior_humidity", rawPayload.humidity],
-      ["ambient_temperature", rawPayload.exterior_temperature],
-      ["ambient_humidity", rawPayload.exterior_humidity],
-    ];
-    const normalizedRows = candidateValues
-      .map(([sensorKey, rawValue]) => ({
-        sensor_id: sensorByKey.get(sensorKey),
-        value: toOptionalNumber(rawValue),
-      }))
-      .filter((item) => item.sensor_id && item.value !== null)
+    const candidates = buildMeasurementCandidates({
+      payload: rawPayload,
+      componentHealth,
+      eventTime: recordedAt,
+      ingestedAt: receivedAt,
+    });
+    const normalizedRows = candidates
+      .filter((item) => sensorByKey.get(item.sensorKey))
       .map((item) => ({
         ingestion_batch_id: batch.id,
-        sensor_id: item.sensor_id,
+        sensor_id: sensorByKey.get(item.sensorKey),
         recorded_at: recordedAt,
         value_numeric: item.value,
-        quality: "valid",
+        quality: item.quality,
+        confidence: item.confidence,
+        quality_reason_codes: item.reasons,
+        source: "device",
+        schema_version: 1,
+        metadata: {
+          sensor_key: item.sensorKey,
+          metric_type: item.metricType,
+          unit: item.unit,
+          delivery_class: batchPayload.delivery_class,
+        },
       }));
 
     if (normalizedRows.length) {
-      const { error: readingsError } = await supabase
+      let { error: readingsError } = await supabase
         .from("sensor_readings")
         .insert(normalizedRows);
+      if (
+        readingsError &&
+        ["42703", "PGRST204", "23514"].includes(String(readingsError.code || ""))
+      ) {
+        const legacyRows = normalizedRows
+          .filter((row) => row.value_numeric !== null)
+          .map((row) => ({
+            ingestion_batch_id: row.ingestion_batch_id,
+            sensor_id: row.sensor_id,
+            recorded_at: row.recorded_at,
+            value_numeric: row.value_numeric,
+            quality: row.quality === "unknown" ? "suspect" : row.quality,
+            metadata: row.metadata,
+          }));
+        if (!legacyRows.length) {
+          readingsError = null;
+        } else {
+          const legacyInsert = await supabase
+            .from("sensor_readings")
+            .insert(legacyRows);
+          readingsError = legacyInsert.error;
+        }
+      }
       if (readingsError && readingsError.code !== "23505") throw readingsError;
     }
 
-    return { stored: true, batch_id: batch.id, values: normalizedRows.length };
+    const parityMeasurements = normalizedRows.map((row) => ({
+      sensor_key: row.metadata.sensor_key,
+      value_numeric: row.value_numeric,
+    }));
+    const parity = compareLegacyAndCore({
+      legacy: rawPayload,
+      measurements: parityMeasurements,
+    });
+    incrementCoreMetric("dual_write.success", { parity: String(parity.parity) });
+    if (!parity.parity) incrementCoreMetric("dual_write.parity_failed");
+    return {
+      stored: true,
+      batch_id: batch.id,
+      values: normalizedRows.length,
+      idempotency_key: idempotencyKey,
+      delivery_class: batchPayload.delivery_class,
+      parity,
+      measurements: parityMeasurements,
+    };
   } catch (error) {
     if (isNormalizedSchemaUnavailable(error)) {
+      incrementCoreMetric("dual_write.unavailable", { reason: "schema_not_deployed" });
       return { stored: false, reason: "normalized_schema_not_deployed" };
     }
+    incrementCoreMetric("dual_write.failed", {
+      code: String(error?.code || "unknown"),
+    });
     console.error("Falha no dual write normalizado; telemetria legada preservada:", error);
     return { stored: false, reason: "normalized_write_failed" };
   }
@@ -923,11 +1027,18 @@ async function persistComponentHealth({ deviceRow, snapshot, ingestionBatchId = 
       const { error: eventsError } = await supabase.from("component_health_events").insert(rows);
       if (eventsError) throw eventsError;
     }
+    incrementCoreMetric("component_health.persisted", {
+      changes: String(rows.length),
+    });
     return { stored: true, changes: rows.length, components: componentIds.length };
   } catch (error) {
     if (isNormalizedSchemaUnavailable(error)) {
+      incrementCoreMetric("component_health.unavailable");
       return { stored: false, reason: "component_health_schema_not_deployed" };
     }
+    incrementCoreMetric("component_health.failed", {
+      code: String(error?.code || "unknown"),
+    });
     console.error("Falha ao persistir Component Health; ingestão Cold preservada:", error);
     return { stored: false, reason: "component_health_write_failed" };
   }
@@ -962,11 +1073,16 @@ async function persistDeviceState({ deviceRow, snapshot, source = "device_teleme
       evidence: {},
     });
     if (error) throw error;
+    incrementCoreMetric("device_state.changed");
     return { stored: true, changed: true };
   } catch (error) {
     if (isNormalizedSchemaUnavailable(error)) {
+      incrementCoreMetric("device_state.unavailable");
       return { stored: false, reason: "device_state_schema_not_deployed" };
     }
+    incrementCoreMetric("device_state.failed", {
+      code: String(error?.code || "unknown"),
+    });
     console.error("Falha ao persistir estado Core; ingestão Cold preservada:", error);
     return { stored: false, reason: "device_state_write_failed" };
   }
@@ -1135,6 +1251,7 @@ function isMissingReadingTelemetryColumnError(error) {
     /column .*sample_epoch/i.test(text) ||
     /column .*delivery_attempts/i.test(text) ||
     /column .*offline_captured/i.test(text) ||
+    /column .*idempotency_key/i.test(text) ||
     /column .*wifi_rssi/i.test(text) ||
     /column .*post_ok_count/i.test(text) ||
     /column .*post_fail_count/i.test(text) ||
@@ -1159,6 +1276,17 @@ function isMissingReadingOperationalColumnError(error) {
     /column .*alarm_ack/i.test(text) ||
     /column .*alarm_reason/i.test(text)
   );
+}
+
+function getMissingReadingColumn(error) {
+  const code = String(error?.code || "");
+  if (!["PGRST204", "42703"].includes(code)) return null;
+  const text = `${error?.message || ""} ${error?.details || ""}`;
+  const match =
+    text.match(/Could not find the '([^']+)' column/i) ||
+    text.match(/column "([^"]+)"/i) ||
+    text.match(/column '([^']+)'/i);
+  return match?.[1] || null;
 }
 
 function isMissingDeviceContactColumnError(error) {
@@ -2435,6 +2563,8 @@ async function insertAlertHistory({
   temperature = null,
   humidity = null,
 }) {
+  const correlationId = crypto.randomUUID();
+  const normalizedEvent = String(event || "triggered").toLowerCase();
   const payload = {
     device_id,
     type,
@@ -2444,14 +2574,33 @@ async function insertAlertHistory({
     temperature,
     humidity,
     sent_at: nowIso(),
+    alert_status:
+      normalizedEvent === "resolved"
+        ? "RESOLVED"
+        : normalizedEvent === "ack"
+          ? "ACKNOWLEDGED"
+          : "OPEN",
+    correlation_id: correlationId,
   };
 
-  const { error } = await supabase.from("alerts").insert([payload]);
+  let { error } = await supabase.from("alerts").insert([payload]);
+
+  if (error && ["42703", "PGRST204"].includes(String(error.code || ""))) {
+    const legacyPayload = { ...payload };
+    delete legacyPayload.alert_status;
+    delete legacyPayload.correlation_id;
+    const fallback = await supabase.from("alerts").insert([legacyPayload]);
+    error = fallback.error;
+  }
 
   if (error) {
+    incrementCoreMetric("alerts.persist_failed", {
+      code: String(error.code || "unknown"),
+    });
     console.error("Erro ao inserir histórico de alerta:", error);
     return;
   }
+  incrementCoreMetric("alerts.persisted", { event: normalizedEvent });
 
   // Compatibility bridge: preserve the existing alerts table while also
   // creating a context-rich operational event when the hierarchy is assigned.
@@ -2478,7 +2627,6 @@ async function insertAlertHistory({
     if (siteError || !siteRow?.client_id) return;
 
     const normalizedType = String(type || "system").toLowerCase();
-    const normalizedEvent = String(event || "triggered").toLowerCase();
     const eventTypeMap = {
       temperature: "temperature_alarm",
       temp: "temperature_alarm",
@@ -2512,12 +2660,29 @@ async function insertAlertHistory({
         temperature,
         humidity,
       },
+      correlation_id: correlationId,
+      schema_version: 1,
     };
-    const { error: eventError } = await supabase
+    let { error: eventError } = await supabase
       .from("events")
       .insert([operationalPayload]);
+    if (
+      eventError &&
+      ["42703", "PGRST204"].includes(String(eventError.code || ""))
+    ) {
+      const legacyEvent = { ...operationalPayload };
+      delete legacyEvent.correlation_id;
+      delete legacyEvent.schema_version;
+      const fallbackEvent = await supabase.from("events").insert([legacyEvent]);
+      eventError = fallbackEvent.error;
+    }
     if (eventError && !isNormalizedSchemaUnavailable(eventError)) {
+      incrementCoreMetric("events.persist_failed", {
+        code: String(eventError.code || "unknown"),
+      });
       console.error("Erro ao espelhar alerta em events:", eventError);
+    } else if (!eventError) {
+      incrementCoreMetric("events.persisted", { type: operationalPayload.event_type });
     }
   } catch (eventMirrorError) {
     if (!isNormalizedSchemaUnavailable(eventMirrorError)) {
@@ -3520,6 +3685,18 @@ app.get("/", (req, res) => {
   res.send("Servidor SmartTempSystems ativo!");
 });
 
+app.get("/api/core/health", (req, res) => {
+  if (!isAuthorized(req)) {
+    incrementCoreMetric("authorization.denied", { endpoint: "core_health" });
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+  return res.json({
+    ok: true,
+    generated_at: nowIso(),
+    metrics: getCoreMetricsSnapshot(),
+  });
+});
+
 // -------------------- WEEKLY REPORT --------------------
 app.post("/api/weekly-report", async (req, res) => {
   if (!isAuthorized(req)) {
@@ -3928,6 +4105,12 @@ app.post("/api/temperature", async (req, res) => {
     const enrichedReadingPayload = {
       ...readingPayload,
       ...persistedReadingMeta,
+      idempotency_key: buildIdempotencyKey({
+        deviceId: device_id,
+        telemetrySeq: incomingReadingMeta.telemetry_seq,
+        eventTime: readingCreatedAt,
+        payload: req.body,
+      }),
       offline_captured: shouldMarkOfflineCaptured,
       wifi_rssi: receivedCommunicationDiagnostics.wifi_rssi,
       post_ok_count: receivedCommunicationDiagnostics.post_ok_count,
@@ -3981,7 +4164,7 @@ app.post("/api/temperature", async (req, res) => {
       return res.status(500).json({ error: "Erro ao validar leitura" });
     }
 
-    const storedReading = shouldStoreReading({
+    let storedReading = shouldStoreReading({
       latestReading: latestReadingForRate,
       cfg,
       incoming: { ...readingPayload, ...incomingReadingMeta },
@@ -3989,55 +4172,33 @@ app.post("/api/temperature", async (req, res) => {
 
     if (storedReading) {
       failureStage = "inserir_leitura";
-      const insertReadingsResult = await supabase.from("readings").insert([
-        enrichedReadingPayload,
-      ]);
-
-      if (insertReadingsResult.error) {
-        if (
-          isMissingReadingTelemetryColumnError(insertReadingsResult.error) ||
-          isMissingReadingOperationalColumnError(insertReadingsResult.error)
-        ) {
-          // Communication metrics are optional. Preserve capture time, queue,
-          // offline, alarm and exterior metadata when an older database has not
-          // yet received the communication-diagnostics migration.
-          const compatibleReadingPayload = { ...enrichedReadingPayload };
-          [
-            "wifi_rssi",
-            "post_ok_count",
-            "post_fail_count",
-            "buffer_count",
-            "wifi_reconnect_count",
-            "last_http_status",
-          ].forEach((key) => delete compatibleReadingPayload[key]);
-
-          let fallbackInsertResult = await supabase
-            .from("readings")
-            .insert([compatibleReadingPayload]);
-
-          if (
-            fallbackInsertResult.error &&
-            (isMissingReadingTelemetryColumnError(fallbackInsertResult.error) ||
-              isMissingReadingOperationalColumnError(fallbackInsertResult.error))
-          ) {
-            fallbackInsertResult = await supabase.from("readings").insert([
-              {
-                device_id,
-                temperature: numericTemperature,
-                humidity: numericHumidity,
-                created_at: readingCreatedAt,
-              },
-            ]);
-          }
-
-          if (fallbackInsertResult.error) {
-            console.error("Erro ao inserir reading:", fallbackInsertResult.error);
-            return res.status(500).json({ error: "Erro ao guardar leitura" });
-          }
-        } else {
-          console.error("Erro ao inserir reading:", insertReadingsResult.error);
-          return res.status(500).json({ error: "Erro ao guardar leitura" });
+      const compatibleReadingPayload = { ...enrichedReadingPayload };
+      let insertReadingsError = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const insertResult = await supabase
+          .from("readings")
+          .insert([compatibleReadingPayload]);
+        insertReadingsError = insertResult.error;
+        if (!insertReadingsError) break;
+        if (insertReadingsError.code === "23505") {
+          storedReading = false;
+          insertReadingsError = null;
+          break;
         }
+        const missingColumn = getMissingReadingColumn(insertReadingsError);
+        if (
+          !missingColumn ||
+          !Object.prototype.hasOwnProperty.call(
+            compatibleReadingPayload,
+            missingColumn
+          )
+        ) break;
+        delete compatibleReadingPayload[missingColumn];
+      }
+
+      if (insertReadingsError) {
+        console.error("Erro ao inserir reading:", insertReadingsError);
+        return res.status(500).json({ error: "Erro ao guardar leitura" });
       }
     }
 
@@ -4186,6 +4347,7 @@ app.post("/api/temperature", async (req, res) => {
       deviceRow: freshDeviceRow,
       payload: req.body,
       recordedAt: readingCreatedAt,
+      componentHealth: receivedHardwareDiagnostics,
     });
     const componentHealth = await persistComponentHealth({
       deviceRow: freshDeviceRow,

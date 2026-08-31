@@ -37,6 +37,44 @@ create table if not exists public.clients (
   updated_at timestamptz not null default now()
 );
 
+-- Legacy Cold already has `clients` with slug/is_active. CREATE TABLE IF NOT
+-- EXISTS does not reconcile columns, so add and backfill the STS Core contract
+-- without removing or renaming any legacy field.
+alter table public.clients
+  add column if not exists code text,
+  add column if not exists active boolean not null default true,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists updated_at timestamptz not null default now();
+
+update public.clients c
+set code = left(
+  upper(
+    regexp_replace(
+      coalesce(
+        nullif(btrim(to_jsonb(c) ->> 'slug'), ''),
+        'CLIENT_' || replace(id::text, '-', '')
+      ),
+      '[^A-Za-z0-9_-]+', '_', 'g'
+    )
+  ),
+  48
+)
+where code is null;
+
+update public.clients c
+set active = case
+      when to_jsonb(c) ? 'is_active'
+        then coalesce((to_jsonb(c) ->> 'is_active')::boolean, true)
+      else coalesce(active, true)
+    end,
+    updated_at = coalesce(updated_at, created_at, now());
+
+alter table public.clients alter column code set not null;
+alter table public.clients drop constraint if exists clients_code_check;
+alter table public.clients add constraint clients_code_check
+  check (code ~ '^[A-Z0-9_-]{3,48}$');
+create unique index if not exists clients_code_uidx on public.clients(code);
+
 create table if not exists public.client_users (
   client_id uuid not null references public.clients(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
