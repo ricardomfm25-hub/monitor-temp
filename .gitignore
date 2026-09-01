@@ -10,3 +10,7 @@ node_modules/
 *.pfx
 *.bin
 coverage/
+firmware/**/sts_secrets.h
+firmware/**/sts_tls_ca.pem
+firmware/**/build/
+firmware/**/.arduino-cache/

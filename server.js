@@ -26,6 +26,12 @@ const {
   normalizeMaintenance,
   notificationDecision,
 } = require("./src/core/maintenance");
+const {
+  createDeviceAuthenticator,
+} = require("./src/core/device-auth");
+const {
+  assertSafeRuntimeEnvironment,
+} = require("./src/core/staging-environment");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -34,6 +40,10 @@ const API_TOKEN = process.env.API_TOKEN;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const runtimeEnvironment = assertSafeRuntimeEnvironment(process.env);
+const ALLOW_LEGACY_DEVICE_API_TOKEN =
+  !runtimeEnvironment.staging ||
+  String(process.env.STS_ALLOW_LEGACY_DEVICE_API_TOKEN || "").toLowerCase() === "true";
 
 const missingRequiredEnv = [
   ["API_TOKEN", API_TOKEN],
@@ -133,6 +143,35 @@ app.use(
 );
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const authenticateDevice = createDeviceAuthenticator({
+  legacyToken: API_TOKEN,
+  allowLegacy: ALLOW_LEGACY_DEVICE_API_TOKEN,
+  async findCredential({ deviceId, tokenHash }) {
+    const { data: device, error: deviceError } = await supabase
+      .from("devices")
+      .select("id")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    if (deviceError || !device) return null;
+
+    const { data, error } = await supabase
+      .from("device_credentials")
+      .select("id,status,revoked_at,expires_at")
+      .eq("device_id", device.id)
+      .eq("secret_hash", tokenHash)
+      .maybeSingle();
+    if (error) return null;
+    return data ? { ...data, active: data.status === "active" } : null;
+  },
+  async markCredentialUsed(credentialId, usedAt) {
+    const { error } = await supabase
+      .from("device_credentials")
+      .update({ last_used_at: usedAt })
+      .eq("id", credentialId);
+    if (error) throw new Error("device_credential_usage_update_failed");
+  },
+});
 
 // -------------------- HELPERS --------------------
 function getAuthToken(req) {
@@ -3732,7 +3771,12 @@ app.post("/api/check-devices-health", async (req, res) => {
 
 // -------------------- DEVICE HEARTBEAT --------------------
 app.post("/api/device/heartbeat", async (req, res) => {
-  if (!isAuthorized(req)) {
+  const requestedDeviceId = req.body?.device_id;
+  const authorization = await authenticateDevice({
+    authorization: getAuthToken(req),
+    deviceId: requestedDeviceId,
+  });
+  if (!authorization.authorized) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
@@ -3915,7 +3959,12 @@ app.post("/api/device/heartbeat", async (req, res) => {
 // -------------------- API TEMPERATURA --------------------
 app.post("/api/temperature", async (req, res) => {
   let failureStage = "inicio";
-  if (!isAuthorized(req)) {
+  const requestedDeviceId = req.body?.device_id;
+  const authorization = await authenticateDevice({
+    authorization: getAuthToken(req),
+    deviceId: requestedDeviceId,
+  });
+  if (!authorization.authorized) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
@@ -5459,7 +5508,11 @@ app.post("/api/device/:id/config", async (req, res) => {
 
 // -------------------- OBTER CONFIG DISPOSITIVO --------------------
 app.get("/api/device/:id/config", async (req, res) => {
-  if (!isAuthorized(req)) {
+  const authorization = await authenticateDevice({
+    authorization: getAuthToken(req),
+    deviceId: req.params.id,
+  });
+  if (!authorization.authorized) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 

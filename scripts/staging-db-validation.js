@@ -186,6 +186,7 @@ async function main() {
         "preflight_schema_check.sql",
         "core_state_foundation_test.sql",
         "data_architecture_test.sql",
+        "profile_authorization_guard_test.sql",
       ];
       await runSqlFiles(client, "supabase/tests", tests);
       return;
