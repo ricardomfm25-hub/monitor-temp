@@ -108,6 +108,63 @@ async function fetchHistoryRows(supabase, deviceId, request) {
   return ascending ? rows : rows.reverse();
 }
 
+async function fetchNormalizedAmbientHistory(supabase, deviceId, request) {
+  const limit = parseLimit(request);
+  const hours = parseHours(request);
+  let query = supabase
+    .from("sensor_readings_context")
+    .select("recorded_at,sensor_key,value_numeric,quality")
+    .eq("device_code", deviceId)
+    .in("sensor_key", ["ambient_temperature", "ambient_humidity"])
+    .order("recorded_at", { ascending: hours !== null })
+    .limit(Math.min(limit * 2, 50000));
+
+  if (hours !== null) {
+    query = query.gte(
+      "recorded_at",
+      new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    if (["42P01", "PGRST204", "PGRST205"].includes(String(error.code || ""))) {
+      return { available: false, values: new Map() };
+    }
+    throw error;
+  }
+
+  const values = new Map();
+  for (const row of data || []) {
+    const timestamp = new Date(row.recorded_at).getTime();
+    if (!Number.isFinite(timestamp)) continue;
+    const current = values.get(timestamp) || {};
+    current[row.sensor_key] =
+      row.quality === "missing" || row.quality === "invalid"
+        ? null
+        : row.value_numeric === null || row.value_numeric === undefined
+          ? null
+          : Number(row.value_numeric);
+    values.set(timestamp, current);
+  }
+  return { available: true, values };
+}
+
+async function fetchSensorSemantics(supabase, deviceId) {
+  const { data, error } = await supabase
+    .from("devices")
+    .select("config")
+    .eq("device_id", deviceId)
+    .maybeSingle();
+  if (error) throw error;
+  const version = Number(data?.config?.sensor_semantics_version || 1);
+  const sinceMs = new Date(data?.config?.sensor_semantics_v2_since || "").getTime();
+  return {
+    version,
+    sinceMs: Number.isFinite(sinceMs) ? sinceMs : null,
+  };
+}
+
 export async function GET(request, context) {
   const supabase = await createClient();
   const deviceId = await getDeviceId(context);
@@ -122,18 +179,36 @@ export async function GET(request, context) {
   }
 
   try {
-    const data = await fetchHistoryRows(supabase, deviceId, request);
+    const [data, normalizedAmbient, semantics] = await Promise.all([
+      fetchHistoryRows(supabase, deviceId, request),
+      fetchNormalizedAmbientHistory(supabase, deviceId, request),
+      fetchSensorSemantics(supabase, deviceId),
+    ]);
 
     const history = (data || [])
-      .map((row) => ({
+      .map((row) => {
+        const timestamp = new Date(row.created_at).getTime();
+        const normalized = normalizedAmbient.values.get(timestamp);
+        const legacyMainIsUnambiguous =
+          semantics.version < 2 ||
+          (semantics.sinceMs !== null && timestamp >= semantics.sinceMs);
+        return {
         created_at: row.created_at,
-        timestamp: new Date(row.created_at).getTime(),
+        timestamp,
         temperature:
-          row.temperature === null || row.temperature === undefined
+          normalizedAmbient.available
+            ? normalized?.ambient_temperature ?? null
+            : !legacyMainIsUnambiguous
+              ? null
+            : row.temperature === null || row.temperature === undefined
             ? null
             : Number(row.temperature),
         humidity:
-          row.humidity === null || row.humidity === undefined
+          normalizedAmbient.available
+            ? normalized?.ambient_humidity ?? null
+            : !legacyMainIsUnambiguous
+              ? null
+            : row.humidity === null || row.humidity === undefined
             ? null
             : Number(row.humidity),
         exterior_temperature:
@@ -214,7 +289,13 @@ export async function GET(request, context) {
           row.offline_captured === null || row.offline_captured === undefined
             ? null
             : toBoolean(row.offline_captured),
-      }))
+        sensor_semantics_source: normalizedAmbient.available
+          ? "normalized_ambient"
+          : legacyMainIsUnambiguous
+            ? "legacy_main"
+            : "ambiguous_legacy_hidden",
+      };
+      })
       .filter((row) => Number.isFinite(row.timestamp));
 
     return Response.json(history);

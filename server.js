@@ -15,7 +15,12 @@ const {
   buildMeasurementCandidates,
   classifyDelivery,
   compareLegacyAndCore,
+  getSensorSemanticsVersion,
 } = require("./src/core/measurement-contract");
+const {
+  resolveColdSensorSnapshot,
+  deriveColdOperationalStatus,
+} = require("./src/core/cold-sensor-semantics");
 const {
   getCoreMetricsSnapshot,
   incrementCoreMetric,
@@ -3977,6 +3982,10 @@ app.post("/api/temperature", async (req, res) => {
       exterior_temperature,
       exterior_humidity,
       exterior_sensor_ok,
+      internal_temperature,
+      internal_humidity,
+      internal_sensor_ok,
+      sensor_semantics_version,
       device_status,
       alarm_ack,
       alarm_ack_count,
@@ -4032,10 +4041,19 @@ app.post("/api/temperature", async (req, res) => {
     const numericHumidity = Number(humidity);
     const numericExteriorTemperature = toOptionalNumber(exterior_temperature);
     const numericExteriorHumidity = toOptionalNumber(exterior_humidity);
+    const numericInternalTemperature = toOptionalNumber(internal_temperature);
+    const numericInternalHumidity = toOptionalNumber(internal_humidity);
+    const sensorSemanticsVersion = getSensorSemanticsVersion({
+      sensor_semantics_version,
+    });
     const exteriorSensorOk =
       toBoolean(exterior_sensor_ok) &&
       numericExteriorTemperature !== null &&
       numericExteriorHumidity !== null;
+    const internalSensorOk =
+      toBoolean(internal_sensor_ok) &&
+      numericInternalTemperature !== null &&
+      numericInternalHumidity !== null;
 
     if (
       !Number.isFinite(numericTemperature) ||
@@ -4251,14 +4269,10 @@ app.post("/api/temperature", async (req, res) => {
       }
     }
 
-    const computedStatus = getDeviceStatus({
+    const computedStatus = deriveColdOperationalStatus({
+      snapshot: resolveColdSensorSnapshot(req.body),
+      limits: cfg,
       online: true,
-      temperature: numericTemperature,
-      humidity: numericHumidity,
-      temp_low_c: cfg.temp_low_c,
-      temp_high_c: cfg.temp_high_c,
-      hum_low: cfg.hum_low,
-      hum_high: cfg.hum_high,
     });
     const telemetryStatus = resolveTelemetryStatus({
       online: true,
@@ -4286,12 +4300,27 @@ app.post("/api/temperature", async (req, res) => {
         ...(isHistoricalBackfill
           ? {}
           : {
-              exterior_environment: {
-                temperature: exteriorSensorOk ? numericExteriorTemperature : null,
-                humidity: exteriorSensorOk ? numericExteriorHumidity : null,
-                sensor_ok: exteriorSensorOk,
-                updated_at: nowIso(),
-              },
+              sensor_semantics_version: sensorSemanticsVersion,
+              ...(sensorSemanticsVersion >= 2
+                ? {
+                    sensor_semantics_v2_since:
+                      baseDeviceRow.config?.sensor_semantics_v2_since || currentNowIso,
+                    internal_environment: {
+                      temperature: internalSensorOk ? numericInternalTemperature : null,
+                      humidity: internalSensorOk ? numericInternalHumidity : null,
+                      sensor_ok: internalSensorOk,
+                      source: "dht22_interior",
+                      updated_at: nowIso(),
+                    },
+                  }
+                : {
+                    exterior_environment: {
+                      temperature: exteriorSensorOk ? numericExteriorTemperature : null,
+                      humidity: exteriorSensorOk ? numericExteriorHumidity : null,
+                      sensor_ok: exteriorSensorOk,
+                      updated_at: nowIso(),
+                    },
+                  }),
             }),
       },
       config_version: baseDeviceRow.config_version || 1,

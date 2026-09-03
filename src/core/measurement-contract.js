@@ -16,12 +16,42 @@ const DELIVERY_CLASS = Object.freeze({
   RETRANSMITTED: "retransmitted",
 });
 
+const SENSOR_SEMANTICS = Object.freeze({ LEGACY: 1, SHT30_PRIMARY: 2 });
+
+// Stable sensor catalogue. Payload bindings are versioned below so stored legacy
+// telemetry remains DHT22=interior/SHT30=ambient while v2 makes SHT30 primary.
 const METRICS = Object.freeze([
-  { sensorKey: "interior_temperature", payloadKey: "temperature", metricType: "temperature", unit: "degC", componentKey: "dht22_interior" },
-  { sensorKey: "interior_humidity", payloadKey: "humidity", metricType: "humidity", unit: "%RH", componentKey: "dht22_interior" },
-  { sensorKey: "ambient_temperature", payloadKey: "exterior_temperature", metricType: "temperature", unit: "degC", componentKey: "sht30_ambient" },
-  { sensorKey: "ambient_humidity", payloadKey: "exterior_humidity", metricType: "humidity", unit: "%RH", componentKey: "sht30_ambient" },
+  { sensorKey: "interior_temperature", metricType: "temperature", unit: "degC" },
+  { sensorKey: "interior_humidity", metricType: "humidity", unit: "%RH" },
+  { sensorKey: "ambient_temperature", metricType: "temperature", unit: "degC" },
+  { sensorKey: "ambient_humidity", metricType: "humidity", unit: "%RH" },
 ]);
+
+const LEGACY_BINDINGS = Object.freeze([
+  { ...METRICS[0], payloadKey: "temperature", componentKey: "dht22_interior" },
+  { ...METRICS[1], payloadKey: "humidity", componentKey: "dht22_interior" },
+  { ...METRICS[2], payloadKey: "exterior_temperature", componentKey: "sht30_ambient" },
+  { ...METRICS[3], payloadKey: "exterior_humidity", componentKey: "sht30_ambient" },
+]);
+
+const SHT30_PRIMARY_BINDINGS = Object.freeze([
+  { ...METRICS[0], payloadKey: "internal_temperature", componentKey: "dht22_interior" },
+  { ...METRICS[1], payloadKey: "internal_humidity", componentKey: "dht22_interior" },
+  { ...METRICS[2], payloadKey: "temperature", componentKey: "sht30_ambient" },
+  { ...METRICS[3], payloadKey: "humidity", componentKey: "sht30_ambient" },
+]);
+
+function getSensorSemanticsVersion(payload = {}) {
+  return Number(payload.sensor_semantics_version) >= SENSOR_SEMANTICS.SHT30_PRIMARY
+    ? SENSOR_SEMANTICS.SHT30_PRIMARY
+    : SENSOR_SEMANTICS.LEGACY;
+}
+
+function getMetricBindings(payload = {}) {
+  return getSensorSemanticsVersion(payload) === SENSOR_SEMANTICS.SHT30_PRIMARY
+    ? SHT30_PRIMARY_BINDINGS
+    : LEGACY_BINDINGS;
+}
 
 function numericOrNull(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -99,13 +129,16 @@ function buildIdempotencyKey({ deviceId, telemetrySeq, eventTime, payload = {} }
     humidity: numericOrNull(payload.humidity),
     exterior_temperature: numericOrNull(payload.exterior_temperature),
     exterior_humidity: numericOrNull(payload.exterior_humidity),
+    internal_temperature: numericOrNull(payload.internal_temperature),
+    internal_humidity: numericOrNull(payload.internal_humidity),
+    sensor_semantics_version: getSensorSemanticsVersion(payload),
     alarm_event_count: numericOrNull(payload.alarm_event_count),
   };
   return `hash:${crypto.createHash("sha256").update(JSON.stringify(stablePayload)).digest("hex")}`;
 }
 
 function buildMeasurementCandidates({ payload, componentHealth, eventTime, ingestedAt }) {
-  return METRICS.map((metric) => {
+  return getMetricBindings(payload).map((metric) => {
     const quality = assessMeasurementQuality({
       value: payload?.[metric.payloadKey],
       metricType: metric.metricType,
@@ -122,12 +155,12 @@ function buildMeasurementCandidates({ payload, componentHealth, eventTime, inges
 }
 
 function compareLegacyAndCore({ legacy, measurements }) {
-  const expected = new Map([
-    ["interior_temperature", numericOrNull(legacy?.temperature)],
-    ["interior_humidity", numericOrNull(legacy?.humidity)],
-    ["ambient_temperature", numericOrNull(legacy?.exterior_temperature)],
-    ["ambient_humidity", numericOrNull(legacy?.exterior_humidity)],
-  ]);
+  const expected = new Map(
+    getMetricBindings(legacy).map((metric) => [
+      metric.sensorKey,
+      numericOrNull(legacy?.[metric.payloadKey]),
+    ])
+  );
   const actual = new Map((measurements || []).map((item) => [item.sensor_key || item.sensorKey, numericOrNull(item.value_numeric ?? item.value)]));
   const mismatches = [];
   for (const [sensorKey, expectedValue] of expected) {
@@ -143,7 +176,10 @@ function compareLegacyAndCore({ legacy, measurements }) {
 module.exports = {
   DATA_QUALITY,
   DELIVERY_CLASS,
+  SENSOR_SEMANTICS,
   METRICS,
+  getSensorSemanticsVersion,
+  getMetricBindings,
   numericOrNull,
   classifyDelivery,
   assessMeasurementQuality,

@@ -432,6 +432,11 @@ export async function GET(_request, context) {
       humidity,
       last_temperature: temperature,
       last_humidity: humidity,
+      sensor_semantics_version: Number(config?.sensor_semantics_version || 1),
+      internal_temperature: parseNumber(config?.internal_environment?.temperature),
+      internal_humidity: parseNumber(config?.internal_environment?.humidity),
+      internal_sensor_ok: config?.internal_environment?.sensor_ok ?? false,
+      // Legacy aliases remain read-only for pre-v2 firmware compatibility.
       exterior_temperature:
         parseNumber(latestReading?.exterior_temperature) ??
         parseNumber(config?.exterior_environment?.temperature),

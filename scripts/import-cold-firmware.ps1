@@ -40,7 +40,7 @@ Replace-ExactlyOne '(?m)^#define DEVICE_ID\s+"[^"]*"\s*$' @'
 
 #define DEVICE_ID STS_DEVICE_ID
 '@ 'device id'
-Replace-ExactlyOne '(?m)^#define FIRMWARE_VERSION\s+"[^"]*"\s*$' '#define FIRMWARE_VERSION "STS_COLD_FW_2.9.0-STAGING"' 'firmware version'
+Replace-ExactlyOne '(?m)^#define FIRMWARE_VERSION\s+"[^"]*"\s*$' '#define FIRMWARE_VERSION "STS_COLD_FW_3.0.0-STAGING"' 'firmware version'
 Replace-ExactlyOne '(?m)^const char\* OTA_PASSWORD\s*=\s*"[^"]*";\s*$' 'const char* OTA_PASSWORD = STS_OTA_PASSWORD;' 'OTA password'
 Replace-ExactlyOne '(?m)^const char\* WIFI_AP_PASSWORD\s*=\s*"[^"]*";\s*$' 'const char* WIFI_AP_PASSWORD = STS_WIFI_AP_PASSWORD;' 'Wi-Fi setup password'
 Replace-ExactlyOne '(?m)^const char\* backendBaseUrl\s*=\s*"[^"]*";\s*$' 'const char* backendBaseUrl = STS_BACKEND_BASE_URL;' 'backend URL'
@@ -53,6 +53,18 @@ Replace-ExactlyOne '(?m)^const char\* DEVICE_API_TOKEN\s*=\s*"[^"]*";\s*$' 'cons
 $sensitiveLiteralPattern = '(?im)^\s*(const char\*\s+)?(OTA_PASSWORD|WIFI_AP_PASSWORD|DEVICE_API_TOKEN)\s*=\s*"[^"\r\n]+"'
 if ([regex]::IsMatch($content, $sensitiveLiteralPattern)) {
   throw "Sanitization failed: a sensitive literal remains."
+}
+
+$requiredSensorSemantics = @(
+  'SENSOR_SEMANTICS_SHT30_PRIMARY',
+  'internal_temperature',
+  'lastTemperature\s*=\s*ambientT',
+  'primarySensorHealthy'
+)
+foreach ($pattern in $requiredSensorSemantics) {
+  if (-not [regex]::IsMatch($content, $pattern)) {
+    throw "Import rejected: source does not preserve SHT30-primary sensor semantics v2."
+  }
 }
 
 [IO.File]::WriteAllText($targetPath, $content, [Text.UTF8Encoding]::new($false))

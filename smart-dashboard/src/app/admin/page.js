@@ -98,8 +98,8 @@ function getCommunicationDiagnostics(device) {
   );
 }
 
-function getExteriorEnvironment(device) {
-  return device?.config?.exterior_environment || {};
+function getInternalEnvironment(device) {
+  return device?.config?.internal_environment || {};
 }
 
 function getWifiQuality(rssi) {
@@ -2232,18 +2232,26 @@ export default function AdminPage() {
                 value={formatValue(selectedDeviceData.last_humidity, " %")}
               />
               <SmallStat
-                label="Exterior temp."
+                label="Ambiente monitorizado temp."
+                value={formatValue(selectedDeviceData.last_temperature, " °C")}
+              />
+              <SmallStat
+                label="Ambiente monitorizado hum."
+                value={formatValue(selectedDeviceData.last_humidity, " %")}
+              />
+              <SmallStat
+                label="Interior dispositivo temp."
                 value={
-                  getExteriorEnvironment(selectedDeviceData).sensor_ok
-                    ? formatValue(getExteriorEnvironment(selectedDeviceData).temperature, " °C")
+                  getInternalEnvironment(selectedDeviceData).sensor_ok
+                    ? formatValue(getInternalEnvironment(selectedDeviceData).temperature, " °C")
                     : "Sensor indisponível"
                 }
               />
               <SmallStat
-                label="Exterior hum."
+                label="Interior dispositivo hum."
                 value={
-                  getExteriorEnvironment(selectedDeviceData).sensor_ok
-                    ? formatValue(getExteriorEnvironment(selectedDeviceData).humidity, " %")
+                  getInternalEnvironment(selectedDeviceData).sensor_ok
+                    ? formatValue(getInternalEnvironment(selectedDeviceData).humidity, " %")
                     : "Sensor indisponível"
                 }
               />

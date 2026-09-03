@@ -59,7 +59,7 @@
 static_assert(STS_ALLOW_INSECURE_TLS == 0, "Insecure TLS is forbidden for STS staging firmware");
 
 #define DEVICE_ID STS_DEVICE_ID
-#define FIRMWARE_VERSION "STS_COLD_FW_2.9.0-STAGING"
+#define FIRMWARE_VERSION "STS_COLD_FW_3.0.0-STAGING"
 // A versao e definida apenas aqui e segue em todas as telemetrias,
 // incluindo leituras recuperadas da fila offline.
 static_assert(sizeof(FIRMWARE_VERSION) > 1, "FIRMWARE_VERSION must not be empty");
@@ -367,9 +367,10 @@ const unsigned long BUFFER_FLUSH_FAILURE_COOLDOWN_MS = 5000;
 struct Reading {
   float temperature;
   float humidity;
-  float exteriorTemperature;
-  float exteriorHumidity;
-  bool exteriorSensorOk;
+  float secondaryTemperature;
+  float secondaryHumidity;
+  bool secondarySensorOk;
+  uint8_t sensorSemanticsVersion;
   uint32_t sequence;
   unsigned long capturedMillis;
   uint32_t capturedEpoch;
@@ -405,6 +406,8 @@ const uint8_t QUEUE_RECORD_VERSION = 2;
 const uint16_t QUEUE_CAPTURE_NETWORK_KNOWN = 0x8000;
 const uint16_t QUEUE_CAPTURED_OFFLINE = 0x0001;
 const uint16_t QUEUE_RETRY_BACKFILL = 0x0002;
+const uint16_t QUEUE_SENSOR_SEMANTICS_V2 = 0x0004;
+const uint8_t SENSOR_SEMANTICS_SHT30_PRIMARY = 2;
 const size_t QUEUE_MAX_RECORDS = 1800; // Keep current operation reliable; older records are discarded first.
 const size_t QUEUE_MAX_BYTES = 64UL * 1024UL;
 const size_t QUEUE_COMPACT_THRESHOLD_BYTES = 16UL * 1024UL;
@@ -473,17 +476,17 @@ uint8_t activeAlertMask = 0;
 String alarmReasonText = "";
 String alarmEventTimeText = "";
 String alarmAckTimeText = "";
-bool sensorHealthy = false;
-unsigned long sensorFailCount = 0;
-bool exteriorSensorHealthy = false;
-unsigned long exteriorSensorFailCount = 0;
+bool primarySensorHealthy = false;
+unsigned long primarySensorFailCount = 0;
+bool internalSensorHealthy = false;
+unsigned long internalSensorFailCount = 0;
 
 unsigned long patternT0 = 0;
 
 float lastTemperature = NAN;
 float lastHumidity = NAN;
-float lastExteriorTemperature = NAN;
-float lastExteriorHumidity = NAN;
+float lastInternalTemperature = NAN;
+float lastInternalHumidity = NAN;
 
 uint32_t bootCount = 0;
 unsigned long wifiReconnectCount = 0;
@@ -1103,12 +1106,13 @@ Reading makeReading(float temperature, float humidity) {
   Reading reading;
   reading.temperature = temperature;
   reading.humidity = humidity;
-  reading.exteriorTemperature = lastExteriorTemperature;
-  reading.exteriorHumidity = lastExteriorHumidity;
-  reading.exteriorSensorOk =
-    exteriorSensorHealthy &&
-    !isnan(lastExteriorTemperature) &&
-    !isnan(lastExteriorHumidity);
+  reading.secondaryTemperature = lastInternalTemperature;
+  reading.secondaryHumidity = lastInternalHumidity;
+  reading.secondarySensorOk =
+    internalSensorHealthy &&
+    !isnan(lastInternalTemperature) &&
+    !isnan(lastInternalHumidity);
+  reading.sensorSemanticsVersion = SENSOR_SEMANTICS_SHT30_PRIMARY;
   reading.sequence = ++telemetrySequence;
   reading.capturedMillis = millis();
   time_t nowEpoch = time(nullptr);
@@ -1142,11 +1146,16 @@ PersistedReadingRecord readingToRecord(const Reading &reading) {
   record.reserved = QUEUE_CAPTURE_NETWORK_KNOWN;
   if (reading.capturedOffline) record.reserved |= QUEUE_CAPTURED_OFFLINE;
   if (reading.queuedBackfill) record.reserved |= QUEUE_RETRY_BACKFILL;
+  if (reading.sensorSemanticsVersion >= SENSOR_SEMANTICS_SHT30_PRIMARY) {
+    record.reserved |= QUEUE_SENSOR_SEMANTICS_V2;
+  }
   record.temperature = reading.temperature;
   record.humidity = reading.humidity;
-  record.exteriorTemperature = reading.exteriorTemperature;
-  record.exteriorHumidity = reading.exteriorHumidity;
-  record.exteriorSensorOk = reading.exteriorSensorOk ? 1 : 0;
+  // These persisted fields retain their binary layout. Their semantic meaning is
+  // selected by QUEUE_SENSOR_SEMANTICS_V2 when the record is serialized to JSON.
+  record.exteriorTemperature = reading.secondaryTemperature;
+  record.exteriorHumidity = reading.secondaryHumidity;
+  record.exteriorSensorOk = reading.secondarySensorOk ? 1 : 0;
   record.sequence = reading.sequence;
   record.capturedMillis = (uint32_t)reading.capturedMillis;
   record.capturedEpoch = reading.capturedEpoch;
@@ -1165,9 +1174,13 @@ bool recordToReading(const PersistedReadingRecord &record, Reading &outReading) 
 
   outReading.temperature = record.temperature;
   outReading.humidity = record.humidity;
-  outReading.exteriorTemperature = record.exteriorTemperature;
-  outReading.exteriorHumidity = record.exteriorHumidity;
-  outReading.exteriorSensorOk = record.exteriorSensorOk != 0;
+  outReading.secondaryTemperature = record.exteriorTemperature;
+  outReading.secondaryHumidity = record.exteriorHumidity;
+  outReading.secondarySensorOk = record.exteriorSensorOk != 0;
+  outReading.sensorSemanticsVersion =
+    (record.reserved & QUEUE_SENSOR_SEMANTICS_V2) != 0
+      ? SENSOR_SEMANTICS_SHT30_PRIMARY
+      : 1;
   outReading.sequence = record.sequence;
   outReading.capturedMillis = record.capturedMillis;
   outReading.capturedEpoch = record.capturedEpoch;
@@ -2880,7 +2893,7 @@ String formatCurrentDate() {
 }
 
 uint16_t uiStateColor() {
-  if (!sensorHealthy || (alarmActive && !alarmAcked)) return TFT_DANGER;
+  if (!primarySensorHealthy || (alarmActive && !alarmAcked)) return TFT_DANGER;
   if (alarmActive && alarmAcked) return TFT_BLUE;
   if (state == SysState::ALERT) return TFT_WARN;
   if (state == SysState::SETUP_WIFI) return TFT_BLUE;
@@ -2889,7 +2902,7 @@ uint16_t uiStateColor() {
 }
 
 uint16_t uiBackgroundColor() {
-  if (!sensorHealthy || (alarmActive && !alarmAcked)) return TFT_BG_DANGER;
+  if (!primarySensorHealthy || (alarmActive && !alarmAcked)) return TFT_BG_DANGER;
   if (alarmActive && alarmAcked) return TFT_BG_BLUE;
   if (state == SysState::ALERT) return TFT_BG_WARN;
   if (state == SysState::SETUP_WIFI) return TFT_BG_BLUE;
@@ -3125,6 +3138,11 @@ void refreshCurrentDisplay() {
     return;
   }
 
+  if (state == SysState::SENSOR_FAIL) {
+    displayTemp(NAN, NAN);
+    return;
+  }
+
   if (!isnan(lastTemperature) && !isnan(lastHumidity)) {
     displayNormalPage(lastTemperature, lastHumidity);
     return;
@@ -3306,7 +3324,7 @@ void displayTemp(float temp, float humidity) {
   uint16_t bgColor = uiBackgroundColor();
   uint16_t statusColor = TFT_OK;
   const char* statusText = "OK";
-  if (!sensorHealthy) {
+  if (!primarySensorHealthy) {
     statusColor = TFT_DANGER;
     statusText = "SENSOR";
   } else if (state == SysState::SETUP_WIFI) {
@@ -3378,7 +3396,11 @@ void displayTemp(float temp, float humidity) {
   }
 
   char tempText[12];
-  dtostrf(temp, 0, 1, tempText);
+  if (isnan(temp)) {
+    snprintf(tempText, sizeof(tempText), "--");
+  } else {
+    dtostrf(temp, 0, 1, tempText);
+  }
   String tempValue = String(tempText);
   tempValue.trim();
   int16_t textX;
@@ -3407,7 +3429,11 @@ void displayTemp(float temp, float humidity) {
   display.print("C");
 
   char humText[8];
-  snprintf(humText, sizeof(humText), "%.0f%%", humidity);
+  if (isnan(humidity)) {
+    snprintf(humText, sizeof(humText), "--");
+  } else {
+    snprintf(humText, sizeof(humText), "%.0f%%", humidity);
+  }
   uint16_t humW;
   uint16_t humH;
   display.getTextBounds(humText, 0, 218, &textX, &textY, &humW, &humH);
@@ -3458,11 +3484,21 @@ String buildTemperatureJson(const Reading &reading) {
   json += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
   json += "\"temperature\":" + String(reading.temperature, 1) + ",";
   json += "\"humidity\":" + String(reading.humidity, 1);
-  json += ",\"exterior_temperature\":";
-  json += reading.exteriorSensorOk ? String(reading.exteriorTemperature, 1) : String("null");
-  json += ",\"exterior_humidity\":";
-  json += reading.exteriorSensorOk ? String(reading.exteriorHumidity, 1) : String("null");
-  json += ",\"exterior_sensor_ok\":" + String(reading.exteriorSensorOk ? "true" : "false");
+  json += ",\"sensor_semantics_version\":" + String(reading.sensorSemanticsVersion);
+  if (reading.sensorSemanticsVersion >= SENSOR_SEMANTICS_SHT30_PRIMARY) {
+    json += ",\"internal_temperature\":";
+    json += reading.secondarySensorOk ? String(reading.secondaryTemperature, 1) : String("null");
+    json += ",\"internal_humidity\":";
+    json += reading.secondarySensorOk ? String(reading.secondaryHumidity, 1) : String("null");
+    json += ",\"internal_sensor_ok\":" + String(reading.secondarySensorOk ? "true" : "false");
+  } else {
+    // Records captured by pre-v2 firmware keep their original meaning.
+    json += ",\"exterior_temperature\":";
+    json += reading.secondarySensorOk ? String(reading.secondaryTemperature, 1) : String("null");
+    json += ",\"exterior_humidity\":";
+    json += reading.secondarySensorOk ? String(reading.secondaryHumidity, 1) : String("null");
+    json += ",\"exterior_sensor_ok\":" + String(reading.secondarySensorOk ? "true" : "false");
+  }
   json += ",\"firmware_version\":\"" + String(FIRMWARE_VERSION) + "\"";
   json += ",\"telemetry_seq\":" + String(reading.sequence);
   json += ",\"sample_age_s\":" + String(sampleAgeS);
@@ -3512,14 +3548,22 @@ String buildTemperatureJson(const Reading &reading) {
   json += ",\"alarm_event_time\":\"" + alarmEventTimeText + "\"";
   json += ",\"maintenance_mode\":" + String(maintenanceModeActive ? "true" : "false");
   json += ",\"maintenance_state\":\"" + maintenanceState + "\"";
-  json += ",\"sensor_ok\":" + String(sensorHealthy ? "true" : "false");
-  json += ",\"sensor_fail_count\":" + String(sensorFailCount);
+  const bool payloadPrimaryHealthy =
+    reading.sensorSemanticsVersion >= SENSOR_SEMANTICS_SHT30_PRIMARY
+      ? primarySensorHealthy
+      : internalSensorHealthy;
+  const unsigned long payloadPrimaryFailCount =
+    reading.sensorSemanticsVersion >= SENSOR_SEMANTICS_SHT30_PRIMARY
+      ? primarySensorFailCount
+      : internalSensorFailCount;
+  json += ",\"sensor_ok\":" + String(payloadPrimaryHealthy ? "true" : "false");
+  json += ",\"sensor_fail_count\":" + String(payloadPrimaryFailCount);
   json += ",\"hardware_diagnostics\":{";
   json += "\"schema_version\":1";
-  json += ",\"overall_ok\":" + String(sensorHealthy && exteriorSensorHealthy && queueReady ? "true" : "false");
+  json += ",\"overall_ok\":" + String(primarySensorHealthy && internalSensorHealthy && queueReady ? "true" : "false");
   json += ",\"components\":{";
-  json += "\"dht22_interior\":{\"ok\":" + String(sensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(sensorHealthy ? "HEALTHY" : (sensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"sensor_read_success\",\"label\":\"DHT22 interior\",\"data_pin\":" + String(DHT_INTERIOR_PIN) + ",\"consecutive_errors\":" + String(sensorFailCount) + "}";
-  json += ",\"sht30_ambient\":{\"ok\":" + String(exteriorSensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(exteriorSensorHealthy ? "HEALTHY" : (exteriorSensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"sensor_read_success\",\"label\":\"SHT30 ambiente\",\"bus\":\"I2C\",\"address\":\"0x44\",\"sda\":" + String(SHT30_SDA_PIN) + ",\"scl\":" + String(SHT30_SCL_PIN) + ",\"consecutive_errors\":" + String(exteriorSensorFailCount) + "}";
+  json += "\"dht22_interior\":{\"ok\":" + String(internalSensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(internalSensorHealthy ? "HEALTHY" : (internalSensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"internal_diagnostic_only\",\"critical_to_operation\":false,\"label\":\"DHT22 interior do dispositivo\",\"data_pin\":" + String(DHT_INTERIOR_PIN) + ",\"consecutive_errors\":" + String(internalSensorFailCount) + "}";
+  json += ",\"sht30_ambient\":{\"ok\":" + String(primarySensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(primarySensorHealthy ? "HEALTHY" : (primarySensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"monitored_environment_primary\",\"critical_to_operation\":true,\"label\":\"SHT30 ambiente monitorizado\",\"bus\":\"I2C\",\"address\":\"0x44\",\"sda\":" + String(SHT30_SDA_PIN) + ",\"scl\":" + String(SHT30_SCL_PIN) + ",\"consecutive_errors\":" + String(primarySensorFailCount) + "}";
   json += ",\"tft_st7789\":{\"ok\":null,\"health_state\":\"UNKNOWN\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"interface_initialization_only\",\"interface_initialized\":" + String(displayReady ? "true" : "false") + ",\"label\":\"TFT ST7789\",\"sck\":" + String(TFT_SCK_PIN) + ",\"mosi\":" + String(TFT_MOSI_PIN) + ",\"cs\":" + String(TFT_CS_PIN) + ",\"dc\":" + String(TFT_DC_PIN) + ",\"rst\":" + String(TFT_RST_PIN) + ",\"blk\":" + String(TFT_BLK_PIN) + "}";
   json += ",\"rgb_button\":{\"ok\":null,\"health_state\":\"UNKNOWN\",\"diagnostic_confidence\":\"UNKNOWN\",\"diagnostic_scope\":\"configured_only\",\"label\":\"Botao RGB\",\"button\":" + String(BUTTON_PIN) + ",\"red\":" + String(BUTTON_RGB_R_PIN) + ",\"green\":" + String(BUTTON_RGB_G_PIN) + ",\"blue\":" + String(BUTTON_RGB_B_PIN) + "}";
   json += ",\"buzzer\":{\"ok\":null,\"health_state\":\"UNKNOWN\",\"diagnostic_confidence\":\"UNKNOWN\",\"diagnostic_scope\":\"configured_only\",\"label\":\"Buzzer passivo\",\"pin\":" + String(BUZZER_PIN) + ",\"enabled\":" + String(buzzerEnabled ? "true" : "false") + "}";
@@ -3862,10 +3906,10 @@ String buildHeartbeatJson() {
   json += ",\"maintenance_state\":\"" + maintenanceState + "\"";
   json += ",\"hardware_diagnostics\":{";
   json += "\"schema_version\":1";
-  json += ",\"overall_ok\":" + String(sensorHealthy && exteriorSensorHealthy ? "true" : "false");
+  json += ",\"overall_ok\":" + String(primarySensorHealthy && internalSensorHealthy ? "true" : "false");
   json += ",\"components\":{";
-  json += "\"dht22_interior\":{\"ok\":" + String(sensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(sensorHealthy ? "HEALTHY" : (sensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"sensor_read_success\",\"label\":\"DHT22 interior\",\"data_pin\":" + String(DHT_INTERIOR_PIN) + ",\"consecutive_errors\":" + String(sensorFailCount) + "}";
-  json += ",\"sht30_ambient\":{\"ok\":" + String(exteriorSensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(exteriorSensorHealthy ? "HEALTHY" : (exteriorSensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"sensor_read_success\",\"label\":\"SHT30 ambiente\",\"bus\":\"I2C\",\"address\":\"0x44\",\"sda\":" + String(SHT30_SDA_PIN) + ",\"scl\":" + String(SHT30_SCL_PIN) + ",\"consecutive_errors\":" + String(exteriorSensorFailCount) + "}";
+  json += "\"dht22_interior\":{\"ok\":" + String(internalSensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(internalSensorHealthy ? "HEALTHY" : (internalSensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"internal_diagnostic_only\",\"critical_to_operation\":false,\"label\":\"DHT22 interior do dispositivo\",\"data_pin\":" + String(DHT_INTERIOR_PIN) + ",\"consecutive_errors\":" + String(internalSensorFailCount) + "}";
+  json += ",\"sht30_ambient\":{\"ok\":" + String(primarySensorHealthy ? "true" : "false") + ",\"health_state\":\"" + String(primarySensorHealthy ? "HEALTHY" : (primarySensorFailCount >= 3 ? "FAULT" : "DEGRADED")) + "\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"monitored_environment_primary\",\"critical_to_operation\":true,\"label\":\"SHT30 ambiente monitorizado\",\"bus\":\"I2C\",\"address\":\"0x44\",\"sda\":" + String(SHT30_SDA_PIN) + ",\"scl\":" + String(SHT30_SCL_PIN) + ",\"consecutive_errors\":" + String(primarySensorFailCount) + "}";
   json += ",\"tft_st7789\":{\"ok\":null,\"health_state\":\"UNKNOWN\",\"diagnostic_confidence\":\"OBSERVED\",\"diagnostic_scope\":\"interface_initialization_only\",\"interface_initialized\":" + String(displayReady ? "true" : "false") + ",\"label\":\"TFT ST7789\",\"sck\":" + String(TFT_SCK_PIN) + ",\"mosi\":" + String(TFT_MOSI_PIN) + ",\"cs\":" + String(TFT_CS_PIN) + ",\"dc\":" + String(TFT_DC_PIN) + ",\"rst\":" + String(TFT_RST_PIN) + ",\"blk\":" + String(TFT_BLK_PIN) + "}";
   json += ",\"rgb_button\":{\"ok\":null,\"health_state\":\"UNKNOWN\",\"diagnostic_confidence\":\"UNKNOWN\",\"diagnostic_scope\":\"configured_only\",\"label\":\"Botao RGB\",\"button\":" + String(BUTTON_PIN) + ",\"red\":" + String(BUTTON_RGB_R_PIN) + ",\"green\":" + String(BUTTON_RGB_G_PIN) + ",\"blue\":" + String(BUTTON_RGB_B_PIN) + "}";
   json += ",\"buzzer\":{\"ok\":null,\"health_state\":\"UNKNOWN\",\"diagnostic_confidence\":\"UNKNOWN\",\"diagnostic_scope\":\"configured_only\",\"label\":\"Buzzer passivo\",\"pin\":" + String(BUZZER_PIN) + ",\"enabled\":" + String(buzzerEnabled ? "true" : "false") + "}";
@@ -4276,7 +4320,7 @@ String alarmMaskToText(uint8_t mask) {
 }
 
 void updateAlarmAndState(float temperature, float humidity) {
-  if (!sensorHealthy) {
+  if (!primarySensorHealthy) {
     activeAlertMask = 0;
     setState(SysState::SENSOR_FAIL);
     return;
@@ -4404,8 +4448,8 @@ void setup() {
   dhtInterior.begin();
   Wire.begin(SHT30_SDA_PIN, SHT30_SCL_PIN);
   Wire.setClock(SHT30_I2C_FREQUENCY_HZ);
-  exteriorSensorHealthy = sht30Ambient.begin(SHT30_AMBIENT_ADDRESS);
-  if (!exteriorSensorHealthy) {
+  primarySensorHealthy = sht30Ambient.begin(SHT30_AMBIENT_ADDRESS);
+  if (!primarySensorHealthy) {
     Serial.println("SHT30 ambiente nao encontrado no endereco I2C 0x44");
   }
 
@@ -4520,33 +4564,51 @@ void loop() {
   if (!userInteractionInProgress() && (now - lastSensorRead >= sensorReadInterval || isnan(lastTemperature) || isnan(lastHumidity))) {
     lastSensorRead = now;
 
-    float t = dhtInterior.readTemperature();
-    float h = dhtInterior.readHumidity();
-    float exteriorT = sht30Ambient.readTemperature();
-    float exteriorH = sht30Ambient.readHumidity();
+    float internalT = dhtInterior.readTemperature();
+    float internalH = dhtInterior.readHumidity();
+    float ambientT = sht30Ambient.readTemperature();
+    float ambientH = sht30Ambient.readHumidity();
 
-    if (!isnan(t) && !isnan(h)) {
-      lastTemperature = t;
-      lastHumidity = h;
-      sensorHealthy = true;
-      sensorFailCount = 0;
+    if (!isnan(internalT) && !isnan(internalH)) {
+      lastInternalTemperature = internalT;
+      lastInternalHumidity = internalH;
+      internalSensorHealthy = true;
+      internalSensorFailCount = 0;
     } else {
-      sensorHealthy = false;
-      sensorFailCount++;
-      if (sensorFailCount == 1) lastHeartbeatMs = 0;
-      setState(SysState::SENSOR_FAIL);
-      Serial.println("Erro ao ler DHT22 interior (GPIO 4)");
+      lastInternalTemperature = NAN;
+      lastInternalHumidity = NAN;
+      internalSensorHealthy = false;
+      internalSensorFailCount++;
+      if (internalSensorFailCount == 1) lastHeartbeatMs = 0;
+      Serial.println("Erro ao ler DHT22 interior do dispositivo (GPIO 4)");
     }
 
-    if (!isnan(exteriorT) && !isnan(exteriorH)) {
-      lastExteriorTemperature = exteriorT;
-      lastExteriorHumidity = exteriorH;
-      exteriorSensorHealthy = true;
-      exteriorSensorFailCount = 0;
+    if (!isnan(ambientT) && !isnan(ambientH)) {
+      lastTemperature = ambientT;
+      lastHumidity = ambientH;
+      primarySensorHealthy = true;
+      primarySensorFailCount = 0;
     } else {
-      exteriorSensorHealthy = false;
-      exteriorSensorFailCount++;
-      Serial.println("Erro ao ler SHT30 ambiente (I2C 0x44)");
+      lastTemperature = NAN;
+      lastHumidity = NAN;
+      primarySensorHealthy = false;
+      primarySensorFailCount++;
+      if (primarySensorFailCount == 1) {
+        lastHeartbeatMs = 0;
+        activeAlertMask = 0;
+        activeAlarmMask = 0;
+        alarmActive = false;
+        alarmAcked = false;
+        alarmStartedMs = 0;
+        alarmStartedEpoch = 0;
+        prefs.remove("alarm_epoch");
+        alarmReasonText = "";
+        alarmEventTimeText = "";
+        alarmAckTimeText = "";
+      }
+      setState(SysState::SENSOR_FAIL);
+      refreshCurrentDisplay();
+      Serial.println("Erro ao ler SHT30 do ambiente monitorizado (I2C 0x44)");
     }
   }
 
@@ -4569,16 +4631,16 @@ void loop() {
     if (!oledStandbyBlank && now - lastDisplay >= currentDisplayInterval) {
       lastDisplay = now;
 
-      Serial.print("Interior: ");
+      Serial.print("Ambiente monitorizado: ");
       Serial.print(lastTemperature, 1);
       Serial.print(" C | Hum: ");
       Serial.print(lastHumidity, 0);
       Serial.print(" %");
-      Serial.print(" | Exterior: ");
-      if (exteriorSensorHealthy) {
-        Serial.print(lastExteriorTemperature, 1);
+      Serial.print(" | Interior dispositivo: ");
+      if (internalSensorHealthy) {
+        Serial.print(lastInternalTemperature, 1);
         Serial.print(" C | Hum: ");
-        Serial.print(lastExteriorHumidity, 0);
+        Serial.print(lastInternalHumidity, 0);
         Serial.print(" %");
       } else {
         Serial.print("indisponivel");

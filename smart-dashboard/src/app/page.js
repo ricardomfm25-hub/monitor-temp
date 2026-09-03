@@ -132,8 +132,8 @@ const I18N = {
     downloadPdf: "Download PDF",
     readingsTitle: "Readings",
     readingsHint: "Detailed readings, limits and trend for this device.",
-    indoorTemperature: "Indoor temperature",
-    indoorHumidity: "Indoor humidity",
+    monitoredEnvironmentTemperature: "Monitored environment temperature",
+    monitoredEnvironmentHumidity: "Monitored environment humidity",
     summary24h: "24h summary",
     minMax: "Min / Max",
     limits: "Limits",
@@ -152,12 +152,12 @@ const I18N = {
     generalStatus: "General status",
     noActiveAlerts: "No active alerts",
     activeAlerts: "Active alerts",
-    outdoorTemperature: "Outdoor temperature",
-    outdoorHumidity: "Outdoor humidity",
+    internalDeviceTemperature: "Device internal temperature",
+    internalDeviceHumidity: "Device internal humidity",
     temperatureDelta: "Temperature delta",
     lastCommunication: "Last communication",
-    externalReference: "External reference",
-    interiorMinusExterior: "Interior minus exterior",
+    internalDiagnosticReference: "Internal diagnostics (DHT22)",
+    environmentMinusDeviceInterior: "Environment minus device interior",
     avgTemp: "avg temp",
     avgHum: "avg hum",
     ackRegistered: "ACK registered",
@@ -381,8 +381,8 @@ const I18N = {
     downloadPdf: "Descarregar PDF",
     readingsTitle: "Leituras",
     readingsHint: "Leituras detalhadas, limites e tendência do dispositivo.",
-    indoorTemperature: "Temperatura interior",
-    indoorHumidity: "Humidade interior",
+    monitoredEnvironmentTemperature: "Temperatura do ambiente monitorizado",
+    monitoredEnvironmentHumidity: "Humidade do ambiente monitorizado",
     summary24h: "Resumo 24h",
     minMax: "Min / Max",
     limits: "Limites",
@@ -401,12 +401,12 @@ const I18N = {
     generalStatus: "Estado geral",
     noActiveAlerts: "Sem alertas ativos",
     activeAlerts: "Alertas ativos",
-    outdoorTemperature: "Temperatura exterior",
-    outdoorHumidity: "Humidade exterior",
+    internalDeviceTemperature: "Temperatura interna do dispositivo",
+    internalDeviceHumidity: "Humidade interna do dispositivo",
     temperatureDelta: "Delta temperatura",
     lastCommunication: "Última comunicação",
-    externalReference: "Referência exterior",
-    interiorMinusExterior: "Interior menos exterior",
+    internalDiagnosticReference: "Diagnóstico interno (DHT22)",
+    environmentMinusDeviceInterior: "Ambiente menos interior do dispositivo",
     avgTemp: "média temp.",
     avgHum: "média hum.",
     ackRegistered: "ACK registado",
@@ -4994,6 +4994,22 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
                 overviewData?.temperature ?? baseDeviceData?.last_temperature ?? null,
               last_humidity:
                 overviewData?.humidity ?? baseDeviceData?.last_humidity ?? null,
+              sensor_semantics_version:
+                overviewData?.sensor_semantics_version ??
+                baseDeviceData?.config?.sensor_semantics_version ??
+                1,
+              internal_temperature:
+                overviewData?.internal_temperature ??
+                baseDeviceData?.config?.internal_environment?.temperature ??
+                null,
+              internal_humidity:
+                overviewData?.internal_humidity ??
+                baseDeviceData?.config?.internal_environment?.humidity ??
+                null,
+              internal_sensor_ok:
+                overviewData?.internal_sensor_ok ??
+                baseDeviceData?.config?.internal_environment?.sensor_ok ??
+                false,
               exterior_temperature:
                 overviewData?.exterior_temperature ??
                 baseDeviceData?.exterior_temperature ??
@@ -5710,25 +5726,17 @@ const communicationHealth = useMemo(
     : currentWifiRssi >= -75
     ? t("acceptableSignal")
     : t("weakSignal");
-  const exteriorSensorAvailable = device?.exterior_sensor_ok !== false;
-  const outdoorTemperature = exteriorSensorAvailable
-    ? parseNumber(device?.exterior_temperature) ??
-      parseNumber(device?.last_external_temperature) ??
-      parseNumber(device?.external_temperature) ??
-      parseNumber(device?.outdoor_temperature) ??
-      parseNumber(device?.temperature_external)
+  const internalSensorAvailable = device?.internal_sensor_ok === true;
+  const internalTemperature = internalSensorAvailable
+    ? parseNumber(device?.internal_temperature)
     : null;
-  const outdoorHumidity = exteriorSensorAvailable
-    ? parseNumber(device?.exterior_humidity) ??
-      parseNumber(device?.last_external_humidity) ??
-      parseNumber(device?.external_humidity) ??
-      parseNumber(device?.outdoor_humidity) ??
-      parseNumber(device?.humidity_external)
+  const internalHumidity = internalSensorAvailable
+    ? parseNumber(device?.internal_humidity)
     : null;
   const currentTemperatureNumber = parseNumber(device?.last_temperature);
   const deltaTemperature =
-    currentTemperatureNumber !== null && outdoorTemperature !== null
-      ? Number((currentTemperatureNumber - outdoorTemperature).toFixed(1))
+    currentTemperatureNumber !== null && internalTemperature !== null
+      ? Number((currentTemperatureNumber - internalTemperature).toFixed(1))
       : null;
   const currentTempAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
   const currentHumAccentLabel = isDeviceOffline ? "Offline" : "Tempo real";
@@ -6773,7 +6781,7 @@ function downloadPdfReport() {
                 emphasis
               />
               <ExecutiveStatCard
-                label={t("indoorTemperature")}
+                label={t("monitoredEnvironmentTemperature")}
                 value={isDeviceOffline ? "-" : currentTempValue}
                 hint={
                   tempLow !== null && tempHigh !== null
@@ -6786,7 +6794,7 @@ function downloadPdfReport() {
                 toneBackground
               />
               <ExecutiveStatCard
-                label={t("indoorHumidity")}
+                label={t("monitoredEnvironmentHumidity")}
                 value={isDeviceOffline ? "-" : currentHumValue}
                 hint={
                   humLow !== null && humHigh !== null
@@ -6813,21 +6821,21 @@ function downloadPdfReport() {
                 tone={currentWifiTone}
               />
               <ExecutiveStatCard
-                label={t("outdoorTemperature")}
-                value={formatValue(outdoorTemperature, " °C")}
-                hint={t("externalReference")}
+                label={t("internalDeviceTemperature")}
+                value={formatValue(internalTemperature, " °C")}
+                hint={t("internalDiagnosticReference")}
                 icon={Snowflake}
               />
               <ExecutiveStatCard
-                label={t("outdoorHumidity")}
-                value={formatValue(outdoorHumidity, " %", 0)}
-                hint={t("externalReference")}
+                label={t("internalDeviceHumidity")}
+                value={formatValue(internalHumidity, " %", 0)}
+                hint={t("internalDiagnosticReference")}
                 icon={Droplets}
               />
               <ExecutiveStatCard
                 label={t("temperatureDelta")}
                 value={formatValue(deltaTemperature, " °C")}
-                hint={t("interiorMinusExterior")}
+                hint={t("environmentMinusDeviceInterior")}
                 icon={Gauge}
               />
             </div>
@@ -6948,7 +6956,7 @@ function downloadPdfReport() {
             }}
           >
             <ExecutiveStatCard
-              label={t("indoorTemperature")}
+              label={t("monitoredEnvironmentTemperature")}
               value={isDeviceOffline ? "-" : currentTempValue}
               hint={`${t("minMax")}: ${formatValue(summary24h.tempMin, " °C")} / ${formatValue(summary24h.tempMax, " °C")}`}
               icon={Thermometer}
@@ -6957,7 +6965,7 @@ function downloadPdfReport() {
               toneBackground
             />
             <ExecutiveStatCard
-              label={t("indoorHumidity")}
+              label={t("monitoredEnvironmentHumidity")}
               value={isDeviceOffline ? "-" : currentHumValue}
               hint={`${t("minMax")}: ${formatValue(summary24h.humMin, " %", 0)} / ${formatValue(summary24h.humMax, " %", 0)}`}
               icon={Droplets}

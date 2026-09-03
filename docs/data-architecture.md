@@ -29,8 +29,8 @@ with the new stable internal identifier.
 - `devices`: keyed operationally by the human-readable `device_id`; stores name,
   location, latest temperature/humidity, status, `last_seen`, configuration JSON,
   configuration version, firmware version and pairing fields.
-- `readings`: one wide row per STS Cold sample with `device_id`, interior temperature
-  and humidity, optional exterior values, timestamps, alarm/offline metadata and
+- `readings`: one wide row per STS Cold sample with `device_id`, primary monitored-environment temperature
+  and humidity, optional legacy sensor values, timestamps, alarm/offline metadata and
   communication diagnostics.
 - `alerts`: operational alert history keyed by `device_id`.
 - `profiles`: platform users, roles, active state and presentation/organization labels.
@@ -38,6 +38,13 @@ with the new stable internal identifier.
   tenant boundary used by the dashboard.
 - Additional notification/configuration data is stored partly in `devices.config`
   and related tables accessed by the backend.
+
+For `sensor_semantics_version=2`, the SHT30 is the primary monitored-environment
+sensor carried in `temperature`/`humidity`; the DHT22 is internal diagnostics in
+`internal_temperature`/`internal_humidity` and normalized as `interior_*`. Payloads
+without the marker retain the legacy DHT22-main/SHT30-exterior interpretation.
+The first v2 ingestion records `sensor_semantics_v2_since`; if normalized history
+is unavailable, older ambiguous main values are hidden rather than relabelled.
 
 ### Existing flow
 

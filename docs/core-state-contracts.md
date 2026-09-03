@@ -37,8 +37,8 @@ confirm pixels, backlight or visible output.
 
 | Component | Evidence | Mapping |
 |---|---|---|
-| DHT22 | Successful/failed reads and consecutive errors | Healthy, degraded or fault; observed |
-| SHT30 | Successful/failed I²C reads and consecutive errors | Healthy, degraded or fault; observed |
+| DHT22 (interior do dispositivo) | Successful/failed reads and consecutive errors | Healthy, degraded or fault; observed; diagnostic only |
+| SHT30 (ambiente monitorizado) | Successful/failed I²C reads and consecutive errors | Healthy, degraded or fault; observed; critical to Cold operation |
 | TFT | Interface initialization only | Unknown physical health; interface evidence observed |
 | RGB button | Pin configuration only | Unknown |
 | Buzzer | Command/configuration only; no acoustic feedback | Unknown |

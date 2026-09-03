@@ -23,7 +23,7 @@ Supabase project. Do not point `STS_BACKEND_BASE_URL` at production.
 - Flash: 4 MB
 - Partition: Huge APP, 3 MB application / 1 MB filesystem, no OTA
 - Filesystem: LittleFS; persistent queue capped at 64 KiB / 1,800 records
-- Firmware: `STS_COLD_FW_2.9.0-STAGING`
+- Firmware: `STS_COLD_FW_3.0.0-STAGING`
 
 Compile with `scripts/compile-cold-firmware.ps1`. The script only compiles; it
 does not accept a port and cannot upload.
@@ -32,9 +32,9 @@ does not accept a port and cannot upload.
 
 | Function | ESP32 GPIO | Interface |
 |---|---:|---|
-| DHT22 interior | 4 | Digital, external 4.7–10 kΩ pull-up to 3.3 V if needed |
-| SHT30 SDA | 21 | I²C, address 0x44 |
-| SHT30 SCL | 22 | I²C, 100 kHz |
+| DHT22 (interior do dispositivo, diagnóstico) | 4 | Digital, external 4.7–10 kΩ pull-up to 3.3 V if needed |
+| SHT30 SDA (ambiente monitorizado, principal) | 21 | I²C, address 0x44 |
+| SHT30 SCL (ambiente monitorizado, principal) | 22 | I²C, 100 kHz |
 | TFT SCK | 14 | SPI |
 | TFT MOSI | 27 | SPI |
 | TFT RST | 26 | Digital |
@@ -54,7 +54,8 @@ the current target assumes a classic ESP32 Dev Module/WROOM without PSRAM.
 
 ## Runtime behavior prepared
 
-- DHT22 and SHT30 readings with consecutive-error recovery.
+- SHT30 primary monitored-environment readings and DHT22 internal diagnostic readings, both with consecutive-error recovery.
+- Sensor semantics v2: `temperature`/`humidity` are SHT30; `internal_temperature`/`internal_humidity` are DHT22. Buffered v1 records keep their legacy mapping.
 - ST7789 display, RGB button and passive buzzer.
 - Wi-FiManager provisioning and reconnection.
 - 60-second heartbeat and remote configuration polling.

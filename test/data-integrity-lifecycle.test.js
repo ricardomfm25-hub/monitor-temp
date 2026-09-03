@@ -77,6 +77,25 @@ test("idempotency remains stable across delivery retry metadata", () => {
   assert.equal(buildIdempotencyKey({ ...base, telemetrySeq: 42 }), "seq:42");
 });
 
+test("v2 internal sensor values participate in fallback identity", () => {
+  const base = {
+    deviceId: "STS-001",
+    eventTime: "2026-09-02T10:00:00Z",
+    payload: {
+      sensor_semantics_version: 2,
+      temperature: 5,
+      humidity: 60,
+      internal_temperature: 22,
+      internal_humidity: 45,
+    },
+  };
+  const changedInternal = {
+    ...base,
+    payload: { ...base.payload, internal_temperature: 23 },
+  };
+  assert.notEqual(buildIdempotencyKey(base), buildIdempotencyKey(changedInternal));
+});
+
 test("event time remains part of legacy fallback identity", () => {
   const common = {
     deviceId: "STS-001",

@@ -6,10 +6,10 @@ gate in `web-security-hardware-gate.md` is accepted.
 
 | # | Test | EXPECTED | ACTUAL | PASS/FAIL |
 |---:|---|---|---|---|
-| 1 | Boot | One clean boot; version `STS_COLD_FW_2.9.0-STAGING`; no reset loop; configuration gate passes. | PENDING | PENDING |
+| 1 | Boot | One clean boot; version `STS_COLD_FW_3.0.0-STAGING`; no reset loop; configuration gate passes. | PENDING | PENDING |
 | 2 | TFT | Backlight and ST7789 UI initialize; content is legible in landscape; no flicker/reset. | PENDING | PENDING |
-| 3 | DHT22 | Interior temperature/humidity become valid; error count returns to zero after recovery. | PENDING | PENDING |
-| 4 | SHT30 | Sensor is detected at 0x44 on GPIO 21/22; ambient values are plausible. | PENDING | PENDING |
+| 3 | DHT22 | Internal device diagnostics become valid; failure degrades Component Health without changing the environment Operational State. | PENDING | PENDING |
+| 4 | SHT30 | Sensor is detected at 0x44 on GPIO 21/22; primary monitored-environment values and Operational State follow it. | PENDING | PENDING |
 | 5 | RGB button | Short press changes page/wakes TFT; long press acknowledges alarm; RGB patterns match state. | PENDING | PENDING |
 | 6 | Buzzer | Passive buzzer sounds only for unacknowledged process alarm and follows remote enable setting. | PENDING | PENDING |
 | 7 | Wi-Fi | Setup AP requires the unique bench password; 2.4 GHz connection and reconnection succeed. | PENDING | PENDING |
