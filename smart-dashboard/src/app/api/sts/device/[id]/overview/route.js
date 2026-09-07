@@ -71,7 +71,10 @@ function resolveTelemetryStatus({
     return normalizedIncoming;
   }
 
-  if (hasActiveAlarmMask) return "alarm";
+  // T/H masks are valid only when the current values breach the persisted
+  // backend limits. This prevents stale firmware limits becoming a second
+  // source of truth for the executive state.
+  if (hasActiveAlarmMask && computedHasBreach) return "alarm";
 
   if (normalizedIncoming === "alarm" && computedHasBreach) return "alarm";
   // Firmware ALERT is preventive and may legitimately precede a threshold breach.
@@ -193,6 +196,15 @@ function getStatus({ online, temperature, humidity, config }) {
   return tempAlert || humAlert ? "alert" : "normal";
 }
 
+function getThresholdReason(temperature, humidity, config) {
+  const reasons = [];
+  if (temperature > config.temp_high_c) reasons.push("temperatura acima do limite");
+  if (temperature < config.temp_low_c) reasons.push("temperatura abaixo do limite");
+  if (humidity > config.hum_high) reasons.push("humidade acima do limite");
+  if (humidity < config.hum_low) reasons.push("humidade abaixo do limite");
+  return reasons.length ? reasons.join(" e ") : null;
+}
+
 async function getDeviceId(context) {
   const params = await context.params;
   return params?.id ? decodeURIComponent(params.id) : null;
@@ -244,7 +256,7 @@ async function requireDeviceAccess(supabase, deviceId) {
   return { ok: true, user, profile, canEdit: Boolean(access.can_edit) };
 }
 
-function getDiagnostics(device, config) {
+function getDiagnostics(device, config, latestReading) {
   const diagnostics = {
     ...(device?.diagnostics || {}),
     ...(device?.telemetry || {}),
@@ -289,6 +301,7 @@ function getDiagnostics(device, config) {
       device?.rssi_dbm ??
       diagnostics.wifi_rssi ??
       diagnostics.rssi_dbm ??
+      latestReading?.wifi_rssi ??
       null,
     wifi_ssid:
       communicationDiagnostics.wifi_ssid ??
@@ -305,6 +318,41 @@ function getDiagnostics(device, config) {
     reset_reason: communicationDiagnostics.reset_reason ?? null,
     free_heap: communicationDiagnostics.free_heap ?? null,
   };
+}
+
+async function getLatestNormalizedEnvironment(supabase, deviceId) {
+  const { data, error } = await supabase
+    .from("sensor_readings_context")
+    .select("recorded_at,sensor_key,value_numeric,quality")
+    .eq("device_code", deviceId)
+    .in("sensor_key", [
+      "ambient_temperature",
+      "ambient_humidity",
+      "interior_temperature",
+      "interior_humidity",
+    ])
+    .order("recorded_at", { ascending: false })
+    .limit(12);
+
+  if (error) {
+    if (["42P01", "42703", "PGRST204", "PGRST205"].includes(String(error.code || ""))) {
+      return null;
+    }
+    throw error;
+  }
+
+  const latestRecordedAt = data?.[0]?.recorded_at || null;
+  if (!latestRecordedAt) return null;
+
+  const snapshot = { recorded_at: latestRecordedAt };
+  for (const row of data || []) {
+    if (row.recorded_at !== latestRecordedAt) continue;
+    snapshot[row.sensor_key] =
+      row.quality === "missing" || row.quality === "invalid"
+        ? null
+        : parseNumber(row.value_numeric);
+  }
+  return snapshot;
 }
 
 export async function GET(_request, context) {
@@ -339,10 +387,11 @@ export async function GET(_request, context) {
       { count: alerts24h, error: alertsError },
       { count: readings24h, error: readingsError },
       { data: communicationRows, error: communicationRowsError },
+      normalizedEnvironment,
     ] = await Promise.all([
       supabase
         .from("readings")
-        .select("temperature, humidity, exterior_temperature, exterior_humidity, exterior_sensor_ok, created_at, device_status, alarm_ack, alarm_mask")
+        .select("temperature, humidity, exterior_temperature, exterior_humidity, exterior_sensor_ok, created_at, device_status, alarm_ack, alarm_mask, alarm_reason, wifi_rssi")
         .eq("device_id", deviceId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -364,6 +413,7 @@ export async function GET(_request, context) {
         .gte("created_at", since24hIso)
         .order("created_at", { ascending: true })
         .limit(2500),
+      getLatestNormalizedEnvironment(supabase, deviceId),
     ]);
 
     if (latestError) throw latestError;
@@ -399,23 +449,43 @@ export async function GET(_request, context) {
       Number.isFinite(latestReadingTs) &&
       (!Number.isFinite(deviceLastSeenTs) || latestReadingTs >= deviceLastSeenTs);
 
+    const normalizedTs = normalizedEnvironment?.recorded_at
+      ? new Date(normalizedEnvironment.recorded_at).getTime()
+      : NaN;
+    const normalizedIsCurrent =
+      Number.isFinite(normalizedTs) &&
+      (!Number.isFinite(latestReadingTs) || normalizedTs >= latestReadingTs);
+    const normalizedInternalComplete =
+      normalizedIsCurrent &&
+      Object.prototype.hasOwnProperty.call(normalizedEnvironment, "interior_temperature") &&
+      Object.prototype.hasOwnProperty.call(normalizedEnvironment, "interior_humidity");
+    const useReadingSnapshot = latestReadingIsNewer && !normalizedIsCurrent;
     const temperature =
-      latestReadingIsNewer
+      normalizedIsCurrent
+        ? parseNumber(normalizedEnvironment?.ambient_temperature) ?? parseNumber(device.last_temperature)
+        : latestReadingIsNewer
         ? parseNumber(latestReading?.temperature) ?? parseNumber(device.last_temperature)
         : parseNumber(device.last_temperature) ?? parseNumber(latestReading?.temperature);
     const humidity =
-      latestReadingIsNewer
+      normalizedIsCurrent
+        ? parseNumber(normalizedEnvironment?.ambient_humidity) ?? parseNumber(device.last_humidity)
+        : latestReadingIsNewer
         ? parseNumber(latestReading?.humidity) ?? parseNumber(device.last_humidity)
         : parseNumber(device.last_humidity) ?? parseNumber(latestReading?.humidity);
     const computedStatus = getStatus({ online, temperature, humidity, config });
+    const thresholdReason = getThresholdReason(temperature, humidity, config);
     const status = resolveTelemetryStatus({
       online,
-      incomingStatus: latestReading?.device_status || device.status,
-      alarmAck: latestReading?.alarm_ack,
-      alarmMask: latestReading?.alarm_mask,
+      // Status and alarm evidence must come from the same temporal snapshot as
+      // temperature/humidity. A rate-limited reading can be older than devices.
+      incomingStatus: useReadingSnapshot
+        ? latestReading?.device_status || device.status
+        : device.status,
+      alarmAck: useReadingSnapshot ? latestReading?.alarm_ack : false,
+      alarmMask: useReadingSnapshot ? latestReading?.alarm_mask : null,
       computedStatus,
     });
-    const diagnostics = getDiagnostics(device, config);
+    const diagnostics = getDiagnostics(device, config, latestReading);
     const communicationHealth = getCommunicationHealth(
       communicationRows,
       config,
@@ -433,9 +503,18 @@ export async function GET(_request, context) {
       last_temperature: temperature,
       last_humidity: humidity,
       sensor_semantics_version: Number(config?.sensor_semantics_version || 1),
-      internal_temperature: parseNumber(config?.internal_environment?.temperature),
-      internal_humidity: parseNumber(config?.internal_environment?.humidity),
-      internal_sensor_ok: config?.internal_environment?.sensor_ok ?? false,
+      internal_temperature:
+        (normalizedIsCurrent
+          ? parseNumber(normalizedEnvironment?.interior_temperature)
+          : null) ?? parseNumber(config?.internal_environment?.temperature),
+      internal_humidity:
+        (normalizedIsCurrent
+          ? parseNumber(normalizedEnvironment?.interior_humidity)
+          : null) ?? parseNumber(config?.internal_environment?.humidity),
+      internal_sensor_ok: normalizedInternalComplete
+        ? parseNumber(normalizedEnvironment?.interior_temperature) !== null &&
+          parseNumber(normalizedEnvironment?.interior_humidity) !== null
+        : config?.internal_environment?.sensor_ok ?? false,
       // Legacy aliases remain read-only for pre-v2 firmware compatibility.
       exterior_temperature:
         parseNumber(latestReading?.exterior_temperature) ??
@@ -447,6 +526,19 @@ export async function GET(_request, context) {
         latestReading?.exterior_sensor_ok ??
         config?.exterior_environment?.sensor_ok ??
         false,
+      alarm_mask: useReadingSnapshot ? parseNumber(latestReading?.alarm_mask) : null,
+      alarm_reason: useReadingSnapshot ? latestReading?.alarm_reason || null : null,
+      status_source: useReadingSnapshot ? "latest_reading" : "device_snapshot",
+      status_reason:
+        (status === "alarm" || status === "alert") && thresholdReason
+          ? thresholdReason
+          : status === "alarm" && useReadingSnapshot
+            ? latestReading?.alarm_reason || "Alarme reportado pelo dispositivo"
+          : status === "sensor_fail"
+            ? "Falha do sensor primário reportada pelo dispositivo"
+            : status === "setup_wifi"
+              ? "Dispositivo em configuração Wi-Fi"
+              : null,
       status,
       online,
       last_seen: lastSeen,

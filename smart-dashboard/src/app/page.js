@@ -26,6 +26,7 @@ import {
   Moon,
   Power,
   Radio,
+  RefreshCw,
   Settings,
   Snowflake,
   Sun,
@@ -4828,6 +4829,7 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
 
   const loadData = useCallback(
     async ({ silent = false, syncForms = true } = {}) => {
+      if (requestInFlightRef.current) return false;
       const requestId = requestSeqRef.current + 1;
       requestSeqRef.current = requestId;
       requestInFlightRef.current = true;
@@ -5032,6 +5034,10 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
               last_seen_seconds:
                 overviewData?.last_seen_seconds ?? baseDeviceData?.last_seen_seconds ?? null,
               communication_health: overviewData?.communication_health || null,
+              alarm_mask: overviewData?.alarm_mask ?? null,
+              alarm_reason: overviewData?.alarm_reason || null,
+              status_reason: overviewData?.status_reason || null,
+              status_source: overviewData?.status_source || null,
               // Configuration controls must reflect only the persisted device
               // configuration. Overview normalization is for display/analysis.
               config: baseDeviceData?.config || overviewData?.config || {},
@@ -6450,6 +6456,20 @@ function downloadPdfReport() {
           </div>
 
           <div style={{ ...styles.topActions, ...(isMobile ? styles.topActionsMobile : {}) }}>
+            <button
+              type="button"
+              onClick={() => loadData({ syncForms: false })}
+              disabled={refreshing || requestInFlightRef.current}
+              aria-busy={refreshing}
+              style={{
+                ...styles.refreshButton,
+                ...(isMobile ? styles.refreshButtonMobile : {}),
+                ...(refreshing ? { opacity: 0.7, cursor: "wait" } : {}),
+              }}
+            >
+              <RefreshCw size={16} />
+              {refreshing ? `${t("refresh")}...` : t("refresh")}
+            </button>
             <NotificationCenter
               alerts={dashboardNotifications}
               devices={devices}
@@ -6762,7 +6782,7 @@ function downloadPdfReport() {
                           ? t("activeAlertSingular")
                           : t("activeAlertPlural")
                       }`
-                    : t("noActiveAlerts")
+                    : device?.status_reason || device?.alarm_reason || t("noActiveAlerts")
                 }
                 icon={Gauge}
                 onClick={() => setActiveDeviceSection("alerts")}

@@ -1536,7 +1536,10 @@ function resolveTelemetryStatus({
     return normalizedIncoming;
   }
 
-  if (hasActiveAlarmMask) return "alarm";
+  // alarm_mask only contains T/H threshold bits. The backend configuration is
+  // authoritative, so a mask calculated with stale firmware limits cannot
+  // override a normal current measurement.
+  if (hasActiveAlarmMask && computedHasBreach) return "alarm";
 
   if (normalizedIncoming === "alarm" && computedHasBreach) return "alarm";
   // Firmware ALERT is preventive and may legitimately precede a threshold breach.

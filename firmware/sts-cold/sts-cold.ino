@@ -1,5 +1,5 @@
 // =====================================================
-// SmartTempSystems - STS Cold V2.8.3 TFT + DHT22 + SHT30
+// SmartTempSystems - STS Cold V2.10 TFT + DHT22 + SHT30
 // ESP32 + DHT22 interior + SHT30 ambiente + ST7789 TFT + RGB Button + Buzzer
 //
 // Features:
@@ -59,7 +59,7 @@
 static_assert(STS_ALLOW_INSECURE_TLS == 0, "Insecure TLS is forbidden for STS staging firmware");
 
 #define DEVICE_ID STS_DEVICE_ID
-#define FIRMWARE_VERSION "STS_COLD_FW_3.0.0-STAGING"
+#define FIRMWARE_VERSION "V2.10"
 // A versao e definida apenas aqui e segue em todas as telemetrias,
 // incluindo leituras recuperadas da fila offline.
 static_assert(sizeof(FIRMWARE_VERSION) > 1, "FIRMWARE_VERSION must not be empty");
@@ -4110,20 +4110,40 @@ bool fetchRemoteConfig() {
   }
 
   int newVersion = doc["config_version"] | 0;
-  if (newVersion == configVersion) {
+  const float nextTempLowC = config["temp_low_c"] | tempLowC;
+  const float nextTempHighC = config["temp_high_c"] | tempHighC;
+  const float nextHumLow = config["hum_low"] | humLow;
+  const float nextHumHigh = config["hum_high"] | humHigh;
+  const float nextHystC = config["hyst_c"] | hystC;
+  const float nextHystHum = config["hyst_hum"] | hystHum;
+  const int nextSendIntervalS = config["send_interval_s"] | sendIntervalS;
+  const int nextDisplayStandbyMin = config["display_standby_min"] | displayStandbyMin;
+  const bool nextBuzzerEnabled = config["buzzer_enabled"] | buzzerEnabled;
+  const bool configValuesChanged =
+    fabsf(nextTempLowC - tempLowC) > 0.001f ||
+    fabsf(nextTempHighC - tempHighC) > 0.001f ||
+    fabsf(nextHumLow - humLow) > 0.001f ||
+    fabsf(nextHumHigh - humHigh) > 0.001f ||
+    fabsf(nextHystC - hystC) > 0.001f ||
+    fabsf(nextHystHum - hystHum) > 0.001f ||
+    nextSendIntervalS != sendIntervalS ||
+    nextDisplayStandbyMin != displayStandbyMin ||
+    nextBuzzerEnabled != buzzerEnabled;
+
+  if (newVersion == configVersion && !configValuesChanged) {
     Serial.println("Config sem alteracoes.");
     return true;
   }
 
-  tempLowC = config["temp_low_c"] | tempLowC;
-  tempHighC = config["temp_high_c"] | tempHighC;
-  humLow = config["hum_low"] | humLow;
-  humHigh = config["hum_high"] | humHigh;
-  hystC = config["hyst_c"] | hystC;
-  hystHum = config["hyst_hum"] | hystHum;
-  sendIntervalS = config["send_interval_s"] | sendIntervalS;
-  displayStandbyMin = config["display_standby_min"] | displayStandbyMin;
-  buzzerEnabled = config["buzzer_enabled"] | buzzerEnabled;
+  tempLowC = nextTempLowC;
+  tempHighC = nextTempHighC;
+  humLow = nextHumLow;
+  humHigh = nextHumHigh;
+  hystC = nextHystC;
+  hystHum = nextHystHum;
+  sendIntervalS = nextSendIntervalS;
+  displayStandbyMin = nextDisplayStandbyMin;
+  buzzerEnabled = nextBuzzerEnabled;
 
   if (sendIntervalS < MIN_SEND_INTERVAL_S) sendIntervalS = MIN_SEND_INTERVAL_S;
   if (sendIntervalS > MAX_SEND_INTERVAL_S) sendIntervalS = MAX_SEND_INTERVAL_S;
