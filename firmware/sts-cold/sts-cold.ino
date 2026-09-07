@@ -429,6 +429,7 @@ public:
     SPI.begin(TFT_SCK_PIN, -1, TFT_MOSI_PIN, TFT_CS_PIN);
     init(TFT_NATIVE_WIDTH, TFT_NATIVE_HEIGHT);
     setRotation(TFT_ROTATION);
+    setTextWrap(false);
     fillScreen(BLACK);
     return true;
   }
@@ -511,7 +512,9 @@ unsigned long lastClockSyncOkMs = 0;
 bool setupButtonTaskActive = false;
 TaskHandle_t setupButtonTaskHandle = nullptr;
 TaskHandle_t networkTaskHandle = nullptr;
+TaskHandle_t uiTaskHandle = nullptr;
 QueueHandle_t networkReadingQueue = nullptr;
+volatile bool uiRefreshPending = false;
 
 struct QrDrawContext {
   int16_t x;
@@ -764,7 +767,11 @@ void acknowledgeAlarm() {
   alarmAckCount++;
   setState(SysState::ALARM_ACK);
   normalDisplayPage = 0;
-  refreshCurrentDisplay();
+  if (uiTaskHandle == nullptr || xTaskGetCurrentTaskHandle() == uiTaskHandle) {
+    refreshCurrentDisplay();
+  } else {
+    uiRefreshPending = true;
+  }
   Serial.println("ALARME ACK pelo utilizador.");
 }
 
@@ -826,6 +833,12 @@ void processButtonInterruptEvents() {
 
 void serviceInteractiveTasks() {
   if (!interactiveTasksReady) return;
+  // The ST7789 writes directly over SPI and has no framebuffer. Network retry
+  // paths also call responsiveDelay(), so they must never service buttons or
+  // render from the network core while the main UI task is drawing.
+  if (uiTaskHandle != nullptr && xTaskGetCurrentTaskHandle() != uiTaskHandle) {
+    return;
+  }
 
   handleButton();
   processButtonInterruptEvents();
@@ -2549,7 +2562,6 @@ void displayLoadingScreen(const char* title, const char* subtitle, uint8_t frame
     syncText != lastSyncText;
 
   if (fullRedraw) {
-    display.clearDisplay();
     display.fillScreen(bgColor);
     activeUiScreen = 2;
 
@@ -2763,7 +2775,6 @@ void displaySetupQrScreen() {
   if (!oledOn) oledDisplayOn();
   oledStandbyBlank = false;
 
-  display.clearDisplay();
   activeUiScreen = 4;
   display.fillScreen(uiBackgroundColor());
   display.setTextColor(TFT_TEXT);
@@ -2845,7 +2856,6 @@ void displayDashboardQrScreen() {
 
   if (!fullRedraw) return;
 
-  display.clearDisplay();
   activeUiScreen = 5;
   display.fillScreen(bgColor);
 
@@ -2957,7 +2967,6 @@ void displayMainClockScreen() {
     accentColor != lastAccentColor;
 
   if (fullRedraw) {
-    display.clearDisplay();
     display.fillScreen(bgColor);
     activeUiScreen = 6;
 
@@ -3253,7 +3262,6 @@ void displayAlarmPage(float temp, float humidity) {
     ackText != lastAckText;
 
   if (fullRedraw) {
-    display.clearDisplay();
     display.fillScreen(bgColor);
     activeUiScreen = 7;
 
@@ -3347,6 +3355,8 @@ void displayTemp(float temp, float humidity) {
   static uint16_t lastStatusColor = 0;
   static String lastStatusText = "";
   static String lastDate = "";
+  static String lastTempValue = "";
+  static String lastHumValue = "";
   bool fullRedraw =
     activeUiScreen != 1 ||
     bgColor != lastBgColor ||
@@ -3355,7 +3365,6 @@ void displayTemp(float temp, float humidity) {
     safeDate != lastDate;
 
   if (fullRedraw) {
-    display.clearDisplay();
     display.fillScreen(bgColor);
     activeUiScreen = 1;
 
@@ -3393,6 +3402,8 @@ void displayTemp(float temp, float humidity) {
     lastStatusColor = statusColor;
     lastStatusText = statusText;
     lastDate = safeDate;
+    lastTempValue = "";
+    lastHumValue = "";
   }
 
   char tempText[12];
@@ -3418,15 +3429,18 @@ void displayTemp(float temp, float humidity) {
   int16_t tempX = ((SCREEN_WIDTH - (int16_t)tempW - tempUnitGap - (int16_t)unitW) / 2) - 4;
   int16_t unitX = tempX + tempW + tempUnitGap;
 
-  display.fillRect(38, 90, 204, 60, bgColor);
-  display.setFont(&FreeSansBold24pt7b);
-  display.setTextColor(TFT_TEXT, bgColor);
-  display.setCursor(tempX, 138);
-  display.print(tempValue);
+  if (fullRedraw || tempValue != lastTempValue) {
+    display.fillRect(38, 90, 204, 60, bgColor);
+    display.setFont(&FreeSansBold24pt7b);
+    display.setTextColor(TFT_TEXT, bgColor);
+    display.setCursor(tempX, 138);
+    display.print(tempValue);
 
-  display.setFont(&FreeSansBold12pt7b);
-  display.setCursor(unitX, 128);
-  display.print("C");
+    display.setFont(&FreeSansBold12pt7b);
+    display.setCursor(unitX, 128);
+    display.print("C");
+    lastTempValue = tempValue;
+  }
 
   char humText[8];
   if (isnan(humidity)) {
@@ -3439,10 +3453,14 @@ void displayTemp(float temp, float humidity) {
   display.getTextBounds(humText, 0, 218, &textX, &textY, &humW, &humH);
   int16_t humX = ((SCREEN_WIDTH - (int16_t)humW) / 2) - 4;
 
-  display.fillRect(82, 192, 116, 34, bgColor);
-  display.setTextColor(TFT_TEXT, bgColor);
-  display.setCursor(humX, 218);
-  display.print(humText);
+  String humValue = String(humText);
+  if (fullRedraw || humValue != lastHumValue) {
+    display.fillRect(82, 192, 116, 34, bgColor);
+    display.setTextColor(TFT_TEXT, bgColor);
+    display.setCursor(humX, 218);
+    display.print(humText);
+    lastHumValue = humValue;
+  }
 
   display.setFont(NULL);
   display.display();
@@ -4406,6 +4424,7 @@ void updateAlarmAndState(float temperature, float humidity) {
 // SETUP
 // =====================================================
 void setup() {
+  uiTaskHandle = xTaskGetCurrentTaskHandle();
   Serial.begin(115200);
   delay(300);
 
@@ -4529,6 +4548,12 @@ void loop() {
   }
 
   serviceInteractiveTasks();
+
+  if (uiRefreshPending) {
+    uiRefreshPending = false;
+    activeUiScreen = -1;
+    refreshCurrentDisplay();
+  }
 
   if (isWifiConnected()) {
     ArduinoOTA.handle();
