@@ -302,6 +302,9 @@ const unsigned long USER_INTERACTION_NETWORK_GRACE_MS = 1200;
 const unsigned long UI_RETURN_HOME_MS = 10000;
 const int MIN_SEND_INTERVAL_S = 60;
 const int MAX_SEND_INTERVAL_S = 15 * 60;
+const char* PREF_TELEMETRY_SEQUENCE_NEXT = "seq_next";
+const uint32_t TELEMETRY_SEQUENCE_MIGRATION_FLOOR = 1000000UL;
+const uint32_t TELEMETRY_SEQUENCE_BLOCK_SIZE = 4096UL;
 const int MAX_DISPLAY_STANDBY_MIN = 3;
 const float IMMEDIATE_SEND_TEMP_DELTA_C = 1.0;
 const float IMMEDIATE_SEND_HUM_DELTA = 5.0;
@@ -348,6 +351,8 @@ volatile bool buttonPressStartedSeen = false;
 volatile unsigned long buttonIsrPressStartMs = 0;
 volatile unsigned long buttonIsrLastEdgeMs = 0;
 volatile unsigned long buttonLastShortPressMs = 0;
+volatile unsigned long buttonLastPressEdgeMs = 0;
+volatile unsigned long buttonLastReleaseEdgeMs = 0;
 
 // ========================
 // HTTP / WDT
@@ -492,6 +497,8 @@ float lastInternalHumidity = NAN;
 uint32_t bootCount = 0;
 unsigned long wifiReconnectCount = 0;
 uint32_t telemetrySequence = 0;
+uint32_t telemetrySequenceBlockEnd = 0;
+bool telemetrySequenceReady = false;
 uint32_t postOkCount = 0;
 uint32_t postFailCount = 0;
 unsigned long lastPostOkMs = 0;
@@ -575,6 +582,7 @@ void syncClock();
 void advanceNormalDisplayPage();
 void advanceSetupDisplayPage();
 void refreshCurrentDisplay();
+void logButtonPageTiming(unsigned long pageChangeMs, unsigned long renderStartMs);
 void responsiveDelay(unsigned long durationMs);
 bool userInteractionInProgress();
 String formatCurrentTime();
@@ -625,6 +633,8 @@ String resetReasonToText(esp_reset_reason_t reason);
 bool enqueueReading(float temperature, float humidity);
 bool enqueueReading(const Reading &reading);
 void flushBufferedReadings();
+bool reserveTelemetrySequenceBlock();
+uint32_t nextTelemetrySequence();
 Reading makeReading(float temperature, float humidity);
 String buildTemperatureJson(const Reading &reading);
 void markReadingQueuedBackfill(Reading &reading);
@@ -785,9 +795,11 @@ void IRAM_ATTR buttonIsr() {
   if (pressed) {
     buttonPressStartedSeen = true;
     buttonIsrPressStartMs = now;
+    buttonLastPressEdgeMs = now;
     return;
   }
 
+  buttonLastReleaseEdgeMs = now;
   unsigned long duration = now - buttonIsrPressStartMs;
   if (
     duration >= VALID_SHORT_PRESS_MIN_MS &&
@@ -1118,6 +1130,97 @@ void syncClock() {
 // =====================================================
 // BUFFER
 // =====================================================
+bool reserveTelemetrySequenceBlock() {
+  uint32_t blockStart = prefs.getULong(PREF_TELEMETRY_SEQUENCE_NEXT, 0);
+  const uint64_t bootFloor64 =
+    (uint64_t)TELEMETRY_SEQUENCE_MIGRATION_FLOOR +
+    ((uint64_t)bootCount * TELEMETRY_SEQUENCE_BLOCK_SIZE);
+
+  if (bootFloor64 > UINT32_MAX - TELEMETRY_SEQUENCE_BLOCK_SIZE) {
+    Serial.println("telemetry_seq esgotada pelo piso de boot: envio seguro impossivel.");
+    telemetrySequenceReady = false;
+    return false;
+  }
+
+  if (
+    blockStart != 0 &&
+    (
+      blockStart < TELEMETRY_SEQUENCE_MIGRATION_FLOOR ||
+      (blockStart - TELEMETRY_SEQUENCE_MIGRATION_FLOOR) %
+          TELEMETRY_SEQUENCE_BLOCK_SIZE != 0
+    )
+  ) {
+    Serial.print("telemetry_seq NVS invalida/corrompida: ");
+    Serial.println(blockStart);
+    telemetrySequenceReady = false;
+    return false;
+  }
+
+  const uint32_t bootFloor = (uint32_t)bootFloor64;
+  if (blockStart == 0) {
+    Serial.println("telemetry_seq NVS vazia. A aplicar piso seguro de migracao/boot.");
+    blockStart = bootFloor;
+  } else if (blockStart < bootFloor) {
+    Serial.print("telemetry_seq persistida atras do piso de boot: ");
+    Serial.println(blockStart);
+    blockStart = bootFloor;
+  }
+
+  if (blockStart > UINT32_MAX - TELEMETRY_SEQUENCE_BLOCK_SIZE) {
+    Serial.println("telemetry_seq esgotada: impossivel reservar novo bloco com seguranca.");
+    telemetrySequenceReady = false;
+    return false;
+  }
+
+  const uint32_t nextBlockStart = blockStart + TELEMETRY_SEQUENCE_BLOCK_SIZE;
+  const size_t written = prefs.putULong(
+    PREF_TELEMETRY_SEQUENCE_NEXT,
+    nextBlockStart
+  );
+  const uint32_t verifiedNextBlockStart = prefs.getULong(
+    PREF_TELEMETRY_SEQUENCE_NEXT,
+    0
+  );
+
+  if (written != sizeof(uint32_t) || verifiedNextBlockStart != nextBlockStart) {
+    Serial.print("Falha ao reservar bloco telemetry_seq na NVS. bytes=");
+    Serial.print(written);
+    Serial.print(" verificado=");
+    Serial.println(verifiedNextBlockStart);
+    telemetrySequenceReady = false;
+    return false;
+  }
+
+  telemetrySequence = blockStart - 1;
+  telemetrySequenceBlockEnd = nextBlockStart - 1;
+  telemetrySequenceReady = true;
+
+  Serial.print("telemetry_seq inicial carregada: ");
+  Serial.println(blockStart);
+  Serial.print("Bloco telemetry_seq reservado: ");
+  Serial.print(blockStart);
+  Serial.print("..");
+  Serial.println(telemetrySequenceBlockEnd);
+  return true;
+}
+
+uint32_t nextTelemetrySequence() {
+  if (!telemetrySequenceReady) {
+    Serial.println("telemetry_seq indisponivel: envio novo bloqueado.");
+    return 0;
+  }
+
+  if (telemetrySequence >= telemetrySequenceBlockEnd) {
+    Serial.println("Bloco telemetry_seq consumido. A reservar o seguinte.");
+    if (!reserveTelemetrySequenceBlock()) return 0;
+  }
+
+  telemetrySequence++;
+  Serial.print("telemetry_seq usada: ");
+  Serial.println(telemetrySequence);
+  return telemetrySequence;
+}
+
 Reading makeReading(float temperature, float humidity) {
   Reading reading;
   reading.temperature = temperature;
@@ -1129,7 +1232,7 @@ Reading makeReading(float temperature, float humidity) {
     !isnan(lastInternalTemperature) &&
     !isnan(lastInternalHumidity);
   reading.sensorSemanticsVersion = SENSOR_SEMANTICS_SHT30_PRIMARY;
-  reading.sequence = ++telemetrySequence;
+  reading.sequence = nextTelemetrySequence();
   reading.capturedMillis = millis();
   time_t nowEpoch = time(nullptr);
   reading.capturedEpoch = nowEpoch > CLOCK_VALID_AFTER_EPOCH ? (uint32_t)nowEpoch : 0;
@@ -1409,6 +1512,11 @@ bool peekQueuedReading(Reading &outReading) {
 }
 
 bool enqueueReading(const Reading &reading) {
+  if (reading.sequence == 0) {
+    Serial.println("Leitura rejeitada: telemetry_seq segura indisponivel.");
+    return false;
+  }
+
   if (!queueReady && !initReadingQueue()) {
     Serial.println("Fila offline indisponivel: leitura nao persistida.");
     return false;
@@ -1558,6 +1666,7 @@ void handleButton() {
     if (btnStable == LOW) {
       pressInProgress = true;
       pressStartMs = now;
+      buttonLastPressEdgeMs = now;
       ackPressFired = false;
       wifiResetFired = false;
     } else if (pressInProgress) {
@@ -1566,6 +1675,7 @@ void handleButton() {
       interrupts();
 
       unsigned long pressDuration = now - pressStartMs;
+      buttonLastReleaseEdgeMs = now;
       pressInProgress = false;
       wifiResetArmed = true;
 
@@ -2100,7 +2210,10 @@ bool connectKnownWiFiNetwork(unsigned long timeoutMs, const char* title, const c
         return isWifiConnected();
       }
 
-      if (millis() - start >= WIFI_LOADING_SCREEN_DELAY_MS) {
+      if (
+        (uiTaskHandle == nullptr || xTaskGetCurrentTaskHandle() == uiTaskHandle) &&
+        millis() - start >= WIFI_LOADING_SCREEN_DELAY_MS
+      ) {
         displayLoadingScreen(title, subtitle, loadingFrame++);
       }
 
@@ -2149,12 +2262,15 @@ bool connectSavedWiFi(unsigned long timeoutMs, const char* title, const char* su
 
     bool showingClockLoading = !clockSynced && normalDisplayPage == 0;
 
-    if (showingClockLoading && now - lastClockLoadingFrameMs >= clockLoadingFrameInterval) {
+    const bool mayRender =
+      uiTaskHandle == nullptr || xTaskGetCurrentTaskHandle() == uiTaskHandle;
+
+    if (mayRender && showingClockLoading && now - lastClockLoadingFrameMs >= clockLoadingFrameInterval) {
       lastClockLoadingFrameMs = now;
       displayLoadingScreen(title, subtitle, loadingFrame++);
     }
 
-    if (!showingClockLoading && now - start >= WIFI_LOADING_SCREEN_DELAY_MS) {
+    if (mayRender && !showingClockLoading && now - start >= WIFI_LOADING_SCREEN_DELAY_MS) {
       displayLoadingScreen(title, subtitle, loadingFrame++);
     }
 
@@ -3136,7 +3252,33 @@ void advanceSetupDisplayPage() {
   lastInteractiveInputMs = lastUserActivityMs;
   setupDisplayPage = (setupDisplayPage + 1) % 2;
   lastDisplay = lastUserActivityMs;
+  const unsigned long renderStartMs = millis();
   displaySetupQrScreen();
+  logButtonPageTiming(now, renderStartMs);
+}
+
+void logButtonPageTiming(unsigned long pageChangeMs, unsigned long renderStartMs) {
+  const unsigned long renderEndMs = millis();
+  unsigned long pressEdgeMs;
+  unsigned long releaseEdgeMs;
+
+  noInterrupts();
+  pressEdgeMs = buttonLastPressEdgeMs;
+  releaseEdgeMs = buttonLastReleaseEdgeMs;
+  interrupts();
+
+  Serial.print("BUTTON timing press_ms=");
+  Serial.print(pressEdgeMs);
+  Serial.print(" release_ms=");
+  Serial.print(releaseEdgeMs);
+  Serial.print(" page_ms=");
+  Serial.print(pageChangeMs);
+  Serial.print(" release_to_page_ms=");
+  Serial.print(releaseEdgeMs == 0 ? 0 : pageChangeMs - releaseEdgeMs);
+  Serial.print(" render_ms=");
+  Serial.print(renderEndMs - renderStartMs);
+  Serial.print(" release_to_visual_ms=");
+  Serial.println(releaseEdgeMs == 0 ? 0 : renderEndMs - releaseEdgeMs);
 }
 
 void refreshCurrentDisplay() {
@@ -3187,6 +3329,7 @@ void advanceNormalDisplayPage() {
     normalDisplayPage = (normalDisplayPage + 1) % 3;
   }
   lastDisplay = lastUserActivityMs;
+  const unsigned long renderStartMs = millis();
 
   if (!isnan(lastTemperature) && !isnan(lastHumidity)) {
     displayNormalPage(lastTemperature, lastHumidity);
@@ -3195,6 +3338,7 @@ void advanceNormalDisplayPage() {
   } else {
     displayMainClockScreen();
   }
+  logButtonPageTiming(now, renderStartMs);
 }
 
 void displayAlertPage(float temp, float humidity) {
@@ -3878,6 +4022,11 @@ bool sendReadingDirect(const Reading &reading, bool enqueueOnFail) {
 }
 
 bool sendReadingToServer(const Reading &reading) {
+  if (reading.sequence == 0) {
+    Serial.println("Envio bloqueado: telemetry_seq segura indisponivel.");
+    return false;
+  }
+
   updateBufferCount();
 
   if (!isWifiConnected()) {
@@ -4052,8 +4201,17 @@ void networkTask(void *parameter) {
       sendReadingToServer(reading);
     }
 
+    ensureWiFiConnected();
+
     if (isWifiConnected()) {
       unsigned long now = millis();
+      syncClock();
+
+      if (lastHeartbeatMs == 0 || now - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
+        sendHeartbeatToServer();
+        lastHeartbeatMs = now;
+      }
+
       const unsigned long activeConfigFetchInterval =
         (alarmActive && !alarmAcked) ? alarmAckFetchInterval : configFetchInterval;
       if (now - lastBackgroundConfigFetch >= activeConfigFetchInterval) {
@@ -4463,6 +4621,7 @@ void setup() {
   resetReasonText = resetReasonToText(esp_reset_reason());
   bootCount = prefs.getUInt("boot_count", 0) + 1;
   prefs.putUInt("boot_count", bootCount);
+  reserveTelemetrySequenceBlock();
   loadLocalConfig();
 
   Serial.print("Firmware: ");
@@ -4586,10 +4745,7 @@ void loop() {
     refreshCurrentDisplay();
   }
 
-  if (isWifiConnected()) {
-    ArduinoOTA.handle();
-    syncClock();
-  }
+  if (isWifiConnected()) ArduinoOTA.handle();
 
   if (wifiPortalRequested) {
     wifiPortalRequested = false;
@@ -4600,22 +4756,7 @@ void loop() {
     }
   }
 
-  ensureWiFiConnected();
-
   unsigned long now = millis();
-
-  if (
-    isWifiConnected() &&
-    !userInteractionInProgress() &&
-    (lastHeartbeatMs == 0 || now - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS)
-  ) {
-    if (sendHeartbeatToServer()) {
-      lastHeartbeatMs = now;
-    } else {
-      // Evita uma repetição apertada quando o backend está temporariamente indisponível.
-      lastHeartbeatMs = now;
-    }
-  }
 
   if (!userInteractionInProgress() && (now - lastSensorRead >= sensorReadInterval || isnan(lastTemperature) || isnan(lastHumidity))) {
     lastSensorRead = now;
