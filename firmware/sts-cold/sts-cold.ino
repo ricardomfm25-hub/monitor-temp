@@ -1064,6 +1064,9 @@ bool validateEnvironmentConfig() {
   if (isMissingOrPlaceholder(STS_TLS_ROOT_CA)) {
     Serial.println("BLOQUEADO: CA TLS do endpoint STAGING nao configurada.");
     valid = false;
+  } else if (strstr(STS_TLS_ROOT_CA, "\\n") != nullptr) {
+    Serial.println("BLOQUEADO: CA TLS invalida; use quebras PEM \\n, nao texto \\\\n.");
+    valid = false;
   }
 #if STS_ENABLE_OTA
   if (isMissingOrPlaceholder(STS_OTA_PASSWORD) || strlen(STS_OTA_PASSWORD) < 16) {
@@ -3616,6 +3619,13 @@ bool isEndpointRefusedError(const String &errorText) {
   return normalized.indexOf("connection refused") >= 0;
 }
 
+void logHttpPostTarget(const String &url) {
+  Serial.print("POST target: ");
+  Serial.println(url);
+  Serial.println("Port: 443");
+  Serial.println("Transport: WiFiClientSecure (TLS com CA validada)");
+}
+
 bool postJsonWithRetry(const String &url, const String &jsonPayload, String *responseOut) {
   if (!isWifiConnected()) {
     postFailCount++;
@@ -3632,6 +3642,7 @@ bool postJsonWithRetry(const String &url, const String &jsonPayload, String *res
 
   bool transportFailure = false;
   bool endpointRefused = false;
+  logHttpPostTarget(url);
 
   for (int attempt = 1; attempt <= HTTP_MAX_RETRIES; attempt++) {
     WiFiClientSecure client;
@@ -4625,7 +4636,11 @@ void loop() {
       internalSensorHealthy = false;
       internalSensorFailCount++;
       if (internalSensorFailCount == 1) lastHeartbeatMs = 0;
-      Serial.println("Erro ao ler DHT22 interior do dispositivo (GPIO 4)");
+      Serial.print("Erro ao ler DHT22 interior do dispositivo (GPIO 4), falhas consecutivas: ");
+      Serial.println(internalSensorFailCount);
+      if (internalSensorFailCount == 1) {
+        Serial.println("DHT22: verificar 3.3V, GND, DATA GPIO 4 e pull-up DATA-3.3V.");
+      }
     }
 
     if (!isnan(ambientT) && !isnan(ambientH)) {
