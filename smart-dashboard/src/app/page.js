@@ -145,6 +145,7 @@ const I18N = {
     location: "Location",
     configVersion: "Config version",
     lastUpdate: "Last update",
+    wifiNetwork: "Wi-Fi network",
     chooseOperation: "Select operation",
     chooseTitle: "Choose location and device",
     chooseText: "Choose the area to start monitoring.",
@@ -155,7 +156,7 @@ const I18N = {
     activeAlerts: "Active alerts",
     internalDeviceTemperature: "Device internal temperature",
     internalDeviceHumidity: "Device internal humidity",
-    temperatureDelta: "Temperature delta",
+    temperatureDelta: "Temperature difference",
     lastCommunication: "Last communication",
     internalDiagnosticReference: "Internal diagnostics (DHT22)",
     environmentMinusDeviceInterior: "Environment minus device interior",
@@ -276,9 +277,10 @@ const I18N = {
     visualAlertsOnly: "Visual alerts only",
     buzzerRecordsHint: "Logs, notifications and visual alerts remain active in both options.",
     rssiUnavailable: "RSSI unavailable",
-    strongSignal: "Strong signal",
-    acceptableSignal: "Acceptable signal",
-    weakSignal: "Weak signal",
+    wifiExcellent: "Excellent",
+    wifiGood: "Good",
+    wifiMedium: "Medium",
+    wifiWeak: "Weak",
     readingsExpected: "{received} of {expected} expected readings",
     noHistoricalReadings7d: "No historical readings are available for the last 7 days yet.",
     noReadingInterval: "No reading in this interval",
@@ -394,6 +396,7 @@ const I18N = {
     location: "Localização",
     configVersion: "Versão de configuração",
     lastUpdate: "Última atualização",
+    wifiNetwork: "Rede Wi-Fi",
     chooseOperation: "Selecionar operação",
     chooseTitle: "Escolhe o local e o dispositivo",
     chooseText: "Escolhe a área para começar a monitorizar.",
@@ -404,7 +407,7 @@ const I18N = {
     activeAlerts: "Alertas ativos",
     internalDeviceTemperature: "Temperatura interna do dispositivo",
     internalDeviceHumidity: "Humidade interna do dispositivo",
-    temperatureDelta: "Delta temperatura",
+    temperatureDelta: "Diferença de temperaturas",
     lastCommunication: "Última comunicação",
     internalDiagnosticReference: "Diagnóstico interno (DHT22)",
     environmentMinusDeviceInterior: "Ambiente menos interior do dispositivo",
@@ -526,9 +529,10 @@ const I18N = {
     visualAlertsOnly: "Apenas alertas visuais",
     buzzerRecordsHint: "Os registos, notificações e alertas visuais permanecem ativos em ambas as opções.",
     rssiUnavailable: "RSSI indisponível",
-    strongSignal: "Sinal forte",
-    acceptableSignal: "Sinal aceitável",
-    weakSignal: "Sinal fraco",
+    wifiExcellent: "Excelente",
+    wifiGood: "Bom",
+    wifiMedium: "Médio",
+    wifiWeak: "Fraco",
     readingsExpected: "{received} de {expected} leituras esperadas",
     noHistoricalReadings7d: "Ainda não existem leituras históricas disponíveis para os últimos 7 dias.",
     noReadingInterval: "Sem leitura neste intervalo",
@@ -5707,31 +5711,36 @@ const communicationHealth = useMemo(
     device?.wifi_ssid ??
     device?.communication_diagnostics?.wifi_ssid ??
     null;
-  const currentWifiSsid =
+  const normalizedWifiSsid =
     currentWifiSsidRaw === null || currentWifiSsidRaw === undefined
-      ? null
-      : String(currentWifiSsidRaw);
+      ? ""
+      : String(currentWifiSsidRaw).trim();
+  const currentWifiSsid = normalizedWifiSsid || null;
   const currentWifiTone = isDeviceOffline || currentWifiRssi === null
     ? "neutral"
-    : currentWifiRssi >= -67
+    : currentWifiRssi >= -55
     ? "good"
+    : currentWifiRssi >= -67
+    ? "ack"
     : currentWifiRssi >= -75
     ? "warn"
     : "bad";
-  const currentWifiLabel = isDeviceOffline
+  const currentWifiQualityLabel = isDeviceOffline
     ? "-"
     : currentWifiRssi === null
     ? "-"
-    : `${currentWifiRssi} dBm`;
-  const currentWifiHint = isDeviceOffline
+    : currentWifiRssi >= -55
+    ? t("wifiExcellent")
+    : currentWifiRssi >= -67
+    ? t("wifiGood")
+    : currentWifiRssi >= -75
+    ? t("wifiMedium")
+    : t("wifiWeak");
+  const currentWifiRssiLabel = isDeviceOffline
     ? t("offline")
     : currentWifiRssi === null
     ? t("rssiUnavailable")
-    : currentWifiRssi >= -67
-    ? t("strongSignal")
-    : currentWifiRssi >= -75
-    ? t("acceptableSignal")
-    : t("weakSignal");
+    : `${currentWifiRssi} dBm`;
   const internalSensorAvailable = device?.internal_sensor_ok === true;
   const internalTemperature = internalSensorAvailable
     ? parseNumber(device?.internal_temperature)
@@ -6835,8 +6844,8 @@ function downloadPdfReport() {
               />
               <ExecutiveStatCard
                 label="Wi-Fi"
-                value={currentWifiLabel}
-                hint={currentWifiHint}
+                value={currentWifiQualityLabel}
+                hint={currentWifiRssiLabel}
                 icon={Wifi}
                 tone={currentWifiTone}
               />
@@ -7503,8 +7512,10 @@ function downloadPdfReport() {
                 <div style={styles.settingsMetricTitle}>
                   <Radio size={16} /> {t("signalQuality")}
                 </div>
-                <div style={styles.settingsNetworkValue}>{currentWifiLabel}</div>
-                <div style={styles.settingsNetworkHint}>{currentWifiHint}</div>
+                <div style={{ ...styles.settingsNetworkValue, color: getHealthToneStyles(currentWifiTone).valueColor }}>
+                  {currentWifiQualityLabel}
+                </div>
+                <div style={styles.settingsNetworkHint}>{currentWifiRssiLabel}</div>
               </div>
             </div>
           </div>
@@ -7832,6 +7843,9 @@ function downloadPdfReport() {
               <InfoItem label={t("model")} value={STS_PRODUCT.product} icon={Thermometer} />
               <InfoItem label={t("deviceId")} value={selectedDeviceId || "-"} icon={Info} />
               <InfoItem label={t("location")} value={deviceLocation} icon={MapPin} />
+              {currentWifiSsid ? (
+                <InfoItem label={t("wifiNetwork")} value={currentWifiSsid} icon={Wifi} />
+              ) : null}
               <InfoItem
                 label="Firmware"
                 value={
