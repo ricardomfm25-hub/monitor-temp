@@ -15,6 +15,22 @@ export function measurementState(value, quality, low, high) {
     (number(high) !== null && numeric > number(high)) ? "breach" : "normal";
 }
 
+// Presentation-only fields: never overwrite measurements or smooth backfill.
+export function smoothChartLine(data, metric, low, high) {
+  let window = [];
+  return data.map((point) => {
+    const value = number(point[metric]);
+    const state = measurementState(value, point[`${metric}_quality`], low, high);
+    if (point.offline_captured || state !== "normal") {
+      window = [];
+      return { ...point, [`${metric}_smooth`]: state === "breach" && !point.offline_captured ? value : null };
+    }
+    window.push(value);
+    if (window.length > 3) window.shift();
+    return { ...point, [`${metric}_smooth`]: window.reduce((sum, sample) => sum + sample, 0) / window.length };
+  });
+}
+
 export function buildChartSamples(readings, { start, end, bucketMs }, sendIntervalS) {
   const samples = (readings || []).filter((r) => Number.isFinite(r.timestamp) && r.timestamp >= start && r.timestamp <= end)
     .sort((a, b) => a.timestamp - b.timestamp);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { buildChartSamples, measurementState } from "./chart-semantics.mjs";
+import { buildChartSamples, measurementState, smoothChartLine } from "./chart-semantics.mjs";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import { FirmwareVersionBadge } from "./components/FirmwareVersionBadge";
@@ -2710,7 +2710,7 @@ function CustomTooltip({ active, payload, label, unit, digits = 1, t, language }
   if (!active || !payload || !payload.length) return null;
 
   const visiblePayload =
-    payload.find((item) => item?.value !== null && item?.value !== undefined) ||
+    payload.find((item) => !String(item?.dataKey || "").endsWith("_smooth") && item?.value !== null && item?.value !== undefined) ||
     payload[0];
   const point = visiblePayload?.payload;
   const value = visiblePayload?.value;
@@ -3999,11 +3999,15 @@ function DataChart({
   t,
   language,
 }) {
+  const visualData = useMemo(
+    () => smoothChartLine(data, dataKey, minThreshold, maxThreshold),
+    [data, dataKey, minThreshold, maxThreshold]
+  );
   const offlineDataKey = `${dataKey}_offline`;
   const chartKeys = [dataKey, offlineDataKey, `${dataKey}_uncertain`];
   const renderDot = ({ cx, cy, value, payload, index }) => {
     const state = measurementState(value, payload?.[`${dataKey}_quality`], minThreshold, maxThreshold);
-    if (!Number.isFinite(cx) || !Number.isFinite(cy) || state === "missing") return <g key={index} />;
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || state === "missing" || state === "normal") return <g key={index} />;
     const color = state === "breach" ? "#ef4444" : state === "uncertain" ? "#f59e0b" : payload?.offline_captured ? "#94a3b8" : "#3b82f6";
     return <circle key={index} cx={cx} cy={cy} r={state === "normal" ? 2 : 4} fill={color} />;
   };
@@ -4040,6 +4044,7 @@ function DataChart({
           </div>
           <div style={styles.chartHint}>
             {t("displayedInterval")}: {periodKey.toUpperCase()}
+            <div>{language === "en" ? "Line: 3-sample moving average · Faint trace and tooltip: actual readings" : "Linha: média móvel de 3 amostras · Traço discreto e tooltip: leituras reais"}</div>
             <div>{language === "en" ? "Red points: outside current limits · Amber: uncertain quality · Gaps: missing/invalid data" : "Pontos vermelhos: fora dos limites atuais · Âmbar: qualidade incerta · Lacunas: dados missing/invalid"}</div>
           </div>
           {offlinePoints.length > 0 ? (
@@ -4062,7 +4067,7 @@ function DataChart({
         <div style={styles.chartWrap}>
           <ResponsiveContainer width="100%" height={isMobile ? 240 : 320} debounce={120}>
             <LineChart
-              data={data}
+              data={visualData}
               margin={
                 isMobile
                   ? { top: 18, right: 10, left: 0, bottom: 6 }
@@ -4130,9 +4135,22 @@ function DataChart({
                 type="linear"
                 dataKey={dataKey}
                 stroke="#3b82f6"
-                strokeWidth={3}
+                strokeWidth={1}
+                strokeOpacity={0.22}
                 dot={renderDot}
                 activeDot={{ r: 4 }}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+
+              <Line
+                type="linear"
+                dataKey={`${dataKey}_smooth`}
+                stroke="#3b82f6"
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={false}
+                tooltipType="none"
                 connectNulls={false}
                 isAnimationActive={false}
               />
