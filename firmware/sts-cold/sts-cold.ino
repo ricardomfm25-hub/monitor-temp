@@ -73,6 +73,7 @@ const char* OTA_PASSWORD = STS_OTA_PASSWORD;
 // ========================
 const char* WIFI_AP_NAME = "STS-Setup";
 const char* WIFI_AP_PASSWORD = STS_WIFI_AP_PASSWORD;
+const uint8_t WIFI_AP_CHANNEL = 1;
 const char* WIFI_SETUP_URL = "http://192.168.4.1";
 const char* WIFI_SETUP_QR_TEXT = "http://192.168.4.1";
 const char* PREF_WIFI_SETUP_PENDING = "wifi_setup";
@@ -345,6 +346,7 @@ bool ackPressFired = false;
 bool wifiResetFired = false;
 bool wifiResetArmed = true;
 bool wifiPortalRequested = false;
+volatile bool wifiSetupActive = false;
 bool buttonPressWokeDisplay = false;
 volatile bool buttonShortPressSeen = false;
 volatile bool buttonPressStartedSeen = false;
@@ -1781,12 +1783,32 @@ void setupButtonTask(void *parameter) {
   unsigned long debounceStartMs = millis();
   unsigned long localPressStartMs = 0;
   bool localPressActive = false;
+  unsigned long lastApDiagnosticsMs = 0;
+  uint8_t lastApStationCount = 255;
 
   while (setupButtonTaskActive) {
     updateLedPatterns();
 
     bool raw = digitalRead(BUTTON_PIN);
     unsigned long now = millis();
+
+    uint8_t apStationCount = WiFi.softAPgetStationNum();
+    if (
+      apStationCount != lastApStationCount ||
+      lastApDiagnosticsMs == 0 ||
+      now - lastApDiagnosticsMs >= 10000
+    ) {
+      lastApDiagnosticsMs = now;
+      lastApStationCount = apStationCount;
+      Serial.print("SETUP WIFI: mode=");
+      Serial.print((int)WiFi.getMode());
+      Serial.print(" AP_IP=");
+      Serial.print(WiFi.softAPIP());
+      Serial.print(" channel=");
+      Serial.print(WiFi.channel());
+      Serial.print(" stations=");
+      Serial.println(apStationCount);
+    }
 
     if (raw != lastRaw) {
       lastRaw = raw;
@@ -1823,7 +1845,8 @@ void setupButtonTask(void *parameter) {
 // WIFI
 // =====================================================
 void startWiFiSetupPortal(bool resetCredentials, bool keepPortalOpen) {
-  Serial.println("A abrir portal WiFi...");
+  Serial.println("SETUP WIFI: entering");
+  wifiSetupActive = true;
   wifiPortalRequested = false;
   setState(SysState::SETUP_WIFI);
   setupDisplayPage = 0;
@@ -1847,7 +1870,33 @@ void startWiFiSetupPortal(bool resetCredentials, bool keepPortalOpen) {
 
   unsigned int portalTimeoutS = (resetCredentials || keepPortalOpen) ? 0 : 300;
 
-  configureWiFiStation();
+  // The network task must not restore STA mode or reconnect while the portal owns
+  // the radio. Disconnect STA first, then bring up a visible AP on a known-valid
+  // 2.4 GHz channel. WiFiManager will keep this AP and attach the portal to it.
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+  responsiveDelay(250);
+  WiFi.mode(WIFI_AP_STA);
+  const bool softApStarted = strlen(WIFI_AP_PASSWORD) >= 8
+    ? WiFi.softAP(WIFI_AP_NAME, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, false)
+    : WiFi.softAP(WIFI_AP_NAME, nullptr, WIFI_AP_CHANNEL, false);
+  responsiveDelay(250);
+
+  Serial.print("softAP result: ");
+  Serial.println(softApStarted ? "OK" : "FAIL");
+  Serial.print("mode: ");
+  Serial.println((int)WiFi.getMode());
+  Serial.print("SSID: ");
+  Serial.println(WIFI_AP_NAME);
+  Serial.print("AP security: ");
+  Serial.println(strlen(WIFI_AP_PASSWORD) >= 8 ? "WPA2 (password hidden)" : "open");
+  Serial.print("AP IP: ");
+  Serial.println(WiFi.softAPIP());
+  Serial.print("channel: ");
+  Serial.println(WIFI_AP_CHANNEL);
+  Serial.print("AP stations: ");
+  Serial.println(WiFi.softAPgetStationNum());
+
   wm.setDebugOutput(true);
   wm.setTitle("STS WiFi Setup");
   wm.setCustomHeadElement(WIFI_PORTAL_HEAD);
@@ -1856,9 +1905,21 @@ void startWiFiSetupPortal(bool resetCredentials, bool keepPortalOpen) {
   wm.setRemoveDuplicateAPs(false);
   wm.setMinimumSignalQuality(0);
   wm.setCaptivePortalEnable(true);
+  wm.setWiFiAPChannel(WIFI_AP_CHANNEL);
   wm.setBreakAfterConfig(false);
   wm.setAPCallback([](WiFiManager *manager) {
     (void)manager;
+    Serial.println("SETUP WIFI: portal AP active");
+    Serial.print("mode: ");
+    Serial.println((int)WiFi.getMode());
+    Serial.print("SSID: ");
+    Serial.println(WIFI_AP_NAME);
+    Serial.print("AP IP: ");
+    Serial.println(WiFi.softAPIP());
+    Serial.print("channel: ");
+    Serial.println(WiFi.channel());
+    Serial.print("AP stations: ");
+    Serial.println(WiFi.softAPgetStationNum());
     displaySetupQrScreen();
   });
   wm.setConfigPortalBlocking(true);
@@ -1884,13 +1945,14 @@ void startWiFiSetupPortal(bool resetCredentials, bool keepPortalOpen) {
 
   bool connectedAfterPortal;
   if (strlen(WIFI_AP_PASSWORD) >= 8) {
-    connectedAfterPortal = wm.autoConnect(WIFI_AP_NAME, WIFI_AP_PASSWORD);
+    connectedAfterPortal = wm.startConfigPortal(WIFI_AP_NAME, WIFI_AP_PASSWORD);
   } else {
-    connectedAfterPortal = wm.autoConnect(WIFI_AP_NAME);
+    connectedAfterPortal = wm.startConfigPortal(WIFI_AP_NAME);
   }
 
   registerMainTaskWatchdog("portal WiFi");
   setupButtonTaskActive = false;
+  wifiSetupActive = false;
   responsiveDelay(20);
 
   connectedAfterPortal = connectedAfterPortal && isWifiConnected();
@@ -2018,6 +2080,7 @@ bool readKnownWiFiNetwork(uint8_t index, String &ssid, String &password) {
 }
 
 void configureWiFiStation() {
+  if (wifiSetupActive) return;
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
@@ -2027,6 +2090,7 @@ void configureWiFiStation() {
 }
 
 bool beginPreferredWiFi() {
+  if (wifiSetupActive) return false;
   String ssid;
   String password;
 
@@ -2116,6 +2180,7 @@ void rememberCurrentWiFiCredentials() {
 }
 
 bool connectKnownWiFiNetwork(unsigned long timeoutMs, const char* title, const char* subtitle, bool allowSetupButton) {
+  if (wifiSetupActive) return false;
   configureWiFiStation();
 
   String ssids[KNOWN_WIFI_MAX];
@@ -2137,6 +2202,8 @@ bool connectKnownWiFiNetwork(unsigned long timeoutMs, const char* title, const c
 
   Serial.println("A procurar redes WiFi conhecidas...");
   int networkCount = WiFi.scanNetworks(false, true);
+
+  if (wifiSetupActive) return false;
 
   for (int n = 0; n < networkCount; n++) {
     String visibleSsid = WiFi.SSID(n);
@@ -2188,6 +2255,7 @@ bool connectKnownWiFiNetwork(unsigned long timeoutMs, const char* title, const c
   uint8_t loadingFrame = 0;
 
   for (uint8_t c = 0; c < candidateCount && millis() - start < timeoutMs; c++) {
+    if (wifiSetupActive) return false;
     int index = candidateIndexes[c];
 
     Serial.print("A ligar a rede conhecida: ");
@@ -2205,6 +2273,7 @@ bool connectKnownWiFiNetwork(unsigned long timeoutMs, const char* title, const c
     unsigned long attemptTimeoutMs = min(WIFI_RECONNECT_TIMEOUT_MS, remainingMs);
 
     while (!isWifiConnected() && millis() - attemptStart < attemptTimeoutMs) {
+      if (wifiSetupActive) return false;
       if (allowSetupButton && handleStartupWifiResetButton()) {
         startWiFiSetupPortal(true, true);
         return isWifiConnected();
@@ -2241,6 +2310,7 @@ bool connectKnownWiFiNetwork(unsigned long timeoutMs, const char* title, const c
 }
 
 bool connectSavedWiFi(unsigned long timeoutMs, const char* title, const char* subtitle, bool allowSetupButton) {
+  if (wifiSetupActive) return false;
   configureWiFiStation();
 
   if (isWifiConnected()) return true;
@@ -2253,6 +2323,7 @@ bool connectSavedWiFi(unsigned long timeoutMs, const char* title, const char* su
   uint8_t loadingFrame = 0;
 
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+    if (wifiSetupActive) return false;
     if (allowSetupButton && handleStartupWifiResetButton()) {
       startWiFiSetupPortal(true, true);
       return isWifiConnected();
@@ -2367,6 +2438,7 @@ bool forceWiFiReconnect(unsigned long timeoutMs, const char* reason, bool forceR
   static unsigned long connectingSinceMs = 0;
   static unsigned long lastBeginMs = 0;
 
+  if (wifiSetupActive) return false;
   if (isWifiConnected() && !forceReconnectConnected) return true;
 
   Serial.print(forceReconnectConnected ? "WiFi ligado, mas transporte HTTPS falhou. A renovar ligacao: " : "WiFi offline. Tentativa forcada: ");
@@ -2477,7 +2549,7 @@ void ensureWiFiConnected() {
   unsigned long now = millis();
   bool recoveryAttemptedThisCycle = false;
 
-  if (userInteractionInProgress()) return;
+  if (wifiSetupActive || userInteractionInProgress()) return;
 
   if (isWifiConnected()) {
     disconnectedAtMs = 0;
@@ -4197,6 +4269,11 @@ void networkTask(void *parameter) {
   unsigned long lastBackgroundConfigFetch = millis();
 
   for (;;) {
+    if (wifiSetupActive) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+
     if (xQueueReceive(networkReadingQueue, &reading, pdMS_TO_TICKS(250)) == pdTRUE) {
       sendReadingToServer(reading);
     }

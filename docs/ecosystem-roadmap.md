@@ -146,6 +146,28 @@ Exit criteria:
 - Model performance is measured against reviewed outcomes.
 - Predictive failures cannot suppress deterministic safety alarms.
 
+## Deferred dashboard visual backlog — STS Cold / STS Global
+
+Recorded on 2026-09-09 for the next dashboard visual revision, after prototype
+reliability and functional stabilization. This scope is dashboard-only: do not
+change the device firmware, TFT or physical-device flows as part of these items.
+
+- Add the device's current Wi-Fi network to the device-information area, using
+  the label `Rede Wi-Fi`. Show the SSID only when it is supplied by telemetry or
+  the backend; never infer or invent it.
+- Replace RSSI/scale as the primary Wi-Fi-quality presentation with a readable,
+  design-system-coloured classification. Use these initial thresholds:
+  `>= -55 dBm` = `Excelente`; `-56..-67 dBm` = `Bom`;
+  `-68..-75 dBm` = `Médio`; `< -75 dBm` = `Fraco`. Keep the exact RSSI in dBm
+  only as secondary technical detail, such as a tooltip or complementary text.
+- Replace the user-visible text `Delta temperatura` throughout the interface
+  with `Diferença de temperaturas`. Do not rename internal fields, APIs or schema.
+- In the same future visual revision, prepare a user icon in the upper-right
+  header/menu to group user profile/settings, important notifications,
+  reports/PDF access, and session/logout. This is a future information-
+  architecture requirement, not authorization to implement it during the
+  current stabilization work.
+
 ## Immediate implementation order
 
 1. Add a real backend test runner and cover authentication/authorization boundaries.
