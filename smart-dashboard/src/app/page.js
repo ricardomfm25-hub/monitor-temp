@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { buildChartSamples, measurementState } from "./chart-semantics.mjs";
 import { useRouter } from "next/navigation";
 import { createClient } from "../utils/supabase/client";
 import { FirmwareVersionBadge } from "./components/FirmwareVersionBadge";
@@ -220,7 +221,7 @@ const I18N = {
     lowPeak: "Low",
     highPeak: "High",
     displayedInterval: "Displayed range",
-    offlineReadingsLine: "Red line: readings captured offline",
+    offlineReadingsLine: "Grey dashed line: delayed/recovered readings",
     offlineHistoryPreserved: "Device offline · history preserved up to the latest valid reading",
     noReadingsPeriod: "No readings in this period.",
     pdfReports: "PDF reports",
@@ -298,7 +299,7 @@ const I18N = {
     chartGuideHint: "Lines, limits and markers",
     chartOnlineLine: "Blue solid line",
     chartOnlineLineText: "Readings delivered with normal communication.",
-    chartOfflineLine: "Red solid line",
+    chartOfflineLine: "Grey dashed line",
     chartOfflineLineText: "Readings recovered after a communication interruption.",
     chartMinLimit: "Orange dashed line",
     chartMinLimitText: "Configured minimum operating limit.",
@@ -472,7 +473,7 @@ const I18N = {
     lowPeak: "Mínimo",
     highPeak: "Máximo",
     displayedInterval: "Intervalo apresentado",
-    offlineReadingsLine: "Linha vermelha: leituras captadas offline",
+    offlineReadingsLine: "Linha cinzenta tracejada: leituras atrasadas/recuperadas",
     offlineHistoryPreserved: "Dispositivo offline · histórico preservado até à última leitura válida",
     noReadingsPeriod: "Sem leituras neste período.",
     pdfReports: "Relatórios PDF",
@@ -550,7 +551,7 @@ const I18N = {
     chartGuideHint: "Linhas, limites e marcadores",
     chartOnlineLine: "Linha azul contínua",
     chartOnlineLineText: "Leituras entregues com comunicação normal.",
-    chartOfflineLine: "Linha vermelha contínua",
+    chartOfflineLine: "Linha cinzenta tracejada",
     chartOfflineLineText: "Leituras recuperadas após uma interrupção de comunicação.",
     chartMinLimit: "Linha laranja tracejada",
     chartMinLimitText: "Limite mínimo de funcionamento configurado.",
@@ -974,29 +975,6 @@ function getDeviceEffectiveStatus(device) {
   );
 }
 
-function isOfflineCapturedReading(reading, sendIntervalS) {
-  const explicitOffline = parseBoolean(reading?.offline_captured);
-  if (explicitOffline === true) return true;
-
-  const deliveryAttempts = parseNumber(reading?.delivery_attempts) || 0;
-  const sampleAgeS = parseNumber(reading?.sample_age_s);
-  const sampleEpoch = parseNumber(reading?.sample_epoch);
-  const expectedMs =
-    Number.isFinite(Number(sendIntervalS)) && Number(sendIntervalS) > 0
-      ? Number(sendIntervalS) * 1000
-      : 60 * 1000;
-  const delayedMs = Math.max(expectedMs, 60 * 1000);
-
-  if (deliveryAttempts > 0) return true;
-  if (sampleAgeS !== null && sampleAgeS * 1000 > delayedMs) return true;
-
-  if (sampleEpoch !== null && sampleEpoch > 1700000000) {
-    return Date.now() - sampleEpoch * 1000 > delayedMs;
-  }
-
-  return false;
-}
-
 function getStatusInfo(status) {
   const s = String(status || "").toLowerCase();
 
@@ -1301,165 +1279,7 @@ function getPeriodWindow(periodKey) {
 }
 
 function buildTimeSeries(readings, periodKey, sendIntervalS) {
-  const { start, end, bucketMs } = getPeriodWindow(periodKey);
-
-  const filtered = (readings || [])
-    .filter((item) => Number.isFinite(item?.timestamp))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const buckets = new Map();
-
-  for (let t = floorToBucket(start, bucketMs); t <= end; t += bucketMs) {
-    const d = new Date(t);
-    const bucketTime =
-      periodKey === "7d"
-        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime()
-        : t;
-
-    if (bucketTime >= start && !buckets.has(bucketTime)) {
-      buckets.set(bucketTime, {
-        timestamp: bucketTime,
-        created_at: new Date(bucketTime).toISOString(),
-        latestTimestamp: null,
-        temperature: null,
-        humidity: null,
-        tempTimestamp: null,
-        humTimestamp: null,
-        offlineTemperature: null,
-        offlineHumidity: null,
-        offlineTempTimestamp: null,
-        offlineHumTimestamp: null,
-        offlineCount: 0,
-        hasData: false,
-      });
-    }
-  }
-
-  for (const item of filtered) {
-    let bucketTime;
-
-    if (periodKey === "7d") {
-      const d = new Date(item.timestamp);
-      bucketTime = new Date(
-        d.getFullYear(),
-        d.getMonth(),
-        d.getDate(),
-        0,
-        0,
-        0,
-        0
-      ).getTime();
-    } else {
-      bucketTime = floorToBucket(item.timestamp, bucketMs);
-    }
-
-    if (!buckets.has(bucketTime)) continue;
-    const bucket = buckets.get(bucketTime);
-
-    const temp = parseNumber(item.temperature);
-    const hum = parseNumber(item.humidity);
-
-    const isOfflineReading = isOfflineCapturedReading(item, sendIntervalS);
-
-    if (temp !== null) {
-      bucket.hasData = true;
-      if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
-        bucket.latestTimestamp = item.timestamp;
-      }
-
-      if (isOfflineReading) {
-        if (bucket.offlineTempTimestamp === null || item.timestamp >= bucket.offlineTempTimestamp) {
-          bucket.offlineTemperature = temp;
-          bucket.offlineTempTimestamp = item.timestamp;
-        }
-      } else {
-        if (bucket.tempTimestamp === null || item.timestamp >= bucket.tempTimestamp) {
-          bucket.temperature = temp;
-          bucket.tempTimestamp = item.timestamp;
-        }
-      }
-    }
-
-    if (hum !== null) {
-      bucket.hasData = true;
-      if (bucket.latestTimestamp === null || item.timestamp >= bucket.latestTimestamp) {
-        bucket.latestTimestamp = item.timestamp;
-      }
-
-      if (isOfflineReading) {
-        if (bucket.offlineHumTimestamp === null || item.timestamp >= bucket.offlineHumTimestamp) {
-          bucket.offlineHumidity = hum;
-          bucket.offlineHumTimestamp = item.timestamp;
-        }
-      } else {
-        if (bucket.humTimestamp === null || item.timestamp >= bucket.humTimestamp) {
-          bucket.humidity = hum;
-          bucket.humTimestamp = item.timestamp;
-        }
-      }
-    }
-
-    if (isOfflineReading) {
-      bucket.offlineCount += 1;
-    }
-  }
-
-  const series = Array.from(buckets.values())
-    .map((bucket) => ({
-      timestamp: bucket.timestamp,
-      created_at:
-        bucket.latestTimestamp !== null
-          ? new Date(bucket.latestTimestamp).toISOString()
-          : bucket.created_at,
-      temperature:
-        bucket.offlineTemperature === null && bucket.temperature !== null
-          ? Number(bucket.temperature.toFixed(2))
-          : null,
-      humidity:
-        bucket.offlineHumidity === null && bucket.humidity !== null
-          ? Number(bucket.humidity.toFixed(2))
-          : null,
-      temperature_offline:
-        bucket.offlineTemperature !== null ? Number(bucket.offlineTemperature.toFixed(2)) : null,
-      humidity_offline:
-        bucket.offlineHumidity !== null ? Number(bucket.offlineHumidity.toFixed(2)) : null,
-      hasData: bucket.hasData,
-      offline_captured: bucket.offlineCount > 0,
-      offline_count: bucket.offlineCount,
-    }))
-    .filter((item) => item.timestamp >= start && item.timestamp <= end)
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  // Give both colour series one shared point at each immediate transition.
-  // This keeps the trace visually continuous without drawing the blue series
-  // underneath the red offline interval.
-  ["temperature", "humidity"].forEach((metricKey) => {
-    const offlineKey = `${metricKey}_offline`;
-
-    for (let index = 1; index < series.length; index += 1) {
-      const previous = series[index - 1];
-      const current = series[index];
-      if (previous.offline_captured === current.offline_captured) continue;
-
-      const previousValue = previous.offline_captured
-        ? parseNumber(previous[offlineKey])
-        : parseNumber(previous[metricKey]);
-      const currentValue = current.offline_captured
-        ? parseNumber(current[offlineKey])
-        : parseNumber(current[metricKey]);
-
-      if (previousValue === null || currentValue === null) continue;
-
-      if (current.offline_captured) {
-        current[metricKey] = currentValue;
-      } else {
-        current[offlineKey] = currentValue;
-      }
-    }
-  });
-
-  return series;
+  return buildChartSamples(readings, getPeriodWindow(periodKey), sendIntervalS);
 }
 
 function getXAxisTicks(periodKey) {
@@ -2710,49 +2530,6 @@ function getAlertTimestamp(item) {
   return Number.isFinite(ts) ? ts : 0;
 }
 
-function getOfflineCaptureWindows(alerts, offlineAlertAfterMin) {
-  const thresholdMs = Math.max(
-    0,
-    (Number(offlineAlertAfterMin) || 0) * 60 * 1000
-  );
-  const ordered = [...(alerts || [])]
-    .filter((item) => String(item?.type || "").toLowerCase() === "offline")
-    .sort((a, b) => getAlertTimestamp(a) - getAlertTimestamp(b));
-  const windows = [];
-  let activeStart = null;
-
-  for (const item of ordered) {
-    const timestamp = getAlertTimestamp(item);
-    if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
-
-    const descriptor = `${item?.title || ""} ${item?.message || ""}`.toLowerCase();
-    const isRecovery =
-      descriptor.includes("novamente online") ||
-      descriptor.includes("voltou a comunicar") ||
-      descriptor.includes("back online") ||
-      descriptor.includes("resumed communication");
-    const isOfflineStart =
-      !isRecovery &&
-      (descriptor.includes("dispositivo offline") ||
-        descriptor.includes("deixou de comunicar") ||
-        descriptor.includes("device offline") ||
-        descriptor.includes("stopped communicating"));
-
-    if (isOfflineStart) {
-      activeStart = Math.max(0, timestamp - thresholdMs);
-    } else if (isRecovery && activeStart !== null) {
-      windows.push({ start: activeStart, end: timestamp });
-      activeStart = null;
-    }
-  }
-
-  if (activeStart !== null) {
-    windows.push({ start: activeStart, end: Date.now() });
-  }
-
-  return windows;
-}
-
 function getAlertDedupeKey(item) {
   const bucket = Math.floor(getAlertTimestamp(item) / 120000);
   return [
@@ -2949,10 +2726,11 @@ function CustomTooltip({ active, payload, label, unit, digits = 1, t, language }
           ? t("noReadingInterval")
           : (
             <>
-              {isOfflineSeries ? t("offline") : t("valueLabel")}: <strong>{formatValue(value, unit, digits)}</strong>
+              {t("valueLabel")}: <strong>{formatValue(value, unit, digits)}</strong>
             </>
           )}
       </div>
+      {point?.temperature_quality || point?.humidity_quality ? <div style={styles.tooltipMeta}>{language === "en" ? "Quality" : "Qualidade"}: {point?.[`${String(visiblePayload?.dataKey).replace(/_(offline|uncertain)$/, "")}_quality`] || "legacy"}</div> : null}
       {isOfflineSeries ? (
         <div style={styles.tooltipMeta}>
           {t("offlineCapturedReading")}{point.offline_count > 1 ? ` (${point.offline_count})` : ""}
@@ -4222,7 +4000,13 @@ function DataChart({
   language,
 }) {
   const offlineDataKey = `${dataKey}_offline`;
-  const chartKeys = [dataKey, offlineDataKey];
+  const chartKeys = [dataKey, offlineDataKey, `${dataKey}_uncertain`];
+  const renderDot = ({ cx, cy, value, payload, index }) => {
+    const state = measurementState(value, payload?.[`${dataKey}_quality`], minThreshold, maxThreshold);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || state === "missing") return <g key={index} />;
+    const color = state === "breach" ? "#ef4444" : state === "uncertain" ? "#f59e0b" : payload?.offline_captured ? "#94a3b8" : "#3b82f6";
+    return <circle key={index} cx={cx} cy={cy} r={state === "normal" ? 2 : 4} fill={color} />;
+  };
   const { min, max } = getSeriesMinMax(data, chartKeys);
   const yDomain = getChartDomain(data, chartKeys, [minThreshold, maxThreshold]);
   const { minPoint, maxPoint } = getReferencePoints(data, chartKeys);
@@ -4256,6 +4040,7 @@ function DataChart({
           </div>
           <div style={styles.chartHint}>
             {t("displayedInterval")}: {periodKey.toUpperCase()}
+            <div>{language === "en" ? "Red points: outside current limits · Amber: uncertain quality · Gaps: missing/invalid data" : "Pontos vermelhos: fora dos limites atuais · Âmbar: qualidade incerta · Lacunas: dados missing/invalid"}</div>
           </div>
           {offlinePoints.length > 0 ? (
             <div style={styles.chartBackfillHint}>
@@ -4346,7 +4131,7 @@ function DataChart({
                 dataKey={dataKey}
                 stroke="#3b82f6"
                 strokeWidth={3}
-                dot={false}
+                dot={renderDot}
                 activeDot={{ r: 4 }}
                 connectNulls={false}
                 isAnimationActive={false}
@@ -4356,14 +4141,17 @@ function DataChart({
                 <Line
                   type="linear"
                   dataKey={offlineDataKey}
-                  stroke="#ef4444"
-                  strokeWidth={3.25}
-                  dot={false}
-                  activeDot={{ r: 5, fill: "#ef4444", stroke: "#fecaca", strokeWidth: 1 }}
+                  stroke="#94a3b8"
+                  strokeDasharray="5 5"
+                  strokeWidth={2}
+                  dot={renderDot}
+                  activeDot={{ r: 5, fill: "#94a3b8" }}
                   connectNulls={false}
                   isAnimationActive={false}
                 />
               ) : null}
+
+              <Line dataKey={`${dataKey}_uncertain`} stroke="none" dot={renderDot} activeDot={{ r: 5, fill: "#f59e0b" }} connectNulls={false} isAnimationActive={false} />
 
               {minPoint && (
                 <ReferenceDot
@@ -4386,12 +4174,12 @@ function DataChart({
                   x={maxPoint.timestamp}
                   y={maxPoint.value}
                   r={4}
-                  fill="#fb7185"
+                  fill="#94a3b8"
                   stroke="none"
                   label={{
                     value: `Max ${formatValue(maxPoint.value, "", valueDigits)}`,
                     position: "top",
-                    fill: "#fb7185",
+                    fill: "#94a3b8",
                     fontSize: 12,
                   }}
                 />
@@ -5369,31 +5157,9 @@ const [alertsCollapsed, setAlertsCollapsed] = useState(false);
     [readings, device]
   );
 
-  const chartSourceReadings = useMemo(() => {
-    const offlineWindows = getOfflineCaptureWindows(
-      alerts,
-      offlineAlertAfterMin
-    );
-    if (!offlineWindows.length) return liveReadings;
-
-    return liveReadings.map((item) => {
-      if (isOfflineCapturedReading(item, sendIntervalS)) return item;
-      const timestamp = Number(item?.timestamp);
-      const fallsInsideOfflineWindow =
-        Number.isFinite(timestamp) &&
-        offlineWindows.some(
-          (window) => timestamp >= window.start && timestamp <= window.end
-        );
-
-      return fallsInsideOfflineWindow
-        ? { ...item, offline_captured: true, offline_inferred: true }
-        : item;
-    });
-  }, [alerts, liveReadings, offlineAlertAfterMin, sendIntervalS]);
-
   const chartReadings = useMemo(
-    () => buildTimeSeries(chartSourceReadings, period, sendIntervalS),
-    [chartSourceReadings, period, sendIntervalS]
+    () => buildTimeSeries(liveReadings, period, sendIntervalS),
+    [liveReadings, period, sendIntervalS]
   );
 
   const effectiveStatus = getEffectiveStatus(device, sendIntervalS, offlineAlertAfterMin);
@@ -10711,7 +10477,7 @@ const styles = {
     width: "9px",
     height: "9px",
     borderRadius: "2px",
-    background: "linear-gradient(135deg, #fb923c, #ef4444)",
+    background: "#94a3b8",
     transform: "rotate(45deg)",
     boxShadow: "0 0 12px rgba(249,115,22,0.4)",
     flex: "0 0 auto",
@@ -10787,7 +10553,7 @@ const styles = {
     borderTop: 0,
     height: "12px",
     background:
-      "linear-gradient(to bottom, transparent 4px, #ef4444 4px, #ef4444 7px, transparent 7px)",
+      "repeating-linear-gradient(to right, #94a3b8 0 5px, transparent 5px 10px)",
   },
 
   chartGuideSwatch_minLimit: {

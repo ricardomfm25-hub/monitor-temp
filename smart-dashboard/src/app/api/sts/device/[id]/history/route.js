@@ -139,6 +139,7 @@ async function fetchNormalizedAmbientHistory(supabase, deviceId, request) {
     const timestamp = new Date(row.recorded_at).getTime();
     if (!Number.isFinite(timestamp)) continue;
     const current = values.get(timestamp) || {};
+    current[`${row.sensor_key}_quality`] = row.quality;
     current[row.sensor_key] =
       row.quality === "missing" || row.quality === "invalid"
         ? null
@@ -220,6 +221,8 @@ export async function GET(request, context) {
             ? null
             : Number(row.exterior_humidity),
         exterior_sensor_ok: toBoolean(row.exterior_sensor_ok),
+        temperature_quality: normalizedAmbient.available ? normalized?.ambient_temperature_quality ?? "missing" : "unknown",
+        humidity_quality: normalizedAmbient.available ? normalized?.ambient_humidity_quality ?? "missing" : "unknown",
         device_status: row.device_status,
         alarm_ack: row.alarm_ack,
         alarm_ack_count:
